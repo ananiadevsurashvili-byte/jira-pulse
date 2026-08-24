@@ -15,6 +15,7 @@ const state = {
   issues: [],
   charts: {},
   usedProxy: false,
+  hasChangelog: true,
 };
 
 function show(el) { el.classList.remove('hidden'); }
@@ -257,7 +258,21 @@ async function selectBoard(board) {
   state.charts = {};
 
   try {
-    const issues = await fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?expand=changelog`, 600);
+    // Try with changelog first (for status-time analytics), fall back to basic if it fails
+    let issues;
+    state.hasChangelog = true;
+    try {
+      issues = await fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?expand=changelog`, 600);
+    } catch (e) {
+      // If changelog expansion fails (common on team-managed boards or permission issues), retry without it
+      if (e?.status === 400 || e?.status === 403 || e?.status === 404 || /changelog/i.test(e?.message || '')) {
+        console.warn('[JiraPulse] Changelog expansion failed, retrying without it:', e?.message);
+        state.hasChangelog = false;
+        issues = await fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue`, 600);
+      } else {
+        throw e;
+      }
+    }
     state.issues = issues;
     const m = computeMetrics(issues);
     renderDashboard(board, m);
@@ -265,7 +280,12 @@ async function selectBoard(board) {
   } catch (e) {
     $('#issueCountBadge').textContent = 'failed';
     const banner = $('#errorBanner');
-    banner.textContent = '⚠️ ' + (e?.message || 'Failed to load board issues.');
+    let msg = e?.message || 'Failed to load board issues.';
+    // Add hint for common issues
+    if (e?.status === 403) msg += ' (403: check board permissions / API token scopes)';
+    if (e?.status === 404) msg += ' (404: board may be team-managed with different API)';
+    if (e?.status === 429) msg += ' (429: rate limited — wait a moment and click Refresh)';
+    banner.textContent = '⚠️ ' + msg;
     show(banner);
     if (!e?.status) handleAuthError(e);
   }
@@ -408,6 +428,15 @@ function renderDashboard(board, m) {
   $('#kpiWip').textContent = m.wip;
   $('#issueCountBadge').textContent = `${m.total} issues analyzed`;
 
+  // Show changelog notice if needed
+  const changelogNotice = $('#changelogNotice');
+  if (!state.hasChangelog) {
+    changelogNotice.textContent = '⚠ Status-time analytics unavailable — this board may be team-managed or your token lacks changelog permissions. Showing core metrics only.';
+    show(changelogNotice);
+  } else {
+    hide(changelogNotice);
+  }
+
   const theme = chartTheme();
 
   /* created vs resolved */
@@ -464,27 +493,48 @@ function renderDashboard(board, m) {
     .sort((a, b) => b.avg - a.avg)
     .slice(0, 10)
     .reverse();
-  mkChart('statusTimeChart', {
-    type: 'bar',
-    data: {
-      labels: st.map((x) => x.k),
-      datasets: [{ data: st.map((x) => x.avg / DAY), backgroundColor: '#8b5cf6cc', hoverBackgroundColor: '#a78bfa', borderRadius: 7, borderSkipped: false, barPercentage: 0.72 }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      indexAxis: 'y',
-      plugins: {
-        tooltip: {
-          ...theme.plugins.tooltip,
-          callbacks: { label: (c) => fmtDuration(c.parsed.x * DAY) + ' average' },
+  
+  if (!state.hasChangelog || st.length === 0) {
+    // Show empty state message on the chart
+    const ctx = $('#statusTimeChart').getContext('2d');
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.font = '13px Inter, system-ui';
+    ctx.fillStyle = '#8b93ad';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const lines = !state.hasChangelog
+      ? ['Changelog data not available for this board', '(team-managed boards or permission limits)']
+      : ['No status transition data found'];
+    lines.forEach((line, i) => {
+      ctx.fillText(line, ctx.canvas.width / 2, ctx.canvas.height / 2 + (i - (lines.length - 1) / 2) * 20);
+    });
+    if (state.charts.statusTimeChart) {
+      state.charts.statusTimeChart.destroy();
+      state.charts.statusTimeChart = null;
+    }
+  } else {
+    mkChart('statusTimeChart', {
+      type: 'bar',
+      data: {
+        labels: st.map((x) => x.k),
+        datasets: [{ data: st.map((x) => x.avg / DAY), backgroundColor: '#8b5cf6cc', hoverBackgroundColor: '#a78bfa', borderRadius: 7, borderSkipped: false, barPercentage: 0.72 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: {
+          tooltip: {
+            ...theme.plugins.tooltip,
+            callbacks: { label: (c) => fmtDuration(c.parsed.x * DAY) + ' average' },
+          },
+        },
+        scales: {
+          x: { ...theme.scales.x, ticks: { callback: (v) => v + 'd' } },
+          y: { grid: { display: false }, ticks: { precision: 0 } },
         },
       },
-      scales: {
-        x: { ...theme.scales.x, ticks: { callback: (v) => v + 'd' } },
-        y: { grid: { display: false }, ticks: { precision: 0 } },
-      },
-    },
-  });
+    });
+  }
 
   /* weekly throughput */
   mkChart('throughputChart', {
