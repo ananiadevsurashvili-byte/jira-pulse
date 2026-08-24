@@ -116,10 +116,13 @@ async function fetchPaginated(basePath, cap = 500) {
   while (true) {
     const sep = basePath.includes('?') ? '&' : '?';
     const page = await api(`${basePath}${sep}startAt=${startAt}&maxResults=100`);
-    const vals = page.values || [];
+    const vals = Array.isArray(page.values) ? page.values
+      : Array.isArray(page.issues) ? page.issues
+      : Array.isArray(page.boards) ? page.boards
+      : [];
     out.push(...vals);
     const total = typeof page.total === 'number' ? page.total : null;
-    if (!vals.length) break;
+    if (!vals.length || page.isLast === true) break;
     if (total !== null && startAt + vals.length >= total) break;
     if (out.length >= cap) break;
     startAt += vals.length;
@@ -152,13 +155,15 @@ function enterApp() {
   $('#setEmail').value = state.conn.email;
   $('#setToken').value = '';
   $('#proxyToggle').checked = !!state.conn.useProxy;
-  goBoards();
+  goBoards({ autoOpenLast: true });
 }
 
-function goBoards() {
+function goBoards({ autoOpenLast = false } = {}) {
   hide($('#dashScreen')); show($('#boardsScreen'));
+  hide($('#errorBanner'));
+  hide($('#changelogNotice'));
   $('#boardSelect').innerHTML = '<option value="">Loading boards…</option>';
-  loadBoards().catch((e) => handleAuthError(e));
+  loadBoards({ autoOpenLast }).catch((e) => handleAuthError(e));
 }
 
 function handleAuthError(e) {
@@ -185,7 +190,7 @@ async function connect(domainRaw, email, token) {
 }
 
 /* ── boards ──────────────────────────────────────────────────────── */
-async function loadBoards() {
+async function loadBoards({ autoOpenLast = false } = {}) {
   const grid = $('#boardsGrid');
   const btn = $('#syncBoardsBtn');
   btn.disabled = true;
@@ -206,10 +211,12 @@ async function loadBoards() {
 
     if (!boards.length) { show($('#boardsEmpty')); return; }
 
-    // auto-open last viewed board
-    const lastId = parseInt(localStorage.getItem(LS_LAST_BOARD), 10);
-    const last = boards.find((b) => b.id === lastId);
-    if (last) { sel.value = String(last.id); selectBoard(last); }
+    // auto-open last viewed board only when explicitly requested
+    if (autoOpenLast) {
+      const lastId = parseInt(localStorage.getItem(LS_LAST_BOARD), 10);
+      const last = boards.find((b) => b.id === lastId);
+      if (last) { sel.value = String(last.id); selectBoard(last); }
+    }
   } finally {
     btn.disabled = false;
     hide($('#boardsLoading'));
@@ -243,6 +250,45 @@ function renderBoardCards() {
 }
 
 /* ── dashboard ───────────────────────────────────────────────────── */
+async function loadBoardIssues(board) {
+  state.hasChangelog = true;
+
+  try {
+    return await fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?expand=changelog`, 600);
+  } catch (e) {
+    if (!(e?.status === 400 || e?.status === 403 || e?.status === 404 || /changelog/i.test(e?.message || ''))) {
+      throw e;
+    }
+  }
+
+  try {
+    state.hasChangelog = false;
+    return await fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue`, 600);
+  } catch (e) {
+    if (!(e?.status === 400 || e?.status === 403 || e?.status === 404)) {
+      throw e;
+    }
+  }
+
+  let jql = '';
+  try {
+    const cfg = await api(`/rest/agile/1.0/board/${board.id}/configuration`);
+    if (cfg?.filter?.id) jql = `filter=${cfg.filter.id} ORDER BY created DESC`;
+  } catch (_) { /* ignore and fall through */ }
+
+  if (!jql && board.location?.projectKey) {
+    jql = `project="${board.location.projectKey}" ORDER BY created DESC`;
+  }
+  if (!jql) {
+    const err = new Error('This board could not be queried through Jira Agile APIs or a filter fallback.');
+    err.status = 404;
+    throw err;
+  }
+
+  const fields = encodeURIComponent('summary,status,resolutiondate,created,issuetype,assignee');
+  return await fetchPaginated(`/rest/api/3/search?jql=${encodeURIComponent(jql)}&fields=${fields}`, 600);
+}
+
 async function selectBoard(board) {
   state.boardId = board.id;
   localStorage.setItem(LS_LAST_BOARD, String(board.id));
@@ -258,21 +304,7 @@ async function selectBoard(board) {
   state.charts = {};
 
   try {
-    // Try with changelog first (for status-time analytics), fall back to basic if it fails
-    let issues;
-    state.hasChangelog = true;
-    try {
-      issues = await fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?expand=changelog`, 600);
-    } catch (e) {
-      // If changelog expansion fails (common on team-managed boards or permission issues), retry without it
-      if (e?.status === 400 || e?.status === 403 || e?.status === 404 || /changelog/i.test(e?.message || '')) {
-        console.warn('[JiraPulse] Changelog expansion failed, retrying without it:', e?.message);
-        state.hasChangelog = false;
-        issues = await fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue`, 600);
-      } else {
-        throw e;
-      }
-    }
+    const issues = await loadBoardIssues(board);
     state.issues = issues;
     const m = computeMetrics(issues);
     renderDashboard(board, m);
@@ -626,7 +658,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const b = state.boards.find((x) => x.id === parseInt(ev.target.value, 10));
     if (b) selectBoard(b);
   });
-  $('#syncBoardsBtn').addEventListener('click', () => goBoards());
+  $('#syncBoardsBtn').addEventListener('click', () => goBoards({ autoOpenLast: false }));
+  $('#backToBoardsBtn').addEventListener('click', () => goBoards({ autoOpenLast: false }));
   $('#refreshBtn').addEventListener('click', () => {
     const b = state.boards.find((x) => x.id === state.boardId);
     if (b) { selectBoard(b); toast('Refreshing board data…'); }
