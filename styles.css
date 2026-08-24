@@ -299,6 +299,7 @@ body {
   margin-bottom: 18px;
   font-size: 0.88rem;
 }
+.error-help { margin-top: 8px; color: #fda4af; font-size: 0.8rem; }
 
 /* ── modal ── */
 .modal-overlay {
@@ -319,12 +320,27 @@ body {
   max-height: 92vh;
   overflow-y: auto;
 }
+.modal-wide { width: min(980px, 95vw); }
 .modal h3 { font-size: 1.15rem; font-weight: 800; }
 .modal label { display: flex; flex-direction: column; gap: 6px; font-size: 0.8rem; font-weight: 600; color: #aab2cf; }
 .switch-row { flex-direction: row !important; align-items: flex-start; gap: 11px !important; cursor: pointer; }
 .switch-row input { margin-top: 4px; width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
 .modal-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
 .spacer { flex: 1; }
+.debug-log {
+  min-height: 320px;
+  max-height: 58vh;
+  overflow: auto;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(4, 8, 19, 0.92);
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 /* ── toast ── */
 .toast {
