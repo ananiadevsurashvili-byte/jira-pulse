@@ -7,6 +7,7 @@ const DAY = 86400000;
 const LS_CONN = 'jp_conn_v1';
 const LS_LAST_BOARD = 'jp_last_board_v1';
 const PROXY = 'https://corsproxy.io/?url=';
+const ISSUE_FIELDS = ['summary', 'status', 'resolutiondate', 'created', 'issuetype', 'assignee'];
 
 const state = {
   conn: null,          // { domain, email, token, useProxy }
@@ -16,6 +17,8 @@ const state = {
   charts: {},
   usedProxy: false,
   hasChangelog: true,
+  debugLog: [],
+  boardLoadMeta: null,
 };
 
 function show(el) { el.classList.remove('hidden'); }
@@ -25,6 +28,42 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
+}
+
+function safeData(value) {
+  return JSON.parse(JSON.stringify(value ?? null, (key, val) => {
+    const k = String(key || '').toLowerCase();
+    if (k.includes('token') || k.includes('authorization')) return '[redacted]';
+    if (typeof val === 'string' && val.length > 500) return val.slice(0, 500) + '…';
+    return val;
+  }));
+}
+
+function logDiag(level, message, extra = null) {
+  const entry = {
+    at: new Date().toISOString(),
+    level,
+    message,
+    extra: extra ? safeData(extra) : undefined,
+  };
+  state.debugLog.push(entry);
+  if (state.debugLog.length > 400) state.debugLog.shift();
+  renderDebugLog();
+  const method = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
+  method('[JiraPulse]', message, entry.extra || '');
+}
+
+function formatDebugLog() {
+  return state.debugLog.map((entry) => {
+    const head = `[${entry.at}] ${entry.level.toUpperCase()} ${entry.message}`;
+    return entry.extra ? `${head}\n${JSON.stringify(entry.extra, null, 2)}` : head;
+  }).join('\n\n');
+}
+
+function renderDebugLog() {
+  const el = $('#debugLogOutput');
+  if (!el) return;
+  el.textContent = formatDebugLog() || 'No diagnostics captured yet.';
 }
 
 let toastTimer = null;
@@ -65,14 +104,16 @@ function normalizeDomain(raw) {
   return 'https://' + v;
 }
 
-async function api(path) {
+async function api(path, options = {}) {
   const c = state.conn;
   if (!c) throw new Error('Not connected.');
+  const method = options.method || 'GET';
   const url = c.domain + path;
   const headers = {
     'Authorization': 'Basic ' + btoa(c.email + ':' + c.token),
     'Accept': 'application/json',
   };
+  if (options.body != null) headers['Content-Type'] = 'application/json';
 
   const attempts = [];
   let viaProxy = false;
@@ -82,7 +123,12 @@ async function api(path) {
   let lastErr = null;
   for (const target of attempts) {
     try {
-      const res = await fetch(target, { method: 'GET', headers });
+      logDiag('info', 'API request', { method, path, viaProxy: target !== url, body: options.body || null });
+      const res = await fetch(target, {
+        method,
+        headers,
+        body: options.body != null ? JSON.stringify(options.body) : undefined,
+      });
       viaProxy = target !== url;
       let body = null;
       const text = await res.text();
@@ -91,13 +137,22 @@ async function api(path) {
         const jiraMsg = body && (body.errorMessages?.join('; ') || body.message);
         const err = new Error(jiraMsg || `Jira responded with HTTP ${res.status}`);
         err.status = res.status;
+        logDiag('warn', 'API response error', { method, path, status: res.status, viaProxy, body });
         throw err;
       }
       state.usedProxy = viaProxy;
       updateProxyBadge();
+      logDiag('info', 'API response ok', {
+        method, path, status: res.status, viaProxy,
+        count: Array.isArray(body?.values) ? body.values.length
+          : Array.isArray(body?.issues) ? body.issues.length
+          : Array.isArray(body?.boards) ? body.boards.length
+          : undefined,
+      });
       return body;
     } catch (err) {
       lastErr = err;
+      if (!err.status) logDiag('warn', 'API network/proxy failure', { method, path, viaProxy: target !== url, message: err.message });
       // HTTP errors from Jira itself are real answers — don't retry through proxy
       if (err.status) throw err;
       // network / CORS failure → try next attempt
@@ -107,15 +162,25 @@ async function api(path) {
     `Could not reach ${c.domain} (${lastErr?.message || 'network error'}). ` +
     `If this is a CORS block by the browser, open Settings and enable "Route requests via CORS proxy".`
   );
+  logDiag('error', 'API request failed completely', { method, path, message: e.message });
   throw e;
 }
 
-async function fetchPaginated(basePath, cap = 500) {
+async function fetchPaginated(request, cap = 500) {
+  const base = typeof request === 'string' ? { path: request, method: 'GET' } : request;
   let startAt = 0;
   const out = [];
   while (true) {
-    const sep = basePath.includes('?') ? '&' : '?';
-    const page = await api(`${basePath}${sep}startAt=${startAt}&maxResults=100`);
+    let page;
+    if ((base.method || 'GET') === 'GET') {
+      const sep = base.path.includes('?') ? '&' : '?';
+      page = await api(`${base.path}${sep}startAt=${startAt}&maxResults=100`);
+    } else {
+      page = await api(base.path, {
+        method: base.method || 'POST',
+        body: { ...(base.body || {}), startAt, maxResults: 100 },
+      });
+    }
     const vals = Array.isArray(page.values) ? page.values
       : Array.isArray(page.issues) ? page.issues
       : Array.isArray(page.boards) ? page.boards
@@ -200,6 +265,7 @@ async function loadBoards({ autoOpenLast = false } = {}) {
     const boards = await fetchPaginated('/rest/agile/1.0/board', 250);
     boards.sort((a, b) => (a.location?.projectName || a.name).localeCompare(b.location?.projectName || b.name));
     state.boards = boards;
+    logDiag('info', 'Boards loaded', { count: boards.length });
 
     // dropdown
     const sel = $('#boardSelect');
@@ -249,44 +315,140 @@ function renderBoardCards() {
   });
 }
 
+async function resolveBoardContext(board) {
+  const ctx = {
+    boardId: board.id,
+    boardName: board.name,
+    boardType: board.type,
+    location: board.location || null,
+    filterId: null,
+    filterJql: '',
+    projectKeys: [],
+  };
+
+  try {
+    const freshBoard = await api(`/rest/agile/1.0/board/${board.id}`);
+    ctx.location = freshBoard.location || ctx.location;
+    ctx.boardType = freshBoard.type || ctx.boardType;
+    logDiag('info', 'Board details resolved', { boardId: board.id, boardType: ctx.boardType, location: ctx.location });
+  } catch (e) {
+    logDiag('warn', 'Board details lookup failed', { boardId: board.id, status: e.status, message: e.message });
+  }
+
+  try {
+    const cfg = await api(`/rest/agile/1.0/board/${board.id}/configuration`);
+    ctx.filterId = cfg?.filter?.id || null;
+    logDiag('info', 'Board configuration resolved', { boardId: board.id, filterId: ctx.filterId });
+  } catch (e) {
+    logDiag('warn', 'Board configuration lookup failed', { boardId: board.id, status: e.status, message: e.message });
+  }
+
+  if (ctx.filterId) {
+    try {
+      const filter = await api(`/rest/api/3/filter/${ctx.filterId}`);
+      ctx.filterJql = filter?.jql || '';
+      logDiag('info', 'Board filter JQL resolved', { boardId: board.id, filterId: ctx.filterId, jqlPreview: ctx.filterJql.slice(0, 180) });
+    } catch (e) {
+      logDiag('warn', 'Board filter lookup failed', { boardId: board.id, filterId: ctx.filterId, status: e.status, message: e.message });
+    }
+  }
+
+  try {
+    const projects = await fetchPaginated(`/rest/agile/1.0/board/${board.id}/project`, 100);
+    ctx.projectKeys = projects.map((p) => p.key).filter(Boolean);
+    logDiag('info', 'Board projects resolved', { boardId: board.id, projectKeys: ctx.projectKeys });
+  } catch (e) {
+    logDiag('warn', 'Board projects lookup failed', { boardId: board.id, status: e.status, message: e.message });
+  }
+
+  if (!ctx.projectKeys.length && ctx.location?.projectKey) ctx.projectKeys = [ctx.location.projectKey];
+  return ctx;
+}
+
+async function searchIssuesByJql(jql, withChangelog = false) {
+  return await fetchPaginated({
+    path: '/rest/api/3/search',
+    method: 'POST',
+    body: {
+      jql,
+      fields: ISSUE_FIELDS,
+      expand: withChangelog ? ['changelog'] : [],
+      fieldsByKeys: false,
+    },
+  }, 600);
+}
+
 /* ── dashboard ───────────────────────────────────────────────────── */
 async function loadBoardIssues(board) {
   state.hasChangelog = true;
+  state.boardLoadMeta = { source: '', note: '' };
+  const ctx = await resolveBoardContext(board);
 
-  try {
-    return await fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?expand=changelog`, 600);
-  } catch (e) {
-    if (!(e?.status === 400 || e?.status === 403 || e?.status === 404 || /changelog/i.test(e?.message || ''))) {
-      throw e;
+  const attempts = [
+    {
+      name: 'agile-changelog',
+      run: () => fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}&expand=changelog`, 600),
+      onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Agile board issues + changelog', note: '' }; },
+    },
+    {
+      name: 'agile-basic',
+      run: () => fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}`, 600),
+      onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Agile board issues', note: 'Loaded without changelog expansion.' }; },
+    },
+    {
+      name: 'software-basic',
+      run: () => fetchPaginated(`/rest/software/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}`, 600),
+      onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Software board issues', note: 'Used enhanced software endpoint.' }; },
+    },
+    ...(ctx.filterJql ? [{
+      name: 'search-filter-jql-changelog',
+      run: () => searchIssuesByJql(ctx.filterJql, true),
+      onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Board filter JQL + changelog', note: 'Used Jira issue search based on the board filter.' }; },
+    }] : []),
+    ...(ctx.filterJql ? [{
+      name: 'search-filter-jql-basic',
+      run: () => searchIssuesByJql(ctx.filterJql, false),
+      onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Board filter JQL', note: 'Used Jira issue search based on the board filter.' }; },
+    }] : []),
+    ...(ctx.filterId ? [{
+      name: 'search-filter-id-basic',
+      run: () => searchIssuesByJql(`filter=${ctx.filterId} ORDER BY created DESC`, false),
+      onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Board filter reference', note: 'Used filter id fallback.' }; },
+    }] : []),
+    ...(ctx.projectKeys.length ? [{
+      name: 'search-projects-basic',
+      run: () => searchIssuesByJql(`project in (${ctx.projectKeys.map((k) => `"${k}"`).join(', ')}) ORDER BY created DESC`, false),
+      onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Board projects fallback', note: 'This fallback may include project issues beyond the exact board filter.' }; },
+    }] : []),
+  ];
+
+  let lastErr = null;
+  for (const attempt of attempts) {
+    try {
+      logDiag('info', 'Board load attempt', { boardId: board.id, strategy: attempt.name });
+      const issues = await attempt.run();
+      attempt.onSuccess();
+      logDiag('info', 'Board load succeeded', {
+        boardId: board.id,
+        strategy: attempt.name,
+        issues: issues.length,
+        source: state.boardLoadMeta,
+      });
+      return issues;
+    } catch (e) {
+      lastErr = e;
+      logDiag('warn', 'Board load attempt failed', {
+        boardId: board.id,
+        strategy: attempt.name,
+        status: e.status,
+        message: e.message,
+      });
     }
   }
 
-  try {
-    state.hasChangelog = false;
-    return await fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue`, 600);
-  } catch (e) {
-    if (!(e?.status === 400 || e?.status === 403 || e?.status === 404)) {
-      throw e;
-    }
-  }
-
-  let jql = '';
-  try {
-    const cfg = await api(`/rest/agile/1.0/board/${board.id}/configuration`);
-    if (cfg?.filter?.id) jql = `filter=${cfg.filter.id} ORDER BY created DESC`;
-  } catch (_) { /* ignore and fall through */ }
-
-  if (!jql && board.location?.projectKey) {
-    jql = `project="${board.location.projectKey}" ORDER BY created DESC`;
-  }
-  if (!jql) {
-    const err = new Error('This board could not be queried through Jira Agile APIs or a filter fallback.');
-    err.status = 404;
-    throw err;
-  }
-
-  const fields = encodeURIComponent('summary,status,resolutiondate,created,issuetype,assignee');
-  return await fetchPaginated(`/rest/api/3/search?jql=${encodeURIComponent(jql)}&fields=${fields}`, 600);
+  const err = new Error(`No compatible loading strategy worked for this board. Last error: ${lastErr?.message || 'unknown error'}`);
+  err.status = lastErr?.status || 500;
+  throw err;
 }
 
 async function selectBoard(board) {
@@ -304,6 +466,7 @@ async function selectBoard(board) {
   state.charts = {};
 
   try {
+    logDiag('info', 'Board selected', { boardId: board.id, name: board.name, type: board.type, location: board.location || null });
     const issues = await loadBoardIssues(board);
     state.issues = issues;
     const m = computeMetrics(issues);
@@ -317,8 +480,9 @@ async function selectBoard(board) {
     if (e?.status === 403) msg += ' (403: check board permissions / API token scopes)';
     if (e?.status === 404) msg += ' (404: board may be team-managed with different API)';
     if (e?.status === 429) msg += ' (429: rate limited — wait a moment and click Refresh)';
-    banner.textContent = '⚠️ ' + msg;
+    banner.innerHTML = `⚠️ ${escapeHtml(msg)}<div class="error-help">Open Diagnostics and copy the log so I can see every Jira request and fallback step.</div>`;
     show(banner);
+    logDiag('error', 'Board load failed', { boardId: board.id, message: msg, status: e?.status });
     if (!e?.status) handleAuthError(e);
   }
 }
@@ -463,7 +627,8 @@ function renderDashboard(board, m) {
   // Show changelog notice if needed
   const changelogNotice = $('#changelogNotice');
   if (!state.hasChangelog) {
-    changelogNotice.textContent = '⚠ Status-time analytics unavailable — this board may be team-managed or your token lacks changelog permissions. Showing core metrics only.';
+    const extraNote = state.boardLoadMeta?.note ? ` ${state.boardLoadMeta.note}` : '';
+    changelogNotice.textContent = `⚠ Status-time analytics unavailable — this board may be team-managed or your token lacks changelog permissions. Showing core metrics only.${extraNote}`;
     show(changelogNotice);
   } else {
     hide(changelogNotice);
@@ -615,6 +780,21 @@ function openSettings() {
   show($('#settingsModal'));
 }
 
+function openDiagnostics() {
+  renderDebugLog();
+  show($('#debugModal'));
+}
+
+async function copyDiagnostics() {
+  const text = formatDebugLog();
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Diagnostics copied.', 'ok');
+  } catch (_) {
+    toast('Could not copy diagnostics.', 'err');
+  }
+}
+
 async function saveSettings() {
   const email = $('#setEmail').value.trim() || state.conn.email;
   const token = $('#setToken').value.trim() || state.conn.token;
@@ -660,6 +840,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('#syncBoardsBtn').addEventListener('click', () => goBoards({ autoOpenLast: false }));
   $('#backToBoardsBtn').addEventListener('click', () => goBoards({ autoOpenLast: false }));
+  $('#openDebugBtn').addEventListener('click', openDiagnostics);
   $('#refreshBtn').addEventListener('click', () => {
     const b = state.boards.find((x) => x.id === state.boardId);
     if (b) { selectBoard(b); toast('Refreshing board data…'); }
@@ -669,6 +850,16 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#closeSettingsBtn').addEventListener('click', () => hide($('#settingsModal')));
   $('#settingsModal').addEventListener('click', (ev) => {
     if (ev.target === $('#settingsModal')) hide($('#settingsModal'));
+  });
+  $('#closeDebugBtn').addEventListener('click', () => hide($('#debugModal')));
+  $('#copyDebugBtn').addEventListener('click', copyDiagnostics);
+  $('#clearDebugBtn').addEventListener('click', () => {
+    state.debugLog = [];
+    renderDebugLog();
+    toast('Diagnostics cleared.', 'ok');
+  });
+  $('#debugModal').addEventListener('click', (ev) => {
+    if (ev.target === $('#debugModal')) hide($('#debugModal'));
   });
   $('#saveSettingsBtn').addEventListener('click', saveSettings);
   $('#clearDataBtn').addEventListener('click', () => {
@@ -690,4 +881,15 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
     showSetup();
   }
+
+  window.addEventListener('error', (ev) => {
+    logDiag('error', 'Unhandled browser error', { message: ev.message, filename: ev.filename, lineno: ev.lineno, colno: ev.colno });
+  });
+  window.addEventListener('unhandledrejection', (ev) => {
+    const reason = ev.reason;
+    logDiag('error', 'Unhandled promise rejection', {
+      message: reason?.message || String(reason),
+      status: reason?.status,
+    });
+  });
 });
