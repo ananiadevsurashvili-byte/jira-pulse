@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JiraPulse · Delivery Insights Dashboard</title>
+<meta name="description" content="Beautiful analytics dashboard for your Jira boards — status aging, throughput, cycle time and more." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="styles.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+</head>
+<body>
+<div class="orb orb-a" aria-hidden="true"></div>
+<div class="orb orb-b" aria-hidden="true"></div>
+<div class="orb orb-c" aria-hidden="true"></div>
+
+<!-- ══════════ TOP BAR ══════════ -->
+<header id="topbar" class="topbar hidden">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="8" fill="url(#lg)"/><defs><linearGradient id="lg" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M6 21l4-7 4 5 5-10 7 12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>Jira<b>Pulse</b></span>
+  </div>
+  <div class="topbar-center">
+    <select id="boardSelect" class="input board-select" aria-label="Select board"></select>
+    <button id="syncBoardsBtn" class="btn btn-ghost" title="Re-sync board list from Jira">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+      Sync boards
+    </button>
+  </div>
+  <div class="topbar-right">
+    <span id="syncedAt" class="muted small"></span>
+    <button id="refreshBtn" class="btn btn-ghost" title="Refresh metrics for current board">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+      Refresh
+    </button>
+    <button id="settingsBtn" class="btn btn-ghost icon-only" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+    <button id="logoutBtn" class="btn btn-ghost icon-only" title="Disconnect">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="main">
+
+  <!-- ══════════ SETUP SCREEN ══════════ -->
+  <section id="setupScreen">
+    <div class="hero glass">
+      <svg class="hero-logo" viewBox="0 0 32 32" width="56" height="56"><rect width="32" height="32" rx="8" fill="url(#lg2)"/><defs><linearGradient id="lg2" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M6 21l4-7 4 5 5-10 7 12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h1>Your Jira,<br /><span class="grad-text">beautifully visualized.</span></h1>
+      <p class="lead">Connect with your Jira API token to get instant delivery insights — how long tasks sit in each status, what shipped in the last 30&nbsp;days, team throughput and more. Credentials never leave your browser.</p>
+      <form id="connectForm" autocomplete="off">
+        <div class="field-row">
+          <label>Jira site
+            <input id="inDomain" class="input" type="text" placeholder="yourcompany.atlassian.net" required />
+          </label>
+          <label>Email
+            <input id="inEmail" class="input" type="email" placeholder="you@company.com" required />
+          </label>
+        </div>
+        <label>API token
+          <input id="inToken" class="input" type="password" placeholder="Attach your Jira API token" required />
+        </label>
+        <button id="connectBtn" class="btn btn-primary btn-lg" type="submit">
+          <span class="btn-label">Connect to Jira</span>
+          <span class="spinner hidden"></span>
+        </button>
+        <div id="setupError" class="form-error hidden"></div>
+      </form>
+      <details class="help">
+        <summary>How do I get an API token?</summary>
+        <ol>
+          <li>Open <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener">id.atlassian.com → API tokens</a></li>
+          <li>Click <b>Create API token</b>, give it a name and copy the value</li>
+          <li>Paste your site address, account email and token above</li>
+        </ol>
+        <p class="muted small">This app runs fully client-side. Your credentials are stored only in this browser's local storage and sent directly (or via optional CORS proxy) to your Jira site.</p>
+      </details>
+    </div>
+  </section>
+
+  <!-- ══════════ BOARDS SCREEN ══════════ -->
+  <section id="boardsScreen" class="hidden">
+    <div class="screen-head">
+      <h2>Choose a board</h2>
+      <p class="muted">Synced straight from your Jira instance. Click any card to open its analytics dashboard.</p>
+    </div>
+    <div id="boardsGrid" class="boards-grid"></div>
+    <div id="boardsLoading" class="loading-block hidden">
+      <span class="spinner spinner-lg"></span><span>Fetching boards from Jira…</span>
+    </div>
+    <div id="boardsEmpty" class="empty-block hidden">
+      <p>No boards found for this account.<br />Make sure your Jira user has access to company-managed or team-managed boards.</p>
+    </div>
+  </section>
+
+  <!-- ══════════ DASHBOARD SCREEN ══════════ -->
+  <section id="dashScreen" class="hidden">
+    <div id="errorBanner" class="error-banner hidden"></div>
+
+    <div class="screen-head dash-head">
+      <div>
+        <h2 id="dashBoardName">—</h2>
+        <span id="issueCountBadge" class="badge"></span>
+      </div>
+      <span id="proxyBadge" class="badge badge-warn hidden" title="Requests are being routed through a public CORS proxy because your browser blocked direct calls to Jira">via CORS proxy</span>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi glass">
+        <div class="kpi-top"><span class="kpi-icon ic-indigo">▦</span><span class="kpi-label">Issues analyzed</span></div>
+        <div class="kpi-value" id="kpiTotal">…</div>
+        <div class="kpi-sub muted" id="kpiTotalSub">on this board</div>
+      </div>
+      <div class="kpi glass">
+        <div class="kpi-top"><span class="kpi-icon ic-cyan">＋</span><span class="kpi-label">Created · 30 days</span></div>
+        <div class="kpi-value accent-cyan" id="kpiCreated">…</div>
+        <div class="kpi-sub muted" id="kpiCreatedSub">new tasks registered</div>
+      </div>
+      <div class="kpi glass">
+        <div class="kpi-top"><span class="kpi-icon ic-green">✓</span><span class="kpi-label">Done overall</span></div>
+        <div class="kpi-value accent-green" id="kpiDone">…</div>
+        <div class="kpi-sub muted" id="kpiDoneSub">completion rate</div>
+      </div>
+      <div class="kpi glass">
+        <div class="kpi-top"><span class="kpi-icon ic-green">↻</span><span class="kpi-label">Resolved · 30 days</span></div>
+        <div class="kpi-value accent-green" id="kpiResolved">…</div>
+        <div class="kpi-sub muted">shipped recently</div>
+      </div>
+      <div class="kpi glass">
+        <div class="kpi-top"><span class="kpi-icon ic-violet">⏱</span><span class="kpi-label">Avg cycle time</span></div>
+        <div class="kpi-value accent-violet" id="kpiCycle">…</div>
+        <div class="kpi-sub muted">create → resolve</div>
+      </div>
+      <div class="kpi glass">
+        <div class="kpi-top"><span class="kpi-icon ic-amber">◔</span><span class="kpi-label">Work in progress</span></div>
+        <div class="kpi-value accent-amber" id="kpiWip">…</div>
+        <div class="kpi-sub muted">not yet done</div>
+      </div>
+    </div>
+
+    <div class="charts-grid">
+      <div class="card glass chart-card wide">
+        <h3>Created vs resolved <span class="muted small">· last 30 days</span></h3>
+        <div class="canvas-wrap"><canvas id="createdResolvedChart"></canvas></div>
+      </div>
+      <div class="card glass chart-card">
+        <h3>Status distribution</h3>
+        <div class="canvas-wrap"><canvas id="statusChart"></canvas></div>
+      </div>
+      <div class="card glass chart-card">
+        <h3>Average time per status <span class="muted small">· lifetime</span></h3>
+        <div class="canvas-wrap"><canvas id="statusTimeChart"></canvas></div>
+      </div>
+      <div class="card glass chart-card wide">
+        <h3>Weekly throughput <span class="muted small">· resolved per week, last 12 weeks</span></h3>
+        <div class="canvas-wrap"><canvas id="throughputChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card glass table-card">
+      <h3>Longest sitting in current status <span class="muted small">· open work</span></h3>
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr><th>Key</th><th>Summary</th><th>Status</th><th>Time in status</th><th>Type</th><th>Assignee</th><th>Created</th></tr></thead>
+          <tbody id="slowTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ══════════ SETTINGS MODAL ══════════ -->
+<div id="settingsModal" class="modal-overlay hidden">
+  <div class="modal glass">
+    <h3>Settings</h3>
+    <label>Jira site<input id="setDomain" class="input" type="text" /></label>
+    <label>Email<input id="setEmail" class="input" type="email" /></label>
+    <label>API token <span class="muted small">(leave blank to keep current)</span>
+      <input id="setToken" class="input" type="password" placeholder="••••••••••••" autocomplete="new-password" />
+    </label>
+    <label class="switch-row">
+      <input id="proxyToggle" type="checkbox" />
+      <span>Route requests via CORS proxy<br /><span class="muted small">Fallback if your browser blocks direct calls to Jira. Note: requests would pass through a public relay.</span></span>
+    </label>
+    <div class="modal-actions">
+      <button id="clearDataBtn" class="btn btn-danger-ghost">Clear local data</button>
+      <span class="spacer"></span>
+      <button id="closeSettingsBtn" class="btn btn-ghost">Close</button>
+      <button id="saveSettingsBtn" class="btn btn-primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
