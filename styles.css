@@ -537,17 +537,22 @@ body {
 .hidden-charts-strip .muted { color: #a9965a; }
 
 /* ── public share screen ── */
-#pubScreen { display: flex; align-items: center; justify-content: center; }
-#pubScreen .glass { max-width: 560px; }
-#pubScreen .dash-wrap { width: 100%; }
-#pubScreen .card { padding: 28px; }
-#pubScreen h2 { font-size: 1.6rem; font-weight: 800; }
+#pubScreen { position: fixed; inset: 0; z-index: 9000; background: var(--bg); overflow: auto; display: block; }
+#pubScreen .dash-wrap { max-width: 1000px; margin: 0 auto; padding: 32px 20px 60px; }
+#pubScreen .glass { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 28px; }
+#pubScreen h2 { font-size: 1.7rem; font-weight: 800; }
 #pubScreen .input { padding: 12px; font-size: 0.9rem; }
 #pubScreen .btn { padding: 10px 20px; font-size: 0.88rem; }
 #pubScreen #pubStatus.ok { color: #34d399; }
 #pubScreen #pubStatus.error { color: #f87171; }
 #pubScreen .data-badge { font-size: 0.68rem; padding: 4px 10px; }
 #pubScreen #pubChartsGrid { margin-top: 4px; }
+#pubScreen .pub-board-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); margin-bottom: 10px; cursor: pointer; transition: background 0.12s ease, border-color 0.12s ease; }
+#pubScreen .pub-board-row:hover { background: var(--panel-strong); border-color: var(--border-strong); }
+#pubScreen .pub-board-row .bname { font-weight: 700; font-size: 0.95rem; }
+#pubScreen .pub-board-row .bmeta { font-size: 0.75rem; color: var(--muted); }
+#pubScreen .pub-charts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+#pubScreen .pub-charts-grid .chart-card { min-height: 260px; }
 
 /* ── modal improvements ── */
 .modal-wide { max-width: 720px; }
