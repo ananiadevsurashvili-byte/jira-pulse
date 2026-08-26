@@ -1,6 +1,10 @@
 /* ══════════════════════ JiraPulse · app logic ══════════════════════ */
 'use strict';
 
+/* set when served from /admin/ — this is the admin panel, so the admin UI is always on
+   and the brand links back to the public app's boards page */
+const ADMIN_PANEL = typeof window.ADMIN_PANEL !== 'undefined' && window.ADMIN_PANEL === true;
+
 /* ── helpers ─────────────────────────────────────────────────────── */
 const $ = (s) => document.querySelector(s);
 const DAY = 86400000;
@@ -883,7 +887,77 @@ function enterApp() {
   $('#setEmail').value = state.conn.email;
   $('#setToken').value = '';
   $('#proxyToggle').checked = !!state.conn.useProxy;
-  goBoards({ autoOpenLast: true });
+  /* show the Admin badge when in the admin panel */
+  if (ADMIN_PANEL) { $('#adminBadge').classList.remove('hidden'); }
+  /* route to the current hash (#/ or #/board/<id>) — bootstrap boards */
+  route();
+}
+
+/* unique shareable link for a board (used for the 🔗 copy button + router) */
+function boardLink(boardId) {
+  return location.origin + location.pathname + '#/board/' + boardId;
+}
+
+/* open a board's dashboard from a board object (keeps URL in sync) */
+function openBoard(board) {
+  if (!board) return;
+  $('#boardSelect').value = String(board.id);
+  selectBoard(board);
+  if (location.hash !== '#/board/' + board.id) {
+    history.replaceState(null, '', location.pathname + '#/board/' + board.id);
+  }
+  syncHeaderState();
+}
+
+/* show the all-boards main page (used when on #/ or clicking logo/Boards) */
+function showAllBoards() {
+  if (location.hash && location.hash !== '#/' && !location.hash.startsWith('#/board/')) {
+    history.replaceState(null, '', location.pathname);
+  } else if (location.hash && location.hash !== '#/') {
+    history.replaceState(null, '', location.pathname + '#/');
+  }
+  hide($('#dashScreen')); show($('#boardsScreen'));
+  hide($('#errorBanner'));
+  hide($('#changelogNotice'));
+  syncHeaderState();
+  loadBoards({ autoOpenLast: false }).catch((e) => handleAuthError(e));
+}
+
+/* keep the topbar centered label + logo/Boards button in sync with the current view */
+function syncHeaderState() {
+  const onBoards = !$('#boardsScreen').classList.contains('hidden');
+  const onDash = !$('#dashScreen').classList.contains('hidden');
+  const label = $('#allBoardsLabel');
+  const backBtn = $('#backToBoardsBtn');
+  if (onBoards) {
+    label.style.display = 'inline-flex';
+    backBtn.style.display = 'none';   /* we're already on the boards page — hide "← Boards" */
+  } else if (onDash) {
+    label.style.display = 'none';
+    backBtn.style.display = 'inline-flex';
+  } else {
+    label.style.display = 'none';
+    backBtn.style.display = 'none';
+  }
+}
+
+/* hash router — #/ = all boards, #/board/<id> = a specific board */
+function route() {
+  const hash = location.hash;
+  const boardMatch = hash.match(/^#\/board\/(\d+)/);
+  if (boardMatch) {
+    const bid = parseInt(boardMatch[1], 10);
+    /* if boards are already loaded, open immediately; otherwise load then open */
+    const b = state.boards.find((x) => x.id === bid);
+    hide($('#setupScreen')); show($('#topbar'));
+    hide($('#boardsScreen')); show($('#dashScreen'));
+    syncHeaderState();
+    $('#boardSelect').innerHTML = '<option value="">Loading boards…</option>';
+    loadBoards({ autoOpenLast: false, targetBoardId: bid }).catch((e) => handleAuthError(e));
+  } else {
+    hide($('#setupScreen')); show($('#topbar'));
+    showAllBoards();
+  }
 }
 
 function goBoards({ autoOpenLast = false } = {}) {
@@ -891,6 +965,7 @@ function goBoards({ autoOpenLast = false } = {}) {
   hide($('#errorBanner'));
   hide($('#changelogNotice'));
   $('#boardSelect').innerHTML = '<option value="">Loading boards…</option>';
+  syncHeaderState();
   loadBoards({ autoOpenLast }).catch((e) => handleAuthError(e));
 }
 
@@ -918,17 +993,18 @@ async function connect(domainRaw, email, token) {
 }
 
 /* ── boards ──────────────────────────────────────────────────────── */
-async function loadBoards({ autoOpenLast = false } = {}) {
+async function loadBoards({ autoOpenLast = false, targetBoardId = null } = {}) {
   const grid = $('#boardsGrid');
   const btn = $('#syncBoardsBtn');
   btn.disabled = true;
   show($('#boardsLoading')); hide($('#boardsEmpty'));
-  grid.innerHTML = '';
   try {
     const boards = await fetchPaginated('/rest/agile/1.0/board', 250);
     boards.sort((a, b) => (a.location?.projectName || a.name).localeCompare(b.location?.projectName || b.name));
     state.boards = boards;
     logDiag('info', 'Boards loaded', { count: boards.length });
+    /* only replace the DOM after a successful fetch — never lose the board list on failure */
+    grid.innerHTML = '';
 
     // dropdown
     const sel = $('#boardSelect');
@@ -938,14 +1014,20 @@ async function loadBoards({ autoOpenLast = false } = {}) {
 
     renderBoardCards();
 
-    if (!boards.length) { show($('#boardsEmpty')); return; }
+    if (!boards.length) { show($('#boardsEmpty')); syncHeaderState(); return; }
 
+    // auto-open a specific board from the URL hash (#/board/<id>)
+    if (targetBoardId != null) {
+      const target = boards.find((b) => b.id === targetBoardId);
+      if (target) { sel.value = String(target.id); openBoard(target); return; }
+    }
     // auto-open last viewed board only when explicitly requested
     if (autoOpenLast) {
       const lastId = parseInt(localStorage.getItem(LS_LAST_BOARD), 10);
       const last = boards.find((b) => b.id === lastId);
-      if (last) { sel.value = String(last.id); selectBoard(last); }
+      if (last) { sel.value = String(last.id); openBoard(last); }
     }
+    syncHeaderState();
   } finally {
     btn.disabled = false;
     hide($('#boardsLoading'));
@@ -962,7 +1044,10 @@ function renderBoardCards() {
   const grid = $('#boardsGrid');
   grid.innerHTML = state.boards.map((b, i) => `
     <div class="board-card glass" data-id="${b.id}" style="animation-delay:${Math.min(i * 35, 400)}ms">
-      <h3>${escapeHtml(b.name)}</h3>
+      <div class="board-card-head">
+        <h3>${escapeHtml(b.name)}</h3>
+        <button class="link-btn board-copy-link" data-copyboard="${b.id}" title="Copy link to this board" aria-label="Copy board link">🔗</button>
+      </div>
       <div class="board-meta">
         ${b.type ? `<span class="${boardTypeClass(b.type)}">${escapeHtml(b.type)} board</span>` : ''}
         ${b.location?.projectKey ? `<span class="chip">${escapeHtml(b.location.projectKey)}</span>` : ''}
@@ -970,10 +1055,20 @@ function renderBoardCards() {
       ${b.location?.projectName ? `<div class="muted small" style="margin-bottom:12px">Project · ${escapeHtml(b.location.projectName)}</div>` : '<div style="height:24px"></div>'}
       <span class="board-open">Open dashboard →</span>
     </div>`).join('');
+  grid.querySelectorAll('.board-card .board-copy-link').forEach((btn) => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const b = state.boards.find((x) => x.id === parseInt(btn.dataset.copyboard, 10));
+      if (b) {
+        const link = boardLink(b.id);
+        navigator.clipboard.writeText(link).then(() => toast('Board link copied.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
+      }
+    });
+  });
   grid.querySelectorAll('.board-card').forEach((card) => {
     card.addEventListener('click', () => {
       const b = state.boards.find((x) => x.id === parseInt(card.dataset.id, 10));
-      if (b) { $('#boardSelect').value = String(b.id); selectBoard(b); }
+      if (b) { $('#boardSelect').value = String(b.id); openBoard(b); }
     });
   });
 }
@@ -1140,30 +1235,35 @@ async function selectBoard(board) {
   state.boardId = board.id;
   localStorage.setItem(LS_LAST_BOARD, String(board.id));
   hide($('#boardsScreen')); show($('#dashScreen'));
+  syncHeaderState();
   hide($('#errorBanner'));
 
   $('#dashBoardName').textContent = board.name;
   $('#issueCountBadge').textContent = 'syncing…';
   $('#syncedAt').textContent = '';
-  ['kpiTotal', 'kpiCreated', 'kpiDone', 'kpiResolved', 'kpiCycle', 'kpiWip'].forEach((id) => ($('#' + id).textContent = '…'));
-  $('#slowTableBody').innerHTML = '';
-  Object.values(state.charts).forEach((ch) => ch && ch.destroy());
-  state.charts = {};
 
   try {
     logDiag('info', 'Board selected', { boardId: board.id, name: board.name, type: board.type, location: board.location || null });
     const issues = await loadBoardIssues(board);
+    /* only replace data AFTER a successful load — never lose the previous board on failure */
     state.issues = issues;
     const m = computeMetrics(issues);
     state.lastBoard = board;
     state.lastMetrics = m;
+
+    ['kpiTotal', 'kpiCreated', 'kpiDone', 'kpiResolved', 'kpiCycle', 'kpiWip'].forEach((id) => ($('#' + id).textContent = '…'));
+    $('#slowTableBody').innerHTML = '';
+    Object.values(state.charts).forEach((ch) => ch && ch.destroy());
+    state.charts = {};
+    hide($('#errorBanner'));
+
     renderDashboard(board, m);
     $('#syncedAt').textContent = 'updated ' + new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   } catch (e) {
+    /* keep the previous board's dashboard intact — just warn */
     $('#issueCountBadge').textContent = 'failed';
     const banner = $('#errorBanner');
     let msg = e?.message || 'Failed to load board issues.';
-    // Add hint for common issues
     if (e?.status === 403) msg += ' (403: check board permissions / API token scopes)';
     if (e?.status === 404) msg += ' (404: board may be team-managed with different API)';
     if (e?.status === 429) msg += ' (429: rate limited — wait a moment and click Refresh)';
@@ -2351,10 +2451,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('#boardSelect').addEventListener('change', (ev) => {
     const b = state.boards.find((x) => x.id === parseInt(ev.target.value, 10));
-    if (b) selectBoard(b);
+    if (b) openBoard(b);
   });
   $('#syncBoardsBtn').addEventListener('click', () => goBoards({ autoOpenLast: false }));
-  $('#backToBoardsBtn').addEventListener('click', () => goBoards({ autoOpenLast: false }));
+  $('#brandBtn').addEventListener('click', () => { location.hash = '#/'; showAllBoards(); });
+  $('#brandBtn').addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); location.hash = '#/'; showAllBoards(); }
+  });
+  $('#backToBoardsBtn').addEventListener('click', () => { location.hash = '#/'; showAllBoards(); });
   $('#openDebugBtn').addEventListener('click', openDiagnostics);
   $('#refreshBtn').addEventListener('click', () => {
     const b = state.boards.find((x) => x.id === state.boardId);
@@ -2469,6 +2573,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (ev.key === 'Enter') pubVerifyCode();
   });
 
+  /* route on hash change (back/forward navigation) — but not when opening a share link */
+  window.addEventListener('hashchange', () => {
+    if (location.hash.startsWith('#p=') || location.hash.startsWith('#share')) return;
+    if (state.conn) route();
+  });
+
   /* initialize Google sign-in button (only on the share screen) */
   initGoogleButton();
 
@@ -2484,9 +2594,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const saved = loadConn();
     if (saved) {
       state.conn = saved;
-      enterApp();
-      api('/rest/api/3/myself')
-        .catch((e) => handleAuthError(e));
+      enterApp();   // route() → loadBoards() handles the Jira request + auth errors
     } else {
       showSetup();
     }
