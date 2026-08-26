@@ -108,7 +108,7 @@ function parseShareToken() {
 let pubState = { snapshot: null, email: '', verified: false, codeSent: false };
 
 /* Google OAuth client id (leave empty to disable Google sign-in) */
-const GOOGLE_CLIENT_ID = '';   /* TODO: set this after configuring in Google Cloud Console */
+const GOOGLE_CLIENT_ID = '671098966570-21bp1aeud5o2glbjsliif3foi6n71gmh.apps.googleusercontent.com';
 
 function googleReady() {
   return typeof window.google !== 'undefined' && window.google.accounts && window.google.accounts.id;
@@ -139,6 +139,7 @@ function initGoogleButton() {
       },
       context: 'use',
       ux_mode: 'popup',
+      hd: PUBLISH_DOMAIN,   /* restrict to caucasusauto.com domain */
     });
     window.google.accounts.id.renderButton($( '#pubGoogleBtn'), {
       theme: 'outline',
