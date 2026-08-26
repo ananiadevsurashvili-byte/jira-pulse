@@ -1356,8 +1356,11 @@ async function searchIssuesByJql(jql, withChangelog = false) {
     method: 'POST',
     body: {
       jql,
-      fields: ISSUE_FIELDS,
-      expand: withChangelog ? ['changelog'] : [],
+      /* `fields` + `expand` must be comma-separated strings (not arrays) for the search
+         API to return them. resolutiondate powers the resolved/throughput/cycle charts and
+         changelog powers the status-time (Avg Time in Status / Stakeholder vs Team) charts. */
+      fields: ISSUE_FIELDS.join(','),
+      expand: withChangelog ? 'changelog' : '',
       fieldsByKeys: false,
     },
   }, 600);
@@ -1378,48 +1381,53 @@ async function loadBoardIssues(board) {
   state.boardLoadMeta = { source: '', note: '' };
   const ctx = await resolveBoardContext(board);
 
+  /* The board endpoints (/rest/agile|software/.../issue) reliably return `created`
+     but usually OMIT `resolutiondate` and never honour `expand=changelog`, which breaks
+     the resolved/throughput/cycle/status-time charts. The Jira search API always returns
+     both, so we try every changelog-capable SEARCH strategy FIRST, then fall back to the
+     board endpoints (best-effort, status-time charts may warn), then to JQL-by-filter /
+     project searches without changelog as a last resort. */
   const attempts = [
-    {
-      name: 'agile-changelog',
-      run: () => fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}&expand=changelog`, 600),
-      onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Agile board issues + changelog', note: '' }; },
-      /* verify the result actually has changelog; if not, keep trying */
-      verify: (issues) => hasChangelogData(issues),
-      onVerifyFail: { source: 'Agile board issues (no changelog)', note: 'Changelog expansion returned no history. Trying alternative strategy.' },
-    },
-    {
-      name: 'agile-basic',
-      run: () => fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}`, 600),
-      onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Agile board issues', note: 'Loaded without changelog expansion.' }; },
-    },
-    {
-      name: 'software-basic',
-      run: () => fetchPaginated(`/rest/software/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}`, 600),
-      onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Software board issues', note: 'Used enhanced software endpoint.' }; },
-    },
     ...(ctx.filterJql ? [{
       name: 'search-filter-jql-changelog',
       run: () => searchIssuesByJql(ctx.filterJql, true),
-      onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Board filter JQL + changelog', note: 'Used Jira issue search based on the board filter.' }; },
+      onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Board filter JQL + changelog', note: 'Used the board filter JQL. Full fields (resolutiondate + changelog) loaded.' }; },
       verify: (issues) => hasChangelogData(issues),
       onVerifyFail: { source: 'Board filter JQL (no changelog)', note: 'Search returned issues but no changelog history. Trying alternative strategy.' },
     }] : []),
     ...(ctx.projectKeys.length ? [{
       name: 'search-projects-changelog',
       run: () => searchIssuesByJql(`project in (${ctx.projectKeys.map((k) => `"${k}"`).join(', ')}) ORDER BY created DESC`, true),
-      onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Board projects + changelog', note: 'Used Jira search across the board projects.' }; },
+      onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Board projects + changelog', note: 'Used Jira search across the board projects. Full fields (resolutiondate + changelog) loaded.' }; },
       verify: (issues) => hasChangelogData(issues),
       onVerifyFail: { source: 'Board projects (no changelog)', note: 'Project search returned issues but no changelog history. Trying alternative strategy.' },
+    }] : []),
+    {
+      name: 'agile-changelog',
+      run: () => fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}&expand=changelog`, 600),
+      onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Agile board issues + changelog', note: '' }; },
+      verify: (issues) => hasChangelogData(issues),
+      onVerifyFail: { source: 'Agile board issues (no changelog)', note: 'Changelog expansion returned no history. Trying alternative strategy.' },
+    },
+    {
+      name: 'agile-basic',
+      run: () => fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}`, 600),
+      onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Agile board issues', note: 'Loaded without changelog — status-time charts may be limited.' }; },
+    },
+    {
+      name: 'software-basic',
+      run: () => fetchPaginated(`/rest/software/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}`, 600),
+      onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Software board issues', note: 'Loaded without changelog — status-time charts may be limited.' }; },
+    },
+    ...(ctx.filterId ? [{
+      name: 'search-filter-id-basic',
+      run: () => searchIssuesByJql(`filter=${ctx.filterId} ORDER BY created DESC`, false),
+      onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Board filter reference', note: 'Used filter id fallback.' }; },
     }] : []),
     ...(ctx.filterJql ? [{
       name: 'search-filter-jql-basic',
       run: () => searchIssuesByJql(ctx.filterJql, false),
       onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Board filter JQL', note: 'Used Jira issue search based on the board filter.' }; },
-    }] : []),
-    ...(ctx.filterId ? [{
-      name: 'search-filter-id-basic',
-      run: () => searchIssuesByJql(`filter=${ctx.filterId} ORDER BY created DESC`, false),
-      onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Board filter reference', note: 'Used filter id fallback.' }; },
     }] : []),
     ...(ctx.projectKeys.length ? [{
       name: 'search-projects-basic',
