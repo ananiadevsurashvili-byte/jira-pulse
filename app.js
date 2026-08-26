@@ -717,14 +717,20 @@ const ACCENT_HEX = {
   amber: '#fbbf24', violet: '#8b5cf6', pink: '#f472b6',
 };
 
-/* the six built-in charts, expressed as editable definitions */
+/* the built-in charts, expressed as editable definitions */
 const BUILTIN_DEFS = [
-  { id: 'pipeline', title: 'Incoming vs completed', subtitle: 'registered vs resolved', type: 'line', metric: 'flow', groupBy: 'time', bucket: 'week', range: 182, filter: 'all', topN: 0, split: 'none', color: 'indigo', wide: true, centerTotal: false },
-  { id: 'phaseDelays', title: 'Stakeholder vs team delays', subtitle: 'avg days parked per stage · changelog', type: 'hbar', metric: 'avgStatusTime', groupBy: 'status', bucket: 'week', range: 182, filter: 'all', topN: 8, split: 'stage', color: 'amber', wide: false, centerTotal: false },
-  { id: 'bottlenecks', title: 'Active bottlenecks', subtitle: 'where open work is right now', type: 'doughnut', metric: 'count', groupBy: 'bottleneck', bucket: 'week', range: 0, filter: 'open', topN: 0, split: 'none', color: 'indigo', wide: false, centerTotal: true },
-  { id: 'statusDist', title: 'Status distribution', subtitle: 'all issues by status', type: 'doughnut', metric: 'count', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 7, split: 'none', color: 'indigo', wide: false, centerTotal: true },
-  { id: 'statusTime', title: 'Average time per status', subtitle: 'lifetime · changelog', type: 'hbar', metric: 'avgStatusTime', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 10, split: 'none', color: 'violet', wide: false, centerTotal: false },
-  { id: 'throughput', title: 'Weekly throughput', subtitle: 'resolved per week', type: 'bar', metric: 'resolved', groupBy: 'time', bucket: 'week', range: 84, filter: 'all', topN: 0, split: 'none', color: 'green', wide: true, centerTotal: false },
+  { id: 'pipeline', title: 'Incoming vs Completed', subtitle: 'Created vs resolved over time', type: 'line', metric: 'flow', groupBy: 'time', bucket: 'week', range: 182, filter: 'all', topN: 0, split: 'none', color: 'indigo', wide: true, centerTotal: false },
+  { id: 'throughput', title: 'Weekly Throughput', subtitle: 'Resolved issues per week', type: 'bar', metric: 'resolved', groupBy: 'time', bucket: 'week', range: 84, filter: 'all', topN: 0, split: 'none', color: 'green', wide: true, centerTotal: false },
+  { id: 'createdTrend', title: 'Issues Created', subtitle: 'Weekly creation trend', type: 'line', metric: 'created', groupBy: 'time', bucket: 'week', range: 182, filter: 'all', topN: 0, split: 'none', color: 'cyan', wide: false, centerTotal: false },
+  { id: 'resolvedTrend', title: 'Issues Resolved', subtitle: 'Weekly resolution trend', type: 'line', metric: 'resolved', groupBy: 'time', bucket: 'week', range: 182, filter: 'all', topN: 0, split: 'none', color: 'green', wide: false, centerTotal: false },
+  { id: 'bottlenecks', title: 'Active Bottlenecks', subtitle: 'Where open work is parked', type: 'doughnut', metric: 'count', groupBy: 'bottleneck', bucket: 'week', range: 0, filter: 'open', topN: 0, split: 'none', color: 'indigo', wide: false, centerTotal: true },
+  { id: 'statusDist', title: 'Status Distribution', subtitle: 'All issues by current status', type: 'doughnut', metric: 'count', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 8, split: 'none', color: 'violet', wide: false, centerTotal: true },
+  { id: 'statusTime', title: 'Avg Time in Status', subtitle: 'Lifetime average per status · changelog', type: 'hbar', metric: 'avgStatusTime', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 12, split: 'none', color: 'violet', wide: false, centerTotal: false },
+  { id: 'phaseDelays', title: 'Stakeholder vs Team Delays', subtitle: 'Avg days per stage · stakeholder gates vs team work · changelog', type: 'hbar', metric: 'avgStatusTime', groupBy: 'status', bucket: 'week', range: 182, filter: 'all', topN: 8, split: 'stage', color: 'amber', wide: false, centerTotal: false },
+  { id: 'typeDist', title: 'Issue Type Breakdown', subtitle: 'Open issues by type', type: 'doughnut', metric: 'count', groupBy: 'type', bucket: 'week', range: 0, filter: 'open', topN: 8, split: 'none', color: 'cyan', wide: false, centerTotal: true },
+  { id: 'assigneeLoad', title: 'Assignee Workload', subtitle: 'Open issues per assignee', type: 'hbar', metric: 'count', groupBy: 'assignee', bucket: 'week', range: 0, filter: 'open', topN: 12, split: 'none', color: 'pink', wide: false, centerTotal: false },
+  { id: 'priorityDist', title: 'Priority Distribution', subtitle: 'Open issues by priority', type: 'doughnut', metric: 'count', groupBy: 'priority', bucket: 'week', range: 0, filter: 'open', topN: 8, split: 'none', color: 'amber', wide: false, centerTotal: true },
+  { id: 'ageDist', title: 'Open Issue Age', subtitle: 'How long issues have been open', type: 'hbar', metric: 'openAge', groupBy: 'assignee', bucket: 'week', range: 0, filter: 'open', topN: 10, split: 'none', color: 'green', wide: false, centerTotal: false },
 ];
 
 function chartStoreKey() { return CHART_STORE_PREFIX + (state.conn?.domain || 'default'); }
@@ -1020,9 +1026,10 @@ function buildChartData(def, m) {
 const LEGEND_ON = { display: true, position: 'top', align: 'end', labels: { boxWidth: 8, boxHeight: 8, usePointStyle: true, padding: 14 } };
 
 function chartCardHTML(def, overridden) {
+  const scopeClass = def.scope === 'global' ? ' global' : '';
   const scopeChip = def.builtin
     ? ''
-    : `<span class="scope-chip">${def.scope === 'global' ? 'all boards' : 'this board'}</span>`;
+    : `<span class="scope-chip${scopeClass}">${def.scope === 'global' ? 'all boards' : 'this board'}</span>`;
   const actions = def.builtin
     ? `<button class="chart-btn" data-act="edit" data-id="${def.id}" title="Configure this chart">✎</button>` +
       (overridden ? `<button class="chart-btn" data-act="reset" data-id="${def.id}" title="Reset to default">↺</button>` : '') +
@@ -1172,10 +1179,23 @@ function renderCharts(defs, m) {
       const base = data.subtitle || def.subtitle || '';
       sub.innerHTML = escapeHtml(base) + (data.extraSub ? ` <span class="sub-extra">· ${data.extraSub}</span>` : '');
     }
+    
+    /* add data availability badge */
+    const card = document.querySelector(`.chart-card[data-cid="${def.id}"]`);
+    if (card) {
+      const badgeContainer = card.querySelector('.chart-titles');
+      if (badgeContainer) {
+        const badge = getDataAvailabilityBadge(def, data, m);
+        if (badge) badgeContainer.insertAdjacentHTML('beforeend', badge);
+      }
+    }
+
     if (data.empty) {
       drawCanvasMessage(canvasId, Array.isArray(data.empty) ? data.empty : [data.empty]);
+      if (card) card.classList.add('empty');
       continue;
     }
+    if (card) card.classList.remove('empty');
     mkChart(canvasId, chartConfigFor(def, data, theme, canvasId));
   }
 
@@ -1192,6 +1212,28 @@ function renderCharts(defs, m) {
       toast('Chart restored.', 'ok');
     });
   });
+}
+
+/* determine if a chart will have meaningful data */
+function getDataAvailabilityBadge(def, data, m) {
+  if (data.empty) {
+    if (def.metric === 'avgStatusTime' || def.split === 'stage') {
+      if (!state.hasChangelog) {
+        return `<span class="data-badge missing" title="Changelog not available for this board">⚠ No changelog</span>`;
+      }
+    }
+    if (def.metric === 'openAge' || def.filter === 'open') {
+      if (!m.wip) return `<span class="data-badge missing" title="No open issues on this board">⚠ No open issues</span>`;
+    }
+    return `<span class="data-badge warn" title="No data matches the current filters">⚠ No data</span>`;
+  }
+  if (def.metric === 'avgStatusTime' || def.split === 'stage') {
+    if (!state.hasChangelog) {
+      return `<span class="data-badge missing" title="Changelog not available for this board">⚠ No changelog</span>`;
+    }
+    return `<span class="data-badge ok" title="Changelog data available">✓ Changelog</span>`;
+  }
+  return '';
 }
 
 function onChartAction(act, id) {
@@ -1292,6 +1334,41 @@ function syncChartForm() {
   $('#cFilterWrap').classList.toggle('hidden', kind !== 'category');
   $('#cTopWrap').classList.toggle('hidden', kind === 'time' || $('#cType').value === 'line');
   $('#cColorWrap').classList.toggle('hidden', $('#cType').value === 'doughnut');
+
+  /* smart defaults when metric changes */
+  if (kind === 'time') {
+    if (!['line', 'bar'].includes($('#cType').value)) {
+      $('#cType').querySelector('[data-v="line"]').click();
+    }
+  } else if (kind === 'statusTime') {
+    if ($('#cType').value !== 'hbar') {
+      $('#cType').querySelector('[data-v="hbar"]').click();
+    }
+  }
+
+  /* update subtitle hint */
+  updateSubtitleHint(md, kind);
+}
+
+/* subtitle hint based on metric + grouping */
+function updateSubtitleHint(md, kind) {
+  const hintEl = $('#subtitleHint');
+  if (!hintEl) return;
+  let hint = '';
+  if (kind === 'time') {
+    hint = 'Shows a time series. Choose bucket (day/week/month) and range.';
+  } else if (kind === 'statusTime') {
+    hint = 'Requires changelog data. Shows average days issues spend in each status.';
+  } else if (kind === 'category') {
+    if (md.openOnly) {
+      hint = 'Shows age of currently open issues. Groups by assignee, status, etc.';
+    } else if (md.resolvedOnly) {
+      hint = 'Shows cycle time for resolved issues only.';
+    } else {
+      hint = 'Counts issues in each group. Use filter for open/done/all.';
+    }
+  }
+  hintEl.textContent = hint;
 }
 
 function chartDefFromForm(base) {
@@ -1313,6 +1390,15 @@ function chartDefFromForm(base) {
 function saveChartFromForm() {
   const edit = state.chartEditing;
   if (!edit) return;
+
+  // validation
+  const title = $('#cTitle').value.trim();
+  if (!title) {
+    $('#cTitle').focus();
+    toast('Please enter a chart title.', 'warn');
+    return;
+  }
+
   const store = loadChartStore();
   if (edit.mode === 'new') {
     const def = chartDefFromForm({
