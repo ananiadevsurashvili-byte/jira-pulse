@@ -1003,6 +1003,15 @@ function handleAuthError(e) {
   }
 }
 
+function adminRedirectUrl() {
+  /* never redirect inside the admin panel, on a share link, or when not the admin */
+  if (ADMIN_PANEL) return null;
+  if (!state.conn || !isAdminEmail(state.conn.email)) return null;
+  if (location.hash && location.hash.startsWith('#p=')) return null;
+  const path = location.pathname.replace(/\/admin\/?$/i, '').replace(/\/+$/, '') + '/';
+  return location.origin + path.replace(/\/$/, '') + '/admin/';
+}
+
 /* ── connect flow ────────────────────────────────────────────────── */
 async function connect(domainRaw, email, token) {
   const domain = normalizeDomain(domainRaw);
@@ -1012,6 +1021,13 @@ async function connect(domainRaw, email, token) {
   state.usedProxy = false;
   await api('/rest/api/3/myself'); // auth check
   saveConn();
+  /* if the admin account logs in from the public app (not the admin panel),
+     bounce them straight to the /admin/ panel so they can do all operations. */
+  const redirect = adminRedirectUrl();
+  if (redirect) {
+    location.replace(redirect);
+    return;
+  }
   enterApp();
   toast('Connected to ' + domain.replace('https://', '') + ' 🎉', 'ok');
 }
