@@ -97,12 +97,15 @@ async function createPublishSnapshot(boardId, scope) {
   return snapshot;
 }
 
-/* build a snapshot that bundles every board with its own portable render payload */
-async function createAllBoardsSnapshot() {
+/* build a snapshot that bundles every board with its own portable render payload.
+   Reports progress via onProgress(done, total) so the UI can show "Publishing… 3/12". */
+async function createAllBoardsSnapshot(onProgress) {
   const now = Date.now();
   const records = [];
   let anyChangelog = false;
   const defs = effectiveCharts();
+  const total = state.boards.length;
+  let done = 0;
   for (const board of state.boards) {
     try {
       logDiag('info', 'Publish: loading board for all-boards snapshot', { boardId: board.id, name: board.name });
@@ -124,6 +127,8 @@ async function createAllBoardsSnapshot() {
     } catch (e) {
       logDiag('warn', 'Publish: board skipped in all-boards snapshot', { boardId: board.id, name: board.name, message: e?.message });
     }
+    done++;
+    if (typeof onProgress === 'function') onProgress(done, total);
   }
   if (!records.length) { toast('Could not load any boards to publish.', 'warn'); return null; }
   const snapshot = {
@@ -557,7 +562,47 @@ function hidePubScreen() {
   /* clear the #p= hash so the URL no longer points to the share, then reload app */
   if (location.hash) location.hash = '';
   if (loadConn()) enterApp();
+  else if (!ADMIN_PANEL) showPublicLanding();   /* public: back to the org gate */
   else showSetup();
+}
+
+/* Public landing for the root URL "/" — org members should never see the Jira
+   API-token form. Build an "all boards" snapshot from the published snapshots stored
+   on this device and show the org sign-in gate (Google 1-click / email code). */
+function showPublicLanding() {
+  const snaps = listPublishSnapshots();
+  const allSnap = snaps.find((s) => s.scope === 'all') || null;
+  const boardSnaps = snaps.filter((s) => s.scope === 'board');
+
+  if (allSnap) {
+    /* reuse the newest published all-boards snapshot directly */
+    showPubScreen(allSnap);
+    return;
+  }
+  if (boardSnaps.length) {
+    /* no "all" snapshot yet — synthesize one from every published single board */
+    const synthetic = {
+      token: null,
+      boardId: null,
+      boardName: 'All boards',
+      scope: 'all',
+      createdAt: Math.max(...boardSnaps.map((b) => b.createdAt)),
+      issuesCount: boardSnaps.reduce((a, b) => a + (b.issuesCount || 0), 0),
+      hasChangelog: boardSnaps.some((b) => b.hasChangelog),
+      charts: [],
+      boards: boardSnaps.map((b) => ({
+        boardId: b.boardId, name: b.boardName, issuesCount: b.issuesCount || 0, hasChangelog: !!b.hasChangelog, charts: b.charts || [],
+      })),
+    };
+    showPubScreen(synthetic);
+    return;
+  }
+  /* nothing published yet — show an empty published state through the gate */
+  const empty = {
+    token: null, boardId: null, boardName: 'All boards', scope: 'all', createdAt: Date.now(),
+    issuesCount: 0, hasChangelog: false, charts: [], boards: [],
+  };
+  showPubScreen(empty);
 }
 
 /* ── publish modal (admin only) ─────────────────────────────────────── */
@@ -789,12 +834,17 @@ async function api(path, options = {}) {
 
   let lastErr = null;
   for (const target of attempts) {
+    /* abort a request that hangs — prevents publish-all ("Publishing…") from
+       spinning forever on a single unreachable endpoint */
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25000);
     try {
       logDiag('info', 'API request', { method, path, viaProxy: target !== url, body: options.body || null });
       const res = await fetch(target, {
         method,
         headers,
         body: options.body != null ? JSON.stringify(options.body) : undefined,
+        signal: controller.signal,
       });
       viaProxy = target !== url;
       let body = null;
@@ -819,10 +869,16 @@ async function api(path, options = {}) {
       return body;
     } catch (err) {
       lastErr = err;
-      if (!err.status) logDiag('warn', 'API network/proxy failure', { method, path, viaProxy: target !== url, message: err.message });
+      if (err.name === 'AbortError' || err?.message === 'The user aborted a request.') {
+        logDiag('warn', 'API request timed out', { method, path, viaProxy: target !== url });
+      } else if (!err.status) {
+        logDiag('warn', 'API network/proxy failure', { method, path, viaProxy: target !== url, message: err.message });
+      }
       // HTTP errors from Jira itself are real answers — don't retry through proxy
       if (err.status) throw err;
-      // network / CORS failure → try next attempt
+      // network / timeout / CORS failure → try next attempt
+    } finally {
+      clearTimeout(timer);
     }
   }
   const e = new Error(
@@ -887,8 +943,15 @@ function enterApp() {
   $('#setEmail').value = state.conn.email;
   $('#setToken').value = '';
   $('#proxyToggle').checked = !!state.conn.useProxy;
-  /* show the Admin badge when in the admin panel */
-  if (ADMIN_PANEL) { $('#adminBadge').classList.remove('hidden'); }
+  /* show the Admin badge when in the admin panel; show an Org badge on the
+     public app when a non-admin org member signs in. */
+  if (ADMIN_PANEL) {
+    $('#adminBadge').classList.remove('hidden');
+    $('#orgBadge').classList.add('hidden');
+  } else {
+    $('#adminBadge').classList.add('hidden');
+    $('#orgBadge').classList.toggle('hidden', !(state.conn && publishEmailOk(state.conn.email)));
+  }
   /* show/hide admin-only controls (publish / new chart) based on context */
   syncAdminControls();
   /* route to the current hash (#/ or #/board/<id>) — bootstrap boards */
@@ -943,6 +1006,14 @@ function showAllBoards() {
   hide($('#errorBanner'));
   hide($('#changelogNotice'));
   syncHeaderState();
+  /* if boards are already loaded, keep the "All boards" option visible immediately */
+  if (state.boards.length) {
+    const sel = $('#boardSelect');
+    if (!sel.querySelector('option[value=""]')) {
+      sel.insertAdjacentHTML('afterbegin', '<option value="">All boards</option>');
+    }
+    sel.value = '';
+  }
   loadBoards({ autoOpenLast: false }).catch((e) => handleAuthError(e));
 }
 
@@ -1046,12 +1117,12 @@ async function loadBoards({ autoOpenLast = false, targetBoardId = null } = {}) {
     /* only replace the DOM after a successful fetch — never lose the board list on failure */
     grid.innerHTML = '';
 
-    // dropdown
+    // dropdown — first option is "All boards", selected by default on the main page
     const sel = $('#boardSelect');
-    sel.innerHTML = boards.length
+    sel.innerHTML = '<option value="">All boards</option>' + (boards.length
       ? boards.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('')
-      : '<option value="">No boards found</option>';
-
+      : '<option value="" disabled>No boards found</option>');
+    sel.value = targetBoardId != null ? String(targetBoardId) : '';
     renderBoardCards();
 
     if (!boards.length) { show($('#boardsEmpty')); syncHeaderState(); return; }
@@ -2492,7 +2563,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   $('#boardSelect').addEventListener('change', (ev) => {
-    const b = state.boards.find((x) => x.id === parseInt(ev.target.value, 10));
+    const val = ev.target.value;
+    if (!val) { showAllBoards(); return; }   // "All boards" selected → main page
+    const b = state.boards.find((x) => x.id === parseInt(val, 10));
     if (b) openBoard(b);
   });
   $('#syncBoardsBtn').addEventListener('click', () => goBoards({ autoOpenLast: false }));
@@ -2557,14 +2630,16 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#publishAllBtn').addEventListener('click', async () => {
     if (!state.conn) { toast('Connect to Jira first.', 'warn'); return; }
     if (!state.boards.length) { toast('No boards loaded yet.', 'warn'); return; }
-    const btn = $( '#publishAllBtn');
+    const btn = $('#publishAllBtn');
     btn.disabled = true;
-    btn.textContent = 'Publishing…';
+    btn.textContent = 'Publishing… 0/' + state.boards.length;
     try {
-      const snap = await createAllBoardsSnapshot();
+      const snap = await createAllBoardsSnapshot((done, total) => {
+        btn.textContent = 'Publishing… ' + done + '/' + total;
+      });
       if (!snap) return;
       const link = buildShareUrl(snap);
-      navigator.clipboard.writeText(link).then(() => toast('All boards published — link copied.', 'ok')).catch(() => toast('All boards published. Token: ' + snap.token, 'ok'));
+      navigator.clipboard.writeText(link).then(() => toast('All ' + snap.boards.length + ' boards published — link copied.', 'ok')).catch(() => toast('All boards published. Token: ' + snap.token, 'ok'));
     } finally {
       btn.disabled = false;
       btn.textContent = '⟳ Publish all';
@@ -2637,7 +2712,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (saved) {
       state.conn = saved;
       enterApp();   // route() → loadBoards() handles the Jira request + auth errors
+    } else if (!ADMIN_PANEL) {
+      /* PUBLIC APP: never show the Jira API-token form. Instead route straight to the
+         published-boards gate (Google 1-click / org email). The published overview is
+         built from the snapshots stored on this device (or an empty state if none). */
+      showPublicLanding();
     } else {
+      /* ADMIN PANEL: show the API-token connect flow (this is the only place it belongs). */
       showSetup();
     }
   }
