@@ -290,44 +290,71 @@ function googleReady() {
   return typeof window.google !== 'undefined' && window.google.accounts && window.google.accounts.id;
 }
 
-function initGoogleButton() {
-  if (!GOOGLE_CLIENT_ID || !googleReady()) return;
-  try {
-    window.google.accounts.id.initialize({
-      client_id: GOOGLE_CLIENT_ID,
-      callback: (resp) => {
-        /* decode the JWT payload to get the email */
-        const payload = decodeJwt(resp.credential);
-        const email = (payload?.email || '').toLowerCase().trim();
-        if (!publishEmailOk(email)) {
-          $('#pubStatus').textContent = 'Access is restricted to @caucasusauto.com accounts.';
-          $('#pubStatus').className = 'error';
-          return;
-        }
-        /* verified Google account in the right domain — grant access */
-        pubState.email = email;
-        pubState.verified = true;
-        pubState.isAdmin = isAdminEmail(email);
-        $('#pubStatus').textContent = 'Verified via Google. Loading snapshot…';
-        $('#pubStatus').className = 'ok';
-        $('#pubContent').classList.remove('hidden');
-        $('#pubAuthBox').classList.add('hidden');
-        renderPubContent();
-      },
-      context: 'use',
-      ux_mode: 'popup',
-      hd: PUBLISH_DOMAIN,   /* restrict to caucasusauto.com domain */
-    });
-    window.google.accounts.id.renderButton($( '#pubGoogleBtn'), {
-      theme: 'outline',
-      size: 'large',
-      width: 240,
-      text: 'continue_with',
-      logo_alignment: 'center',
-    });
-  } catch (e) {
-    logDiag('warn', 'Google init failed', { message: e.message });
+/* grant access to a verified Google account (domain checked in the callback) */
+function handleGoogleCredential(resp) {
+  const payload = decodeJwt(resp.credential);
+  const email = (payload?.email || '').toLowerCase().trim();
+  if (!publishEmailOk(email)) {
+    $('#pubStatus').textContent = 'Access is restricted to @' + PUBLISH_DOMAIN + ' accounts.';
+    $('#pubStatus').className = 'error';
+    return;
   }
+  pubState.email = email;
+  pubState.verified = true;
+  pubState.isAdmin = isAdminEmail(email);
+  $('#pubStatus').textContent = 'Verified via Google. Loading snapshot…';
+  $('#pubStatus').className = 'ok';
+  $('#pubContent').classList.remove('hidden');
+  $('#pubAuthBox').classList.add('hidden');
+  renderPubContent();
+}
+
+/* render Google's official sign-in button. The GSI script is loaded with `async`,
+   so we poll until it is ready instead of assuming it's present at DOMContentLoaded. */
+function initGoogleButton() {
+  const container = $('#pubGoogleBtn');
+  if (!container) return;
+  if (!GOOGLE_CLIENT_ID) return;
+
+  let polls = 0;
+  const timer = setInterval(() => {
+    polls++;
+    if (!googleReady()) {
+      /* never leave the user with a dead button — wire a manual fallback once */
+      if (polls === 1) {
+        container.addEventListener('click', () => {
+          $('#pubStatus').textContent = 'Google sign-in is still loading… try again in a few seconds.';
+          $('#pubStatus').className = 'warn';
+        });
+      }
+      if (polls > 50) clearInterval(timer);   // ~10s cap
+      return;
+    }
+    clearInterval(timer);
+    try {
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleCredential,
+        context: 'use',
+        ux_mode: 'popup',
+        /* hd restricts the account chooser to the org domain; the callback re-verifies it too */
+        hd: PUBLISH_DOMAIN,
+      });
+      /* let Google draw its own branded button over our placeholder container */
+      container.innerHTML = '';
+      window.google.accounts.id.renderButton(container, {
+        theme: 'outline',
+        size: 'large',
+        width: 280,
+        text: 'continue_with',
+        logo_alignment: 'center',
+      });
+    } catch (e) {
+      logDiag('warn', 'Google init failed', { message: e.message });
+      $('#pubStatus').textContent = 'Google sign-in could not start. Use your ' + PUBLISH_DOMAIN + ' email instead.';
+      $('#pubStatus').className = 'error';
+    }
+  }, 200);
 }
 
 function decodeJwt(token) {
@@ -385,7 +412,11 @@ function pubCodeSeed(snap) {
   return snap.token || (snap.scope + '|' + (snap.boardId || 'all') + '|' + (snap.createdAt || 'jp'));
 }
 
-function pubSendCode() {
+/* Send the access code to the user's email using FormSubmit (free, no backend).
+   We NEVER display the code on-screen — it goes only to the recipient's inbox.
+   FormSubmit requires a one-time activation email to the recipient address before
+   the first delivery; after that each code is emailed automatically. */
+async function pubSendCode() {
   const email = $('#pubEmail').value.trim();
   if (!publishEmailOk(email)) {
     $('#pubStatus').textContent = 'Please enter a valid @' + PUBLISH_DOMAIN + ' email.';
@@ -397,19 +428,72 @@ function pubSendCode() {
   const code = publishCode(pubCodeSeed(pubState.snapshot), email);
   pubState.codeSent = true;
 
-  /* show code inline (no backend) and offer mailto link */
-  $('#pubStatus').textContent = 'Your access code: ' + code;
-  $('#pubStatus').className = 'ok';
-  $('#pubCodeWrap').classList.remove('hidden');
-  $('#pubVerifyBtn').classList.remove('hidden');
-  $('#pubSendBtn').textContent = 'Resend code';
+  const btn = $('#pubSendBtn');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  $('#pubStatus').textContent = 'Sending your code to ' + email + '…';
+  $('#pubStatus').className = 'muted';
 
-  /* mailto link so admin can forward the code */
-  const subject = encodeURIComponent('Your JiraPulse access code');
-  const body = encodeURIComponent('Your access code for ' + pubState.snapshot.boardName + ':\n\n' + code + '\n\nEnter it on the JiraPulse page.');
-  const mailto = 'mailto:' + encodeURIComponent(email) + '?subject=' + subject + '&body=' + body;
-  $('#pubMailLink').href = mailto;
-  show($( '#pubMailLink'));
+  /* FormSubmit accepts an arbitrary recipient email — each org member receives
+     the code in their own inbox. No secret is exposed to the page. */
+  const recipient = email;
+  const subject = 'Your JiraPulse access code';
+  const body =
+    'Hello,\n\n' +
+    'Your one-time access code for JiraPulse (' + (pubState.snapshot?.boardName || 'board stats') + ') is:\n\n' +
+    code + '\n\n' +
+    'Enter it on the JiraPulse page to view the published stats.\n\n' +
+    'If you did not request this, ignore this email.';
+
+  try {
+    const res = await fetch('https://formsubmit.co/ajax/' + encodeURIComponent(recipient), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        email: email,
+        _subject: subject,
+        message: body,
+        _template: 'table',
+        _captcha: 'false',
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = (data && (data.message || data.error)) || 'Email service error (' + res.status + ')';
+      throw new Error(msg);
+    }
+    /* FormSubmit returns success:false when the recipient address needs a one-time
+       activation (it emails an activation link first) or when it can't validate the
+       request. Never claim the code was sent in that case — show the real reason
+       and point the user to Google sign-in as the reliable fallback. */
+    if (data && data.success === false) {
+      const reason = data.message || 'the email service needs confirmation';
+      const activating = /activat/i.test(reason);
+      $('#pubStatus').textContent = activating
+        ? 'First time for this email — FormSubmit has emailed an activation link to ' + email + '. Click it, then press "Resend code".'
+        : 'Could not deliver the code right now (' + reason + '). Use Sign in with Google instead.';
+      $('#pubStatus').className = activating ? 'warn' : 'error';
+      $('#pubCodeWrap').classList.remove('hidden');
+      $('#pubVerifyBtn').classList.remove('hidden');
+      $('#pubMailLink').classList.add('hidden');
+      $('#pubSendBtn').textContent = 'Resend code';
+      return;
+    }
+    $('#pubStatus').textContent = 'Code sent to ' + email + '. Check your inbox, then enter it below.';
+    $('#pubStatus').className = 'ok';
+    $('#pubCodeWrap').classList.remove('hidden');
+    $('#pubVerifyBtn').classList.remove('hidden');
+    $('#pubMailLink').classList.add('hidden');
+    $('#pubSendBtn').textContent = 'Resend code';
+  } catch (e) {
+    logDiag('warn', 'pubSendCode failed', { email, message: e.message });
+    $('#pubStatus').textContent = 'Could not email the code (' + e.message + '). Use Sign in with Google instead.';
+    $('#pubStatus').className = 'error';
+    $('#pubMailLink').classList.add('hidden');
+  } finally {
+    btn.disabled = false;
+    if (!btn.textContent.startsWith('Resend')) btn.textContent = 'Send code';
+  }
 }
 
 function pubVerifyCode() {
