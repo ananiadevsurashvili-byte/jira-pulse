@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 <link rel="stylesheet" href="styles.css" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
@@ -421,6 +422,16 @@
         <span id="pubChangelogBadge" class="data-badge ok">✓ changelog</span>
         <button id="pubBackBtn" class="btn btn-ghost" style="margin-left:auto">← Back</button>
       </div>
+
+      <div id="pubLinkBox" class="hidden glass" style="padding:14px 18px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:0.8rem;font-weight:700;white-space:nowrap">🔗 Share link</span>
+          <input id="pubLinkInput" class="input" type="text" readonly style="flex:1;min-width:200px;font-size:0.78rem;font-family:var(--mono);color:var(--muted)" />
+          <button id="pubCopyLinkBtn" class="btn btn-ghost" style="font-size:0.78rem">Copy</button>
+        </div>
+        <div class="muted" style="font-size:0.72rem;margin-top:6px">Only you (admin) can see this link. Viewers authenticate with a @caucasusauto.com Google or email account.</div>
+      </div>
+
       <div id="pubBoardsList" class="pub-charts-grid"></div>
       <div id="pubChartsGrid" class="pub-charts-grid hidden"></div>
     </div>
