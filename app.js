@@ -32,6 +32,300 @@ function escapeHtml(s) {
   }[c]));
 }
 
+/* ── public board publishing (snapshot + email-domain auth) ────────── */
+const LS_PUBLISH = 'jp_publish_v1';
+const PUBLISH_DOMAIN = 'caucasusauto.com';   /* allowed email domain */
+const PUBLISH_TOKEN_LEN = 16;
+
+function loadPublishStore() {
+  try { return JSON.parse(localStorage.getItem(LS_PUBLISH) || '{}'); } catch { return {}; }
+}
+function savePublishStore(s) { localStorage.setItem(LS_PUBLISH, JSON.stringify(s)); }
+
+/* deterministic 6-digit code from token + email */
+function publishCode(token, email) {
+  let h = 0;
+  const s = token + '|' + email.toLowerCase().trim();
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return String(Math.abs(h) % 1000000).padStart(6, '0');
+}
+
+/* is this email in the allowed domain? */
+function publishEmailOk(email) {
+  const e = (email || '').toLowerCase().trim();
+  return e.endsWith('@' + PUBLISH_DOMAIN) && e.split('@')[1] === PUBLISH_DOMAIN;
+}
+
+/* generate a fresh random token */
+function newPublishToken() {
+  const a = new Uint32Array(PUBLISH_TOKEN_LEN);
+  crypto.getRandomValues(a);
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from(a, (x) => chars[x % chars.length]).join('');
+}
+
+/* create a publish snapshot for a board */
+function createPublishSnapshot(boardId, scope) {
+  const board = state.boards.find((b) => b.id === boardId);
+  if (!board) return null;
+  const snapshot = {
+    token: newPublishToken(),
+    boardId,
+    boardName: board.name,
+    scope: scope || 'all',          /* 'all' = every board, or specific boardId */
+    createdAt: Date.now(),
+    issues: state.issues,
+    metrics: state.lastMetrics,
+    charts: effectiveCharts(),
+    hasChangelog: state.hasChangelog,
+  };
+  const store = loadPublishStore();
+  store[snapshot.token] = snapshot;
+  savePublishStore(store);
+  return snapshot;
+}
+
+/* list all snapshots */
+function listPublishSnapshots() {
+  const store = loadPublishStore();
+  return Object.values(store).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/* delete a snapshot */
+function deletePublishSnapshot(token) {
+  const store = loadPublishStore();
+  delete store[token];
+  savePublishStore(store);
+}
+
+/* check if current URL has a share token */
+function parseShareToken() {
+  const u = new URL(location.href);
+  return u.searchParams.get('share');
+}
+
+/* ── public share screen logic ─────────────────────────────────────── */
+let pubState = { snapshot: null, email: '', verified: false, codeSent: false };
+
+/* Google OAuth client id (leave empty to disable Google sign-in) */
+const GOOGLE_CLIENT_ID = '';   /* TODO: set this after configuring in Google Cloud Console */
+
+function googleReady() {
+  return typeof window.google !== 'undefined' && window.google.accounts && window.google.accounts.id;
+}
+
+function initGoogleButton() {
+  if (!GOOGLE_CLIENT_ID || !googleReady()) return;
+  try {
+    window.google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: (resp) => {
+        /* decode the JWT payload to get the email */
+        const payload = decodeJwt(resp.credential);
+        const email = (payload?.email || '').toLowerCase().trim();
+        if (!publishEmailOk(email)) {
+          $('#pubStatus').textContent = 'Access is restricted to @caucasusauto.com accounts.';
+          $('#pubStatus').className = 'error';
+          return;
+        }
+        /* verified Google account in the right domain — grant access */
+        pubState.email = email;
+        pubState.verified = true;
+        $('#pubStatus').textContent = 'Verified via Google. Loading snapshot…';
+        $('#pubStatus').className = 'ok';
+        $('#pubContent').classList.remove('hidden');
+        $('#pubAuthBox').classList.add('hidden');
+        renderPubSnapshot();
+      },
+      context: 'use',
+      ux_mode: 'popup',
+    });
+    window.google.accounts.id.renderButton($( '#pubGoogleBtn'), {
+      theme: 'outline',
+      size: 'large',
+      width: 240,
+      text: 'continue_with',
+      logo_alignment: 'center',
+    });
+  } catch (e) {
+    logDiag('warn', 'Google init failed', { message: e.message });
+  }
+}
+
+function decodeJwt(token) {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = atob(base64);
+    return JSON.parse(json);
+  } catch { return null; }
+}
+
+function showPubScreen(snapshot) {
+  pubState.snapshot = snapshot;
+  pubState.email = '';
+  pubState.verified = false;
+  pubState.codeSent = false;
+
+  $('#pubTitle').textContent = snapshot.boardName + ' — published stats';
+  $('#pubSubtitle').textContent = 'Sign in with your ' + PUBLISH_DOMAIN + ' email to view this board snapshot.';
+  $('#pubEmail').value = '';
+  $('#pubEmail').disabled = false;
+  $('#pubEmail').placeholder = 'you@' + PUBLISH_DOMAIN;
+  $('#pubCodeWrap').classList.add('hidden');
+  $('#pubCode').value = '';
+  $('#pubCode').disabled = false;
+  $('#pubSendBtn').textContent = 'Send code';
+  $('#pubVerifyBtn').textContent = 'Verify';
+  $('#pubVerifyBtn').classList.add('hidden');
+  $('#pubStatus').textContent = '';
+  $('#pubStatus').className = 'muted';
+  $('#pubContent').classList.add('hidden');
+  $('#pubAuthBox').classList.remove('hidden');
+  $('#pubAuthBox').classList.add('glass');
+
+  /* hide app chrome */
+  hide($( '#dashScreen'));
+  hide($( '#boardsScreen'));
+  show($( '#pubScreen'));
+}
+
+function pubSendCode() {
+  const email = $('#pubEmail').value.trim();
+  if (!publishEmailOk(email)) {
+    $('#pubStatus').textContent = 'Please enter a valid @' + PUBLISH_DOMAIN + ' email.';
+    $('#pubStatus').className = 'error';
+    return;
+  }
+  pubState.email = email;
+  const code = publishCode(pubState.snapshot.token, email);
+  pubState.codeSent = true;
+
+  /* show code inline (no backend) and offer mailto link */
+  $('#pubStatus').textContent = 'Your access code: ' + code;
+  $('#pubStatus').className = 'ok';
+  $('#pubCodeWrap').classList.remove('hidden');
+  $('#pubVerifyBtn').classList.remove('hidden');
+  $('#pubSendBtn').textContent = 'Resend code';
+
+  /* mailto link so admin can forward the code */
+  const subject = encodeURIComponent('Your JiraPulse access code');
+  const body = encodeURIComponent('Your access code for ' + pubState.snapshot.boardName + ':\n\n' + code + '\n\nEnter it on the JiraPulse page.');
+  const mailto = 'mailto:' + encodeURIComponent(email) + '?subject=' + subject + '&body=' + body;
+  $('#pubMailLink').href = mailto;
+  show($( '#pubMailLink'));
+}
+
+function pubVerifyCode() {
+  const entered = $('#pubCode').value.trim();
+  const expected = publishCode(pubState.snapshot.token, pubState.email);
+  if (entered === expected) {
+    pubState.verified = true;
+    $('#pubStatus').textContent = 'Verified. Loading snapshot…';
+    $('#pubStatus').className = 'ok';
+    $('#pubContent').classList.remove('hidden');
+    $('#pubAuthBox').classList.add('hidden');
+    renderPubSnapshot();
+  } else {
+    $('#pubStatus').textContent = 'Wrong code. Please try again.';
+    $('#pubStatus').className = 'error';
+  }
+}
+
+function renderPubSnapshot() {
+  const snap = pubState.snapshot;
+  $('#pubTitle').textContent = snap.boardName;
+  $('#pubSubtitle').textContent = 'Snapshot taken ' + new Date(snap.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) +
+    ' · ' + snap.issues.length + ' issues';
+  $('#pubIssueCount').textContent = snap.issues.length + ' issues';
+  $('#pubChangelogBadge').textContent = snap.hasChangelog ? '✓ changelog' : '⚠ no changelog';
+  $('#pubChangelogBadge').className = 'data-badge ' + (snap.hasChangelog ? 'ok' : 'missing');
+
+  /* render charts using the snapshot metrics */
+  const grid = $('#pubChartsGrid');
+  const defs = snap.charts;
+  if (!defs.length) {
+    grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No charts in this snapshot.</div>';
+  } else {
+    grid.innerHTML = defs.map((d) => chartCardHTML(d, false)).join('');
+  }
+  const theme = chartTheme();
+  for (const def of defs) {
+    const canvasId = 'pub_chart_' + def.id;
+    const data = buildChartData(def, snap.metrics);
+    if (data.empty) {
+      drawCanvasMessage(canvasId, Array.isArray(data.empty) ? data.empty : [data.empty]);
+      continue;
+    }
+    mkChart(canvasId, chartConfigFor(def, data, theme, canvasId));
+  }
+}
+
+function hidePubScreen() {
+  hide($( '#pubScreen'));
+  location.href = location.pathname;
+}
+
+/* ── publish modal (admin only) ─────────────────────────────────────── */
+let pubModalState = { mode: 'all' /* 'all' | 'board' */, boardId: null };
+
+function openPublishModal() {
+  if (!state.conn) { toast('Connect to Jira first.', 'warn'); return; }
+  if (!state.boards.length) { toast('No boards loaded yet.', 'warn'); return; }
+
+  const allSnapshots = listPublishSnapshots();
+  $('#pubListBody').innerHTML = allSnapshots.length
+    ? allSnapshots.map((s) => `<tr>
+        <td>${escapeHtml(s.boardName)}</td>
+        <td>${s.scope === 'all' ? 'all boards' : 'this board'}</td>
+        <td>${new Date(s.createdAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</td>
+        <td><span class="mono">${escapeHtml(s.token)}</span></td>
+        <td>
+          <button class="link-btn" data-copy="${escapeHtml(s.token)}">copy link</button>
+          <button class="link-btn" data-open="${s.token}">open</button>
+          <button class="link-btn" data-del="${s.token}" style="color:#f87171">delete</button>
+        </td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" class="muted" style="text-align:center;padding:14px">No published snapshots yet.</td></tr>';
+
+  $('#pubListBody').querySelectorAll('[data-copy]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const token = b.dataset.copy;
+      const link = location.origin + location.pathname + '?share=' + token;
+      navigator.clipboard.writeText(link).then(() => toast('Link copied to clipboard.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
+    });
+  });
+  $('#pubListBody').querySelectorAll('[data-open]').forEach((b) => {
+    b.addEventListener('click', () => {
+      window.open(location.origin + location.pathname + '?share=' + b.dataset.open, '_blank');
+    });
+  });
+  $('#pubListBody').querySelectorAll('[data-del]').forEach((b) => {
+    b.addEventListener('click', () => {
+      deletePublishSnapshot(b.dataset.del);
+      openPublishModal();
+      toast('Snapshot deleted.', 'ok');
+    });
+  });
+
+  $('#pubBoardSelect').innerHTML = state.boards.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
+    $('#pubBoardSelect').parentElement.classList.add('hidden');
+    $('#pubCreateBtn').textContent = 'Create snapshot';
+    $('#pubModalTitle').textContent = 'Publish board stats';
+    show($( '#pubModal'));
+}
+
+function createSnapshotFromModal() {
+  const scope = $( '#pubScope').querySelector('button.active').dataset.v;
+  const boardId = scope === 'all' ? state.boardId : parseInt($( '#pubBoardSelect').value, 10);
+  if (!boardId) { toast('Select a board first.', 'warn'); return; }
+  const snap = createPublishSnapshot(boardId, scope);
+  if (!snap) { toast('Could not create snapshot.', 'warn'); return; }
+  const link = location.origin + location.pathname + '?share=' + snap.token;
+  navigator.clipboard.writeText(link).then(() => toast('Snapshot created — link copied.', 'ok')).catch(() => toast('Snapshot created. Token: ' + snap.token, 'ok'));
+  hide($( '#pubModal'));
+  openPublishModal();
+}
+
 function safeData(value) {
   return JSON.parse(JSON.stringify(value ?? null, (key, val) => {
     const k = String(key || '').toLowerCase();
@@ -437,6 +731,15 @@ async function searchIssuesByJql(jql, withChangelog = false) {
 }
 
 /* ── dashboard ───────────────────────────────────────────────────── */
+/* detect whether an issues list actually has changelog data */
+function hasChangelogData(issues) {
+  if (!issues || !issues.length) return false;
+  for (const iss of issues) {
+    if (iss.changelog && iss.changelog.histories && iss.changelog.histories.length) return true;
+  }
+  return false;
+}
+
 async function loadBoardIssues(board) {
   state.hasChangelog = true;
   state.boardLoadMeta = { source: '', note: '' };
@@ -447,6 +750,9 @@ async function loadBoardIssues(board) {
       name: 'agile-changelog',
       run: () => fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}&expand=changelog`, 600),
       onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Agile board issues + changelog', note: '' }; },
+      /* verify the result actually has changelog; if not, keep trying */
+      verify: (issues) => hasChangelogData(issues),
+      onVerifyFail: { source: 'Agile board issues (no changelog)', note: 'Changelog expansion returned no history. Trying alternative strategy.' },
     },
     {
       name: 'agile-basic',
@@ -462,6 +768,8 @@ async function loadBoardIssues(board) {
       name: 'search-filter-jql-changelog',
       run: () => searchIssuesByJql(ctx.filterJql, true),
       onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Board filter JQL + changelog', note: 'Used Jira issue search based on the board filter.' }; },
+      verify: (issues) => hasChangelogData(issues),
+      onVerifyFail: { source: 'Board filter JQL (no changelog)', note: 'Search returned issues but no changelog history. Trying alternative strategy.' },
     }] : []),
     ...(ctx.filterJql ? [{
       name: 'search-filter-jql-basic',
@@ -485,11 +793,19 @@ async function loadBoardIssues(board) {
     try {
       logDiag('info', 'Board load attempt', { boardId: board.id, strategy: attempt.name });
       const issues = await attempt.run();
+      /* if this strategy claims changelog, verify the data really has it */
+      if (attempt.verify && !attempt.verify(issues)) {
+        logDiag('warn', 'Strategy returned no changelog data, trying next', { strategy: attempt.name });
+        if (attempt.onVerifyFail) state.boardLoadMeta = { source: attempt.onVerifyFail.source, note: attempt.onVerifyFail.note };
+        lastErr = new Error(`${attempt.name}: no changelog in response`);
+        continue;
+      }
       attempt.onSuccess();
       logDiag('info', 'Board load succeeded', {
         boardId: board.id,
         strategy: attempt.name,
         issues: issues.length,
+        hasChangelog: state.hasChangelog,
         source: state.boardLoadMeta,
       });
       return issues;
@@ -1774,6 +2090,45 @@ document.addEventListener('DOMContentLoaded', () => {
   ['#cMetric', '#cGroup', '#cType'].forEach((sel) => {
     $(sel).addEventListener('change', syncChartForm);
   });
+
+  /* publish modal wiring */
+  $('#publishBtn').addEventListener('click', openPublishModal);
+  $('#closePubBtn').addEventListener('click', () => hide($( '#pubModal')));
+  $('#pubModal').addEventListener('click', (ev) => {
+    if (ev.target === $( '#pubModal')) hide($( '#pubModal'));
+  });
+  $('#pubCreateBtn').addEventListener('click', createSnapshotFromModal);
+  $( '#pubScope').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button');
+    if (!btn) return;
+    $( '#pubScope').querySelectorAll('button').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    const scope = btn.dataset.v;
+    $( '#pubBoardSelectWrap').classList.toggle('hidden', scope !== 'board');
+  });
+
+  /* public share screen wiring */
+  $('#pubSendBtn').addEventListener('click', pubSendCode);
+  $('#pubVerifyBtn').addEventListener('click', pubVerifyCode);
+  $('#pubBackBtn').addEventListener('click', hidePubScreen);
+  $('#pubEmail').addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') pubSendCode();
+  });
+  $('#pubCode').addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') pubVerifyCode();
+  });
+
+  /* check for share token on load */
+  const shareToken = parseShareToken();
+  if (shareToken) {
+    const store = loadPublishStore();
+    const snap = store[shareToken];
+    if (snap) showPubScreen(snap);
+    else {
+      toast('This published link is no longer available.', 'warn');
+      location.href = location.pathname;
+    }
+  }
 
   // restore previous session silently
   const saved = loadConn();
