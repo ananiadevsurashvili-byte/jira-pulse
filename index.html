@@ -116,7 +116,10 @@
         <h2 id="dashBoardName">—</h2>
         <span id="issueCountBadge" class="badge"></span>
       </div>
-      <span id="proxyBadge" class="badge badge-warn hidden" title="Requests are being routed through a public CORS proxy because your browser blocked direct calls to Jira">via CORS proxy</span>
+      <div class="dash-head-right">
+        <span id="proxyBadge" class="badge badge-warn hidden" title="Requests are being routed through a public CORS proxy because your browser blocked direct calls to Jira">via CORS proxy</span>
+        <button id="addChartBtn" class="btn btn-primary" title="Build a custom chart for this board">＋ New chart</button>
+      </div>
     </div>
 
     <div class="kpi-grid">
@@ -154,49 +157,8 @@
 
     <div id="insightsStrip" class="insights-strip hidden"></div>
 
-    <div class="charts-grid">
-      <div class="card glass chart-card wide">
-        <div class="chart-head">
-          <h3>Incoming vs completed</h3>
-          <span class="chart-sub">registered vs resolved · weekly · last 6 months</span>
-        </div>
-        <div class="canvas-wrap"><canvas id="pipelineChart"></canvas></div>
-      </div>
-      <div class="card glass chart-card">
-        <div class="chart-head">
-          <h3>Stakeholder vs team delays</h3>
-        </div>
-        <span class="chart-sub chart-sub-block" id="phaseDelaysSub">average days parked per stage · from changelog</span>
-        <div class="canvas-wrap"><canvas id="phaseDelaysChart"></canvas></div>
-      </div>
-      <div class="card glass chart-card">
-        <div class="chart-head">
-          <h3>Active bottlenecks</h3>
-          <span class="chart-sub">where open work is right now</span>
-        </div>
-        <div class="canvas-wrap"><canvas id="bottleneckChart"></canvas></div>
-      </div>
-      <div class="card glass chart-card">
-        <div class="chart-head">
-          <h3>Status distribution</h3>
-        </div>
-        <div class="canvas-wrap"><canvas id="statusChart"></canvas></div>
-      </div>
-      <div class="card glass chart-card">
-        <div class="chart-head">
-          <h3>Average time per status</h3>
-          <span class="chart-sub">lifetime · from changelog</span>
-        </div>
-        <div class="canvas-wrap"><canvas id="statusTimeChart"></canvas></div>
-      </div>
-      <div class="card glass chart-card wide">
-        <div class="chart-head">
-          <h3>Weekly throughput</h3>
-          <span class="chart-sub">resolved per week · last 12 weeks</span>
-        </div>
-        <div class="canvas-wrap"><canvas id="throughputChart"></canvas></div>
-      </div>
-    </div>
+    <div id="chartsGrid" class="charts-grid"></div>
+    <div id="hiddenChartsStrip" class="hidden-charts-strip hidden"></div>
 
     <div class="card glass table-card">
       <h3>Longest sitting in current status <span class="muted small">· open work</span></h3>
@@ -246,6 +208,106 @@
       <span class="spacer"></span>
       <button id="closeDebugBtn" class="btn btn-ghost">Close</button>
       <button id="copyDebugBtn" class="btn btn-primary">Copy log</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ CHART BUILDER MODAL ══════════ -->
+<div id="chartModal" class="modal-overlay hidden">
+  <div class="modal glass modal-wide">
+    <h3 id="chartModalTitle">New chart</h3>
+
+    <label>Chart title
+      <input id="cTitle" class="input" type="text" placeholder="e.g. Bugs created per week" />
+    </label>
+
+    <div class="form-row">
+      <div class="form-col">
+        <span class="seg-label">Chart type</span>
+        <div id="cType" class="seg"></div>
+      </div>
+      <div class="form-col">
+        <span class="seg-label">Applies to</span>
+        <div id="cScope" class="seg"></div>
+      </div>
+    </div>
+
+    <label>Metric
+      <select id="cMetric" class="input"></select>
+    </label>
+
+    <label id="cGroupWrap" class="hidden">
+      <span class="seg-label">Group by</span>
+      <select id="cGroup" class="input"></select>
+    </label>
+
+    <div class="form-row">
+      <label id="cRangeWrap" class="form-col">
+        <span class="seg-label">Time range</span>
+        <select id="cRange" class="input"></select>
+      </label>
+      <label id="cBucketWrap" class="form-col hidden">
+        <span class="seg-label">Bucket</span>
+        <select id="cBucket" class="input">
+          <option value="day">Day</option>
+          <option value="week" selected>Week</option>
+          <option value="month">Month</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="form-row">
+      <label id="cFilterWrap" class="form-col hidden">
+        <span class="seg-label">Filter</span>
+        <select id="cFilter" class="input">
+          <option value="all" selected>All issues</option>
+          <option value="open">Open only</option>
+          <option value="done">Done only</option>
+        </select>
+      </label>
+      <label id="cSplitWrap" class="form-col hidden">
+        <span class="seg-label">Split</span>
+        <select id="cSplit" class="input">
+          <option value="none" selected>None</option>
+          <option value="stage">Stakeholder vs team</option>
+        </select>
+      </label>
+      <label id="cTopWrap" class="form-col hidden">
+        <span class="seg-label">Max groups</span>
+        <select id="cTop" class="input">
+          <option value="5">5</option>
+          <option value="8" selected>8</option>
+          <option value="10">10</option>
+          <option value="15">15</option>
+          <option value="20">20</option>
+        </select>
+      </label>
+      <label id="cColorWrap" class="form-col hidden">
+        <span class="seg-label">Accent</span>
+        <select id="cColor" class="input">
+          <option value="indigo" selected>Indigo</option>
+          <option value="cyan">Cyan</option>
+          <option value="green">Green</option>
+          <option value="amber">Amber</option>
+          <option value="violet">Violet</option>
+          <option value="pink">Pink</option>
+        </select>
+      </label>
+    </div>
+
+    <label class="switch-row">
+      <input id="cWide" type="checkbox" />
+      <span>Full-width chart</span>
+    </label>
+
+    <p id="scopeNote" class="muted small">This is a built-in chart. Editing it here updates it for <b>all boards</b>.</p>
+
+    <div class="modal-actions">
+      <button id="deleteChartBtn" class="btn btn-danger-ghost hidden">Delete</button>
+      <button id="resetChartBtn" class="btn btn-ghost hidden">Reset to default</button>
+      <span class="spacer"></span>
+      <button id="closeChartBtn" class="btn btn-ghost">Close</button>
+      <button id="saveChartBtn" class="btn btn-primary">Save chart</button>
     </div>
   </div>
 </div>
