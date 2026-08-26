@@ -104,9 +104,12 @@ body {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
-.brand { display: flex; align-items: center; gap: 10px; font-size: 1.05rem; font-weight: 500; letter-spacing: -0.01em; }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 1.05rem; font-weight: 500; letter-spacing: -0.01em; cursor: pointer; user-select: none; }
+.brand:hover { opacity: 0.85; }
 .brand b { background: linear-gradient(135deg, #818cf8, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 800; }
+.admin-badge { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: rgba(99,102,241,.18); color: #a5b4fc; border: 1px solid rgba(99,102,241,.35); }
 .topbar-center { display: flex; align-items: center; gap: 10px; flex: 1; justify-content: center; }
+.header-title { font-size: 0.85rem; font-weight: 700; color: var(--text); letter-spacing: 0.01em; white-space: nowrap; }
 .topbar-right { display: flex; align-items: center; gap: 8px; }
 .board-select { max-width: 300px; min-width: 190px; }
 
@@ -205,6 +208,9 @@ body {
   box-shadow: 0 16px 40px rgba(67, 56, 202, 0.35);
 }
 .board-card h3 { font-size: 1.02rem; font-weight: 700; margin-bottom: 8px; word-break: break-word; }
+.board-card-head { display: flex; align-items: flex-start; gap: 10px; justify-content: space-between; }
+.board-copy-link { font-size: 0.9rem; opacity: 0.7; padding: 4px 6px; border-radius: 8px; }
+.board-copy-link:hover { opacity: 1; background: rgba(99,102,241,.12); }
 .board-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .chip {
   font-size: 0.68rem;
