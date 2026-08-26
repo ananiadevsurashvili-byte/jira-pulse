@@ -460,19 +460,29 @@ body {
 /* ── dash-head right group ── */
 .dash-head-right { display: flex; align-items: center; gap: 10px; }
 
-/* ── chart card actions ── */
-.chart-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s ease; }
+/* ── chart card ── */
+.chart-card { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.chart-card:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0,0,0,0.18); }
+.chart-card.wide { grid-column: span 2; }
+
+.chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.chart-titles { flex: 1; min-width: 0; }
+.chart-titles h3 { font-size: 0.95rem; font-weight: 700; color: var(--text); margin: 0 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chart-sub { font-size: 0.72rem; color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.chart-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s ease; flex-shrink: 0; }
 .chart-card:hover .chart-actions { opacity: 1; }
 .chart-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 8px;
   background: var(--panel); border: 1px solid var(--border);
   color: var(--muted); font-size: 0.85rem; cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.1s ease;
 }
-.chart-btn:hover { background: var(--panel-strong); border-color: var(--border-strong); color: var(--text); }
+.chart-btn:hover { background: var(--panel-strong); border-color: var(--border-strong); color: var(--text); transform: scale(1.05); }
 .chart-btn[data-act="del"]:hover { background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.4); color: #fca5a5; }
 .chart-btn[data-act="hide"]:hover { background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.4); color: #fcd34d; }
+.chart-btn[data-act="reset"]:hover { background: rgba(139, 92, 246, 0.1); border-color: rgba(139, 92, 246, 0.4); color: #c4b5fd; }
 
 .scope-chip {
   display: inline-flex; align-items: center; gap: 4px;
@@ -480,6 +490,7 @@ body {
   font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
   background: rgba(34, 211, 238, 0.1); color: #67e8f9; border: 1px solid rgba(34, 211, 238, 0.3);
 }
+.scope-chip.global { background: rgba(139, 92, 246, 0.1); color: #c4b5fd; border-color: rgba(139, 92, 246, 0.3); }
 
 /* ── segmented control ── */
 .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 2px; }
@@ -497,6 +508,14 @@ body {
 .form-col { display: flex; flex-direction: column; gap: 6px; }
 @media (max-width: 1100px) { .form-row { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 720px) { .form-row { grid-template-columns: 1fr; } }
+
+/* form labels and inputs in modal */
+.modal label { display: flex; flex-direction: column; gap: 6px; }
+.modal .seg-label { margin-bottom: 4px; }
+.modal .input { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.85rem; transition: border-color 0.12s ease, box-shadow 0.12s ease; }
+.modal .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15); }
+.modal .switch-row { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; color: var(--muted); cursor: pointer; }
+.modal .switch-row input { width: 18px; height: 18px; accent-color: var(--accent); }
 
 /* ── link buttons (hidden charts strip) ── */
 .link-btn {
@@ -516,3 +535,24 @@ body {
   border-radius: 11px; color: #fcd34d; font-size: 0.78rem; font-weight: 500;
 }
 .hidden-charts-strip .muted { color: #a9965a; }
+
+/* ── modal improvements ── */
+.modal-wide { max-width: 720px; }
+.modal .form-row { margin-top: 4px; }
+#subtitleHint { transition: opacity 0.15s ease; }
+
+/* ── chart canvas wrapper ── */
+.canvas-wrap { position: relative; min-height: 220px; }
+.canvas-wrap canvas { width: 100% !important; height: 100% !important; }
+
+/* ── empty state ── */
+.chart-card.empty .canvas-wrap { display: flex; align-items: center; justify-content: center; min-height: 180px; }
+.chart-card.empty .canvas-wrap::before {
+  content: attr(data-empty); color: var(--muted); font-size: 0.85rem; text-align: center; padding: 20px; line-height: 1.5;
+}
+
+/* ── data availability badge ── */
+.data-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 0.62rem; font-weight: 600; margin-left: 8px; }
+.data-badge.ok { background: rgba(52, 211, 153, 0.1); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); }
+.data-badge.warn { background: rgba(251, 191, 36, 0.1); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
+.data-badge.missing { background: rgba(248, 113, 113, 0.1); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.3); }
