@@ -889,13 +889,36 @@ function enterApp() {
   $('#proxyToggle').checked = !!state.conn.useProxy;
   /* show the Admin badge when in the admin panel */
   if (ADMIN_PANEL) { $('#adminBadge').classList.remove('hidden'); }
+  /* show/hide admin-only controls (publish / new chart) based on context */
+  syncAdminControls();
   /* route to the current hash (#/ or #/board/<id>) — bootstrap boards */
   route();
 }
 
-/* unique shareable link for a board (used for the 🔗 copy button + router) */
+/* unique shareable link for a board (used for the 🔗 copy button + router).
+   When we're inside the /admin/ panel, the copy-link must still point to the
+   *public* app root (e.g. .../jira-pulse/#/board/1), never .../admin/#/board/1. */
 function boardLink(boardId) {
-  return location.origin + location.pathname + '#/board/' + boardId;
+  const path = location.pathname.replace(/\/admin\/?$/i, '').replace(/\/+$/, '') + '/';
+  return location.origin + path + '#/board/' + boardId;
+}
+
+/* are modify/publish operations allowed in this context?
+   Only true in the dedicated /admin/ panel, or when the connected Jira user
+   is the admin account. Regular org viewers are read-only. */
+function canModify() {
+  if (ADMIN_PANEL) return true;
+  const email = (state.conn && state.conn.email) || '';
+  return isAdminEmail(email);
+}
+
+/* hide/show all admin-only controls in the topbar + board/dashboard headers */
+function syncAdminControls() {
+  const modify = canModify();
+  ['publishAllBtn', 'publishBtn', 'addChartBtn'].forEach((id) => {
+    const el = $('#'.concat(id));
+    if (el) el.style.display = modify ? '' : 'none';
+  });
 }
 
 /* open a board's dashboard from a board object (keeps URL in sync) */
@@ -939,6 +962,7 @@ function syncHeaderState() {
     label.style.display = 'none';
     backBtn.style.display = 'none';
   }
+  syncAdminControls();
 }
 
 /* hash router — #/ = all boards, #/board/<id> = a specific board */
@@ -1761,12 +1785,14 @@ function chartCardHTML(def, overridden) {
   const scopeChip = def.builtin
     ? ''
     : `<span class="scope-chip${scopeClass}">${def.scope === 'global' ? 'all boards' : 'this board'}</span>`;
-  const actions = def.builtin
-    ? `<button class="chart-btn" data-act="edit" data-id="${def.id}" title="Configure this chart">✎</button>` +
-      (overridden ? `<button class="chart-btn" data-act="reset" data-id="${def.id}" title="Reset to default">↺</button>` : '') +
-      `<button class="chart-btn" data-act="hide" data-id="${def.id}" title="Hide this chart">✕</button>`
-    : `<button class="chart-btn" data-act="edit" data-id="${def.id}" title="Configure this chart">✎</button>` +
-      `<button class="chart-btn" data-act="del" data-id="${def.id}" title="Delete this chart">🗑</button>`;
+  const actions = canModify()
+    ? (def.builtin
+        ? `<button class="chart-btn" data-act="edit" data-id="${def.id}" title="Configure this chart">✎</button>` +
+          (overridden ? `<button class="chart-btn" data-act="reset" data-id="${def.id}" title="Reset to default">↺</button>` : '') +
+          `<button class="chart-btn" data-act="hide" data-id="${def.id}" title="Hide this chart">✕</button>`
+        : `<button class="chart-btn" data-act="edit" data-id="${def.id}" title="Configure this chart">✎</button>` +
+          `<button class="chart-btn" data-act="del" data-id="${def.id}" title="Delete this chart">🗑</button>`)
+    : '';
   return `<div class="card glass chart-card${def.wide ? ' wide' : ''}" data-cid="${def.id}">
     <div class="chart-head">
       <div class="chart-titles">
