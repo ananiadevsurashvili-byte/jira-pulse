@@ -261,9 +261,57 @@ body {
   margin-bottom: 18px;
 }
 .card { padding: 20px 22px; }
-.chart-card h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 14px; letter-spacing: -0.01em; }
+.chart-card { transition: border-color 0.16s ease, transform 0.16s ease; }
+.chart-card:hover { border-color: var(--border-strong); }
+.chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 13px;
+}
+.chart-card h3 { font-size: 0.95rem; font-weight: 700; letter-spacing: -0.01em; }
+.chart-sub { font-size: 0.72rem; color: var(--muted); font-weight: 500; }
+.chart-sub-block { display: block; margin: -6px 0 12px; }
+.chart-sub b { color: var(--text); }
 .wide { grid-column: span 2; }
 .canvas-wrap { position: relative; height: 280px; }
+
+/* ── insights strip ── */
+.insights-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.insight {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 16px;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: #c7cde2;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  animation: rise 0.45s ease both;
+}
+.insight:hover { border-color: var(--border-strong); }
+.ins-icon { font-size: 1.05rem; flex-shrink: 0; }
+.insight b { color: var(--text); }
+.ins-good b { color: #6ee7b7; }
+.ins-warn b { color: #fcd34d; }
+.ins-bad b { color: #fca5a5; }
+
+/* ── trend badges (KPI deltas) ── */
+.trend { font-weight: 700; font-size: 0.73rem; letter-spacing: 0.01em; }
+.trend-good { color: #6ee7b7; }
+.trend-bad { color: #fca5a5; }
+.trend-flat { color: #93c5fd; }
 
 /* ── table ── */
 .table-card h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 14px; }
@@ -288,6 +336,25 @@ body {
 .age-hot { color: #fca5a5; font-weight: 700; }
 .age-warm { color: #fcd34d; font-weight: 600; }
 .type-chip { font-size: 0.72rem; color: var(--muted); }
+.age-bar {
+  height: 5px;
+  width: 110px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.age-bar i { display: block; height: 100%; border-radius: 999px; }
+
+/* ── footer ── */
+.site-footer {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.74rem;
+  padding: 10px 20px 34px;
+}
 
 /* ── error banner ── */
 .error-banner {
