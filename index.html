@@ -3,18 +3,18 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>JiraPulse · Delivery Insights Dashboard</title>
-<meta name="description" content="Beautiful analytics dashboard for your Jira boards — status aging, throughput, cycle time and more." />
+<title>JiraPulse · Admin panel</title>
+<meta name="description" content="Admin panel for JiraPulse — publish each board, manage snapshots and public links." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="../styles.css" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
-<body>
+<body class="admin-body">
 <div class="orb orb-a" aria-hidden="true"></div>
 <div class="orb orb-b" aria-hidden="true"></div>
 <div class="orb orb-c" aria-hidden="true"></div>
@@ -22,10 +22,10 @@
 <!-- ══════════ TOP BAR ══════════ -->
 <header id="topbar" class="topbar hidden">
   <div class="brand" id="brandBtn" role="button" tabindex="0" title="Go to all boards">
-    <svg viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="8" fill="url(#lg)"/><defs><linearGradient id="lg" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M6 21l4-7 4 5 5-10 7 12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="8" fill="url(#lgA)"/><defs><linearGradient id="lgA" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M6 21l4-7 4 5 5-10 7 12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <span>Jira<b>Pulse</b></span>
-    <span id="adminBadge" class="admin-badge hidden">Admin</span>
-    <span id="orgBadge" class="admin-badge org-badge hidden">Org</span>
+    <span id="adminBadge" class="admin-badge">Admin</span>
+    <span class="admin-ribbon">⚙ Management</span>
   </div>
   <div class="topbar-center">
     <span id="allBoardsLabel" class="header-title">All boards</span>
@@ -36,6 +36,7 @@
     </button>
   </div>
   <div class="topbar-right">
+    <a class="btn btn-ghost" href="../" title="Open the public app (not the admin panel)">Public view</a>
     <span id="syncedAt" class="muted small"></span>
     <button id="openDebugBtn" class="btn btn-ghost" title="Open diagnostics log">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M12 4h9"/><path d="M4 9h16"/><path d="M4 15h16"/><path d="M8 4v16"/></svg>
@@ -63,9 +64,9 @@
   <!-- ══════════ SETUP SCREEN ══════════ -->
   <section id="setupScreen">
     <div class="hero glass">
-      <svg class="hero-logo" viewBox="0 0 32 32" width="56" height="56"><rect width="32" height="32" rx="8" fill="url(#lg2)"/><defs><linearGradient id="lg2" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M6 21l4-7 4 5 5-10 7 12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <h1>Your Jira,<br /><span class="grad-text">beautifully visualized.</span></h1>
-      <p class="lead">Connect with your Jira API token to get instant delivery insights — how long tasks sit in each status, what shipped in the last 30&nbsp;days, team throughput and more. Credentials never leave your browser.</p>
+      <svg class="hero-logo" viewBox="0 0 32 32" width="56" height="56"><rect width="32" height="32" rx="8" fill="url(#lg2A)"/><defs><linearGradient id="lg2A" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M6 21l4-7 4 5 5-10 7 12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h1>Admin panel<br /><span class="grad-text">Manage your deliverable stats.</span></h1>
+      <p class="lead">This is the <b>JiraPulse admin panel</b>. Connect your Jira account to publish board stats, generate shareable links, and control what your organization can see. Your credentials never leave this browser.</p>
       <form id="connectForm" autocomplete="off">
         <div class="field-row">
           <label>Jira site
@@ -91,7 +92,7 @@
           <li>Click <b>Create API token</b>, give it a name and copy the value</li>
           <li>Paste your site address, account email and token above</li>
         </ol>
-        <p class="muted small">This app runs fully client-side. Your credentials are stored only in this browser's local storage and sent directly (or via optional CORS proxy) to your Jira site.</p>
+        <p class="muted small">This admin panel runs fully client-side. Your credentials are stored only in this browser's local storage and sent directly (or via optional CORS proxy) to your Jira site.</p>
       </details>
     </div>
   </section>
@@ -101,7 +102,7 @@
     <div class="screen-head dash-head">
       <div>
         <h2>Choose a board</h2>
-        <p class="muted">Synced straight from your Jira instance. Click any card to open its analytics dashboard.</p>
+        <p class="muted">Synced straight from your Jira instance. Click any card to open its admin dashboard.</p>
       </div>
       <div class="dash-head-right">
         <button id="publishAllBtn" class="btn btn-primary" title="Publish all boards to your organization">⟳ Publish all</button>
@@ -184,7 +185,7 @@
 </main>
 
 <footer class="site-footer">
-  JiraPulse · client-side delivery analytics — your credentials never leave this browser
+  JiraPulse · admin panel — your credentials never leave this browser
 </footer>
 
 <!-- ══════════ SETTINGS MODAL ══════════ -->
@@ -375,7 +376,7 @@
   </div>
 </div>
 
-<div id="pubScreen" class="hidden" style="position:fixed;inset:0;z-index:9000;background:var(--bg);overflow:auto">
+<div id="pubScreen" class="hidden" style="position:fixed;inset:0;z-index:9000;overflow:auto">
   <div class="dash-wrap">
     <div class="glass" style="padding:28px;margin-bottom:20px">
       <div style="display:flex;align-items:flex-start;gap:14px;justify-content:space-between;flex-wrap:wrap">
@@ -443,6 +444,7 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js"></script>
+<script>window.ADMIN_PANEL = true;</script>
+<script src="../app.js"></script>
 </body>
 </html>

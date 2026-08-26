@@ -25,6 +25,7 @@ const state = {
   boardLoadMeta: null,
   lastBoard: null,     // last board object, for re-rendering charts after edits
   lastMetrics: null,   // cached computeMetrics() result for the last board
+  inShareScreen: false, // true while the public share overlay (#pubScreen) is open
 };
 
 function show(el) { el.classList.remove('hidden'); }
@@ -36,6 +37,12 @@ function escapeHtml(s) {
   }[c]));
 }
 
+/* the public app root path — always strips a trailing /admin/ so share links and
+   board links built anywhere (admin panel included) point at the *public* app. */
+function publicRootPath() {
+  return location.pathname.replace(/\/admin\/?$/i, '').replace(/\/+$/, '') + '/';
+}
+
 /* ── public board publishing (snapshot + email-domain auth) ────────── */
 const LS_PUBLISH = 'jp_publish_v1';
 const PUBLISH_DOMAIN = 'caucasusauto.com';   /* allowed email domain */
@@ -45,6 +52,15 @@ const ADMIN_EMAIL = 'anania.devsurashvili@caucasusauto.com';  /* the JiraPulse a
 /* is this email the admin? */
 function isAdminEmail(email) {
   return (email || '').toLowerCase().trim() === ADMIN_EMAIL;
+}
+
+/* admin powers are granted ONLY inside the dedicated /admin/ panel.
+   On the public app (root URL / share links) everyone — including the admin
+   account — is treated as a regular org viewer, so the admin can test the
+   exact user experience. */
+function orgIsAdmin(email) {
+  if (!ADMIN_PANEL) return false;
+  return isAdminEmail(email);
 }
 
 function loadPublishStore() {
@@ -208,10 +224,11 @@ function decodeSharePayload(compressed) {
   }
 }
 
-/* build a share URL from a snapshot (self-contained, works on any device) */
+/* build a share URL from a snapshot (self-contained, works on any device).
+   Always points at the public app root (never /admin/) so the link opens for viewers. */
 function buildShareUrl(snap) {
   const payload = encodeSharePayload(snap);
-  return location.origin + location.pathname + '#p=' + payload;
+  return location.origin + publicRootPath() + '#p=' + payload;
 }
 
 /* check if current URL is a self-contained share link */
@@ -403,6 +420,7 @@ function showPubScreen(snapshot) {
   hide($( '#topbar'));
   hide($( '#dashScreen'));
   hide($( '#boardsScreen'));
+  state.inShareScreen = true;
   show($( '#pubScreen'));
 }
 
@@ -515,9 +533,12 @@ function pubVerifyCode() {
 
 function renderPubContent() {
   const snap = pubState.snapshot;
-  const admin = pubState.isAdmin;
+  /* admin powers on the public share view are granted ONLY when inside the /admin/
+     panel. On the public app the admin account is treated like any org member, so it
+     can test the exact user experience (no admin bar, no manage/publish button). */
+  const admin = pubState.isAdmin && ADMIN_PANEL;
 
-  /* admin bar — visible only to the admin */
+  /* admin bar — visible only to the admin INSIDE the admin panel */
   const adminBar = $('#pubAdminBar');
   if (admin) {
     adminBar.classList.remove('hidden');
@@ -642,6 +663,7 @@ function openBoardSnapshot(boardRec) {
 }
 
 function hidePubScreen() {
+  state.inShareScreen = false;
   hide($( '#pubScreen'));
   /* clear the #p= hash so the URL no longer points to the share, then reload app */
   if (location.hash) location.hash = '';
@@ -724,7 +746,7 @@ function openPublishModal() {
     b.addEventListener('click', () => {
       const token = b.dataset.copy;
       const snap = allSnapshots.find((s) => s.token === token);
-      const link = snap ? buildShareUrl(snap) : (location.origin + location.pathname + '?share=' + token);
+      const link = snap ? buildShareUrl(snap) : (location.origin + publicRootPath() + '?share=' + token);
       navigator.clipboard.writeText(link).then(() => toast('Link copied to clipboard.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
     });
   });
@@ -732,7 +754,7 @@ function openPublishModal() {
     b.addEventListener('click', () => {
       const token = b.dataset.open;
       const snap = allSnapshots.find((s) => s.token === token);
-      const link = snap ? buildShareUrl(snap) : (location.origin + location.pathname + '?share=' + token);
+      const link = snap ? buildShareUrl(snap) : (location.origin + publicRootPath() + '?share=' + token);
       window.open(link, '_blank');
     });
   });
@@ -1046,17 +1068,18 @@ function enterApp() {
    When we're inside the /admin/ panel, the copy-link must still point to the
    *public* app root (e.g. .../jira-pulse/#/board/1), never .../admin/#/board/1. */
 function boardLink(boardId) {
-  const path = location.pathname.replace(/\/admin\/?$/i, '').replace(/\/+$/, '') + '/';
-  return location.origin + path + '#/board/' + boardId;
+  return location.origin + publicRootPath() + '#/board/' + boardId;
 }
 
 /* are modify/publish operations allowed in this context?
    Only true in the dedicated /admin/ panel, or when the connected Jira user
    is the admin account. Regular org viewers are read-only. */
 function canModify() {
+  if (state.inShareScreen) return false;   /* share viewers are always read-only */
   if (ADMIN_PANEL) return true;
+  /* outside the admin panel everyone — even the admin — is a read-only org viewer */
   const email = (state.conn && state.conn.email) || '';
-  return isAdminEmail(email);
+  return orgIsAdmin(email);
 }
 
 /* hide/show all admin-only controls in the topbar + board/dashboard headers */
@@ -1163,8 +1186,7 @@ function adminRedirectUrl() {
   if (ADMIN_PANEL) return null;
   if (!state.conn || !isAdminEmail(state.conn.email)) return null;
   if (location.hash && location.hash.startsWith('#p=')) return null;
-  const path = location.pathname.replace(/\/admin\/?$/i, '').replace(/\/+$/, '') + '/';
-  return location.origin + path.replace(/\/$/, '') + '/admin/';
+  return location.origin + publicRootPath() + 'admin/';
 }
 
 /* ── connect flow ────────────────────────────────────────────────── */
@@ -1995,8 +2017,9 @@ function chartConfigFor(def, data, theme, canvasId) {
       },
       options: {
         responsive: true, maintainAspectRatio: false, cutout: def.centerTotal ? '68%' : '62%',
+        layout: { padding: 4 },
         plugins: {
-          legend: { position: 'right', labels: { boxWidth: 9, boxHeight: 9, usePointStyle: true, padding: 12 } },
+          legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, padding: 12, font: { size: 11 } } },
           tooltip: {
             ...theme.plugins.tooltip,
             callbacks: {
@@ -2053,7 +2076,8 @@ function chartConfigFor(def, data, theme, canvasId) {
         backgroundColor: multi ? ds.color + 'cc' : (data.colors && data.colors.length === data.labels.length ? data.colors : ds.color + 'cc'),
         hoverBackgroundColor: multi ? ds.color : (data.colors && data.colors.length === data.labels.length ? data.colors : ds.color),
         borderRadius: 7, borderSkipped: false,
-        barPercentage: multi ? 0.6 : 0.72, categoryPercentage: 0.74,
+        barPercentage: multi ? 0.58 : 0.68, categoryPercentage: 0.72,
+        maxBarThickness: 46,
       })),
     },
     options: {
@@ -2065,10 +2089,13 @@ function chartConfigFor(def, data, theme, canvasId) {
       },
       scales: isH
         ? {
-            x: { ...theme.scales.x, ...(dur ? { ticks: { callback: (v) => v + 'd' } } : {}) },
-            y: { grid: { display: false }, ticks: { precision: 0 } },
+            x: { ...theme.scales.x, ...(dur ? { ticks: { callback: (v) => v + 'd' } } : {}), grid: { display: false } },
+            y: { grid: { color: 'rgba(255,255,255,.05)' }, ticks: { precision: 0 } },
           }
-        : theme.scales,
+        : {
+            ...theme.scales,
+            x: { ...theme.scales.x, grid: { display: false } },
+          },
     },
   };
 }
@@ -2793,17 +2820,19 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
     // no share link — restore previous session silently
     const saved = loadConn();
-    if (saved) {
-      state.conn = saved;
-      enterApp();   // route() → loadBoards() handles the Jira request + auth errors
-    } else if (!ADMIN_PANEL) {
-      /* PUBLIC APP: never show the Jira API-token form. Instead route straight to the
-         published-boards gate (Google 1-click / org email). The published overview is
-         built from the snapshots stored on this device (or an empty state if none). */
-      showPublicLanding();
+    if (saved) { state.conn = saved; }
+
+    if (ADMIN_PANEL) {
+      /* ADMIN PANEL: show the live, synced dashboard. If a session exists, enter the
+         app; otherwise show the API-token connect flow (the only place it belongs). */
+      if (saved) enterApp();
+      else showSetup();
     } else {
-      /* ADMIN PANEL: show the API-token connect flow (this is the only place it belongs). */
-      showSetup();
+      /* PUBLIC APP: the root URL is always the org user view. Even the admin (or a
+         saved session) is routed to the published-boards gate so the admin can test
+         the exact experience their organization members see. Never show the Jira
+         API-token form or the admin dashboard here. */
+      showPublicLanding();
     }
   }
 

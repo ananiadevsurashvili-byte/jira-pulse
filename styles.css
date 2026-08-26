@@ -268,11 +268,15 @@ body {
   margin-bottom: 18px;
 }
 .card { padding: 20px 22px; }
-.chart-card { transition: border-color 0.16s ease, transform 0.16s ease; }
+.chart-card {
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
 .chart-card:hover { border-color: var(--border-strong); }
 .chart-head {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
@@ -283,7 +287,8 @@ body {
 .chart-sub-block { display: block; margin: -6px 0 12px; }
 .chart-sub b { color: var(--text); }
 .wide { grid-column: span 2; }
-.canvas-wrap { position: relative; height: 280px; }
+.canvas-wrap { position: relative; height: 280px; flex: 1 1 auto; min-height: 220px; }
+.canvas-wrap canvas { width: 100% !important; height: 100% !important; }
 
 /* ── insights strip ── */
 .insights-strip {
@@ -377,7 +382,10 @@ body {
 
 /* ── modal ── */
 .modal-overlay {
-  position: fixed; inset: 0; z-index: 60;
+  /* must sit ABOVE the public share overlay (#pubScreen, z-index 9000) so a modal
+     opened from the share view (e.g. Publish / manage boards) never renders behind
+     it and causes text bleed / popup-on-popup overlap. */
+  position: fixed; inset: 0; z-index: 10000;
   display: flex; align-items: center; justify-content: center;
   background: rgba(3, 5, 12, 0.72);
   backdrop-filter: blur(6px);
@@ -420,7 +428,7 @@ body {
 .toast {
   position: fixed; bottom: 26px; left: 50%;
   transform: translateX(-50%);
-  z-index: 80;
+  z-index: 10001;   /* above the share overlay + any modal, so toasts stay visible */
   padding: 12px 22px;
   border-radius: 13px;
   font-size: 0.87rem; font-weight: 600;
@@ -462,6 +470,14 @@ body {
   .field-row { grid-template-columns: 1fr; }
   .hero { padding: 32px 24px 26px; }
   #syncedAt { display: none; }
+  .canvas-wrap { height: 260px; min-height: 200px; }
+}
+@media (max-width: 560px) {
+  .main { padding: 18px 14px 60px; }
+  .kpi-grid { grid-template-columns: 1fr 1fr; }
+  .canvas-wrap { height: 230px; min-height: 190px; }
+  .chart-card { padding: 16px 16px; }
+  .dash-head h2 { font-size: 1.3rem; }
 }
 
 /* ── dash-head right group ── */
@@ -544,8 +560,13 @@ body {
 .hidden-charts-strip .muted { color: #a9965a; }
 
 /* ── public share screen ── */
-#pubScreen { position: fixed; inset: 0; z-index: 9000; background: var(--bg); overflow: auto; display: block; }
-#pubScreen .dash-wrap { max-width: 1000px; margin: 0 auto; padding: 32px 20px 60px; }
+#pubScreen { position: fixed; inset: 0; z-index: 9000; overflow: auto; display: block;
+  background:
+    radial-gradient(1200px 700px at 85% -10%, rgba(99, 102, 241, 0.14), transparent 60%),
+    radial-gradient(1000px 600px at -10% 110%, rgba(34, 211, 238, 0.10), transparent 60%),
+    linear-gradient(160deg, var(--bg-1), var(--bg-0));
+}
+#pubScreen .dash-wrap { max-width: 1240px; margin: 0 auto; padding: 32px 24px 60px; }
 #pubScreen .glass { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 28px; }
 #pubScreen h2 { font-size: 1.7rem; font-weight: 800; }
 #pubScreen .input { padding: 12px; font-size: 0.9rem; }
@@ -559,8 +580,27 @@ body {
 #pubScreen .pub-board-row:hover { background: var(--panel-strong); border-color: var(--border-strong); }
 #pubScreen .pub-board-row .bname { font-weight: 700; font-size: 0.95rem; }
 #pubScreen .pub-board-row .bmeta { font-size: 0.75rem; color: var(--muted); }
-#pubScreen .pub-charts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
-#pubScreen .pub-charts-grid .chart-card { min-height: 260px; }
+#pubScreen .pub-charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px; }
+#pubScreen .pub-charts-grid .chart-card { min-height: 280px; height: 100%; }
+#pubScreen .pub-charts-grid .chart-card.wide { grid-column: span 2; }
+#pubScreen .pub-charts-grid .canvas-wrap { height: 280px; }
+/* boards list reuses the same responsive layout as the chart grid */
+#pubBoardsList { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+#pubBoardsList .pub-board-row { margin-bottom: 0; }
+#pubBoardsList .pub-board-row.wide { grid-column: span 2; }
+/* public share screen responsive · matches the admin dashboard */
+@media (max-width: 920px) {
+  #pubScreen .pub-charts-grid,
+  #pubBoardsList { grid-template-columns: 1fr; }
+  #pubScreen .pub-charts-grid .chart-card.wide,
+  #pubBoardsList .pub-board-row.wide { grid-column: span 1; }
+  #pubScreen .pub-charts-grid .canvas-wrap { height: 260px; }
+}
+@media (max-width: 480px) {
+  #pubScreen .dash-wrap { padding: 22px 14px 50px; }
+  #pubScreen .pub-charts-grid .canvas-wrap { height: 230px; }
+  #pubScreen .glass { padding: 20px; }
+}
 
 /* ── modal improvements ── */
 .modal-wide { max-width: 720px; }
