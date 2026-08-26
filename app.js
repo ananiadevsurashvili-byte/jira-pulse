@@ -7,7 +7,7 @@ const DAY = 86400000;
 const LS_CONN = 'jp_conn_v1';
 const LS_LAST_BOARD = 'jp_last_board_v1';
 const PROXY = 'https://corsproxy.io/?url=';
-const ISSUE_FIELDS = ['summary', 'status', 'resolutiondate', 'created', 'issuetype', 'assignee'];
+const ISSUE_FIELDS = ['summary', 'status', 'resolutiondate', 'created', 'issuetype', 'assignee', 'priority', 'labels'];
 
 const state = {
   conn: null,          // { domain, email, token, useProxy }
@@ -19,6 +19,8 @@ const state = {
   hasChangelog: true,
   debugLog: [],
   boardLoadMeta: null,
+  lastBoard: null,     // last board object, for re-rendering charts after edits
+  lastMetrics: null,   // cached computeMetrics() result for the last board
 };
 
 function show(el) { el.classList.remove('hidden'); }
@@ -526,6 +528,8 @@ async function selectBoard(board) {
     const issues = await loadBoardIssues(board);
     state.issues = issues;
     const m = computeMetrics(issues);
+    state.lastBoard = board;
+    state.lastMetrics = m;
     renderDashboard(board, m);
     $('#syncedAt').textContent = 'updated ' + new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   } catch (e) {
@@ -667,6 +671,703 @@ function computeMetrics(issues) {
   m.teamAvgMs = tmN ? tmSum / tmN : null;
 
   return m;
+}
+
+/* ══════════════════ chart customization engine ══════════════════ */
+const CHART_STORE_PREFIX = 'jp_charts_v1_';
+
+/* metric catalogue: what a chart can show */
+const METRIC_DEFS = {
+  flow:          { label: 'Created vs resolved over time', kind: 'time' },
+  created:       { label: 'Issues created over time',      kind: 'time' },
+  resolved:      { label: 'Issues resolved over time',     kind: 'time' },
+  count:         { label: 'Issue count by group',          kind: 'category' },
+  avgCycle:      { label: 'Avg cycle time by group',       kind: 'category', duration: true, resolvedOnly: true },
+  openAge:       { label: 'Current age of open issues',    kind: 'category', duration: true, openOnly: true },
+  avgStatusTime: { label: 'Avg time in status by group',   kind: 'statusTime', duration: true },
+};
+
+const GROUP_LABELS = {
+  time: 'Time', status: 'Status', assignee: 'Assignee', type: 'Issue type',
+  priority: 'Priority', label: 'First label', bottleneck: 'Bottleneck stage',
+  stage: 'Stakeholder vs team',
+};
+
+/* which groupings each metric kind supports */
+const GROUPS_FOR_KIND = {
+  time: [['time', 'Time (bucketed)']],
+  category: [
+    ['status', 'Status'], ['assignee', 'Assignee'], ['type', 'Issue type'],
+    ['priority', 'Priority'], ['label', 'First label'], ['bottleneck', 'Bottleneck stage'],
+  ],
+  statusTime: [['status', 'Each status'], ['stage', 'Stakeholder vs team']],
+};
+
+const RANGE_OPTIONS = [
+  [30, 'Last 30 days'], [90, 'Last 90 days'], [182, 'Last 6 months'],
+  [365, 'Last 12 months'], [0, 'All time'],
+];
+
+const ACCENT_RGB = {
+  indigo: '99,102,241', cyan: '34,211,238', green: '52,211,153',
+  amber: '251,191,36', violet: '139,92,246', pink: '244,114,182',
+};
+const ACCENT_HEX = {
+  indigo: '#6366f1', cyan: '#22d3ee', green: '#34d399',
+  amber: '#fbbf24', violet: '#8b5cf6', pink: '#f472b6',
+};
+
+/* the six built-in charts, expressed as editable definitions */
+const BUILTIN_DEFS = [
+  { id: 'pipeline', title: 'Incoming vs completed', subtitle: 'registered vs resolved', type: 'line', metric: 'flow', groupBy: 'time', bucket: 'week', range: 182, filter: 'all', topN: 0, split: 'none', color: 'indigo', wide: true, centerTotal: false },
+  { id: 'phaseDelays', title: 'Stakeholder vs team delays', subtitle: 'avg days parked per stage · changelog', type: 'hbar', metric: 'avgStatusTime', groupBy: 'status', bucket: 'week', range: 182, filter: 'all', topN: 8, split: 'stage', color: 'amber', wide: false, centerTotal: false },
+  { id: 'bottlenecks', title: 'Active bottlenecks', subtitle: 'where open work is right now', type: 'doughnut', metric: 'count', groupBy: 'bottleneck', bucket: 'week', range: 0, filter: 'open', topN: 0, split: 'none', color: 'indigo', wide: false, centerTotal: true },
+  { id: 'statusDist', title: 'Status distribution', subtitle: 'all issues by status', type: 'doughnut', metric: 'count', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 7, split: 'none', color: 'indigo', wide: false, centerTotal: true },
+  { id: 'statusTime', title: 'Average time per status', subtitle: 'lifetime · changelog', type: 'hbar', metric: 'avgStatusTime', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 10, split: 'none', color: 'violet', wide: false, centerTotal: false },
+  { id: 'throughput', title: 'Weekly throughput', subtitle: 'resolved per week', type: 'bar', metric: 'resolved', groupBy: 'time', bucket: 'week', range: 84, filter: 'all', topN: 0, split: 'none', color: 'green', wide: true, centerTotal: false },
+];
+
+function chartStoreKey() { return CHART_STORE_PREFIX + (state.conn?.domain || 'default'); }
+
+function loadChartStore() {
+  try {
+    return { custom: [], overrides: {}, hidden: [], ...JSON.parse(localStorage.getItem(chartStoreKey()) || '{}') };
+  } catch (_) {
+    return { custom: [], overrides: {}, hidden: [] };
+  }
+}
+
+function saveChartStore(s) { localStorage.setItem(chartStoreKey(), JSON.stringify(s)); }
+
+/* built-ins (with overrides) + custom charts visible for the current board */
+function effectiveCharts() {
+  const store = loadChartStore();
+  const list = [];
+  for (const b of BUILTIN_DEFS) {
+    if (store.hidden.includes(b.id)) continue;
+    list.push({ ...b, ...(store.overrides[b.id] || {}), builtin: true, scope: 'global' });
+  }
+  for (const c of store.custom) {
+    if (c.scope === 'board' && c.boardId !== state.boardId) continue;
+    list.push({ ...c, builtin: false });
+  }
+  return list;
+}
+
+/* ── data engine: definition → {labels, datasets, colors, ...} ──── */
+function statusIsDone(f) {
+  return f.status?.statusCategory?.key === 'done'
+    || String(f.status?.statusCategory?.name || '').toLowerCase() === 'done';
+}
+
+function groupKeyOf(def, f) {
+  switch (def.groupBy) {
+    case 'assignee': return f.assignee?.displayName || 'Unassigned';
+    case 'type': return f.issuetype?.name || 'Task';
+    case 'priority': return f.priority?.name || 'None';
+    case 'label': return Array.isArray(f.labels) && f.labels.length ? f.labels[0] : 'No label';
+    case 'bottleneck': return classifyBottleneck(f.status?.name);
+    default: return f.status?.name || 'Unknown';
+  }
+}
+
+function filterPool(def, issues) {
+  if (def.filter === 'open') return issues.filter((i) => !statusIsDone(i.fields || {}));
+  if (def.filter === 'done') return issues.filter((i) => statusIsDone(i.fields || {}));
+  return issues;
+}
+
+function rangeLabel(days) {
+  if (!days) return 'all time';
+  if (days <= 30) return 'last 30 days';
+  if (days <= 90) return 'last 90 days';
+  if (days <= 200) return 'last 6 months';
+  return 'last 12 months';
+}
+
+/* build time-bucketed series for created / resolved / flow */
+function buildTimeSeries(def, issues) {
+  const NOW = Date.now();
+  const wantCreated = def.metric !== 'resolved';
+  const wantResolved = def.metric !== 'created';
+  let rangeDays = def.range || 0;
+
+  let oldest = Infinity;
+  for (const iss of issues) {
+    const f = iss.fields || {};
+    if (wantCreated && f.created) oldest = Math.min(oldest, Date.parse(f.created));
+    if (wantResolved && f.resolutiondate) oldest = Math.min(oldest, Date.parse(f.resolutiondate));
+  }
+  if (!isFinite(oldest)) return { empty: 'No dated issues found for this chart' };
+  if (!rangeDays) rangeDays = Math.ceil((NOW - oldest) / DAY) + 1;
+  rangeDays = Math.max(7, rangeDays);
+
+  /* pick bucket size, auto-upgrading so we never draw 400 bars */
+  let bucket = def.bucket || 'week';
+  let nBuckets = bucket === 'day' ? rangeDays : bucket === 'week' ? Math.ceil(rangeDays / 7) : Math.ceil(rangeDays / 30.4);
+  if (bucket === 'day' && nBuckets > 120) { bucket = 'week'; nBuckets = Math.ceil(rangeDays / 7); }
+  if (bucket === 'week' && nBuckets > 104) { bucket = 'month'; nBuckets = Math.ceil(rangeDays / 30.4); }
+  nBuckets = Math.min(nBuckets, 400);
+  const bucketMs = bucket === 'day' ? DAY : 7 * DAY;
+
+  const createdCounts = Array(nBuckets).fill(0);
+  const resolvedCounts = Array(nBuckets).fill(0);
+  const nowMonthIdx = new Date(NOW).getFullYear() * 12 + new Date(NOW).getMonth();
+
+  for (const iss of issues) {
+    const f = iss.fields || {};
+    if (wantCreated && f.created) {
+      const ts = Date.parse(f.created);
+      let idx;
+      if (bucket === 'month') {
+        const d = new Date(ts);
+        idx = nBuckets - 1 - (nowMonthIdx - (d.getFullYear() * 12 + d.getMonth()));
+      } else {
+        idx = nBuckets - 1 - Math.floor((NOW - ts) / bucketMs);
+      }
+      if (idx >= 0 && idx < nBuckets) createdCounts[idx]++;
+    }
+    if (wantResolved && f.resolutiondate) {
+      const ts = Date.parse(f.resolutiondate);
+      let idx;
+      if (bucket === 'month') {
+        const d = new Date(ts);
+        idx = nBuckets - 1 - (nowMonthIdx - (d.getFullYear() * 12 + d.getMonth()));
+      } else {
+        idx = nBuckets - 1 - Math.floor((NOW - ts) / bucketMs);
+      }
+      if (idx >= 0 && idx < nBuckets) resolvedCounts[idx]++;
+    }
+  }
+
+  const labels = [];
+  for (let i = 0; i < nBuckets; i++) {
+    if (bucket === 'month') {
+      const back = nBuckets - 1 - i;
+      const d = new Date(NOW);
+      d.setMonth(d.getMonth() - back);
+      labels.push(d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }));
+    } else {
+      labels.push(fmtDate(NOW - (nBuckets - 1 - i) * bucketMs));
+    }
+  }
+
+  const datasets = [];
+  if (wantCreated) datasets.push({ label: 'Registered', data: createdCounts, color: '#6366f1', rgb: ACCENT_RGB.indigo });
+  if (wantResolved) datasets.push({ label: 'Completed', data: resolvedCounts, color: '#34d399', rgb: ACCENT_RGB.green });
+
+  const parts = [];
+  if (wantCreated && wantResolved) parts.push('registered vs completed');
+  else if (wantCreated) parts.push('created');
+  else parts.push('resolved');
+  const subtitle = `${parts.join(' · ')} · per ${bucket} · ${rangeLabel(def.range)}`;
+
+  const total = (wantCreated ? createdCounts : resolvedCounts).reduce((a, b) => a + b, 0);
+  return {
+    labels, datasets, duration: false,
+    subtitle,
+    centerValue: total, centerLabel: 'issues',
+  };
+}
+
+/* category aggregation: count / avgCycle / openAge */
+function buildCategoryData(def, issues) {
+  const metric = METRIC_DEFS[def.metric];
+  const NOW = Date.now();
+  const pool = filterPool(def, issues);
+  const map = new Map();
+  for (const iss of pool) {
+    const f = iss.fields || {};
+    let val;
+    if (def.metric === 'count') val = 1;
+    else if (def.metric === 'avgCycle') {
+      if (!f.resolutiondate || !f.created) continue;
+      val = Date.parse(f.resolutiondate) - Date.parse(f.created);
+    } else if (def.metric === 'openAge') {
+      if (!f.created) continue;
+      val = Math.max(0, NOW - Date.parse(f.created));
+    }
+    if (val == null || !isFinite(val)) continue;
+    const key = groupKeyOf(def, f);
+    const rec = map.get(key) || { sum: 0, n: 0 };
+    rec.sum += val; rec.n++;
+    map.set(key, rec);
+  }
+  if (!map.size) return { empty: def.metric === 'avgCycle' ? 'No resolved issues to measure yet' : 'No issues match this chart yet' };
+
+  let rows = [...map.entries()].map(([k, r]) => ({
+    k, v: metric.duration ? r.sum / r.n : r.sum, n: r.n,
+  }));
+  if (def.groupBy === 'bottleneck') rows.sort((a, b) => BOTTLENECK_ORDER.indexOf(a.k) - BOTTLENECK_ORDER.indexOf(b.k));
+  else rows.sort((a, b) => b.v - a.v);
+
+  let labels = rows.map((r) => r.k);
+  let values = rows.map((r) => metric.duration ? +(r.v / DAY).toFixed(2) : r.v);
+  let colors;
+  if (def.groupBy === 'bottleneck') colors = labels.map(bottleneckColor);
+  else if (def.groupBy === 'stage') colors = labels.map((k) => (k === 'Stakeholder gates' ? '#fbbf24' : '#22d3ee'));
+  else colors = labels.map((_, i) => PALETTE[i % PALETTE.length]);
+
+  /* topN: doughnuts fold the tail into "Other", bars simply cut */
+  const topN = def.topN || 0;
+  if (topN && values.length > topN) {
+    if (def.type === 'doughnut') {
+      const headL = labels.slice(0, topN - 1), headV = values.slice(0, topN - 1);
+      const rest = values.slice(topN - 1).reduce((a, b) => a + b, 0);
+      labels = headL.concat(['Other']);
+      values = headV.concat([rest]);
+      colors = colors.slice(0, topN - 1).concat(['#64748b']);
+    } else {
+      labels = labels.slice(0, topN); values = values.slice(0, topN); colors = colors.slice(0, topN);
+    }
+  }
+  if (def.type === 'hbar') { labels = labels.slice().reverse(); values = values.slice().reverse(); colors = colors.slice().reverse(); }
+
+  const totalVal = metric.duration
+    ? [...map.values()].reduce((a, r) => a + r.sum, 0) / [...map.values()].reduce((a, r) => a + r.n, 0)
+    : values.reduce((a, b) => a + b, 0);
+
+  const filterTxt = def.filter === 'open' ? ' · open only' : def.filter === 'done' ? ' · done only' : '';
+  const subtitle = `${metric.duration ? 'avg' : 'count'} by ${GROUP_LABELS[def.groupBy] || def.groupBy}${metric.duration ? '' : filterTxt}`;
+  return {
+    labels,
+    datasets: [{ label: def.title, data: values, color: ACCENT_HEX[def.color] || ACCENT_HEX.indigo, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.indigo }],
+    colors,
+    duration: metric.duration,
+    subtitle,
+    centerValue: metric.duration ? fmtDuration(totalVal) : Math.round(totalVal),
+    centerLabel: metric.duration ? 'avg' : 'issues',
+  };
+}
+
+/* status-time aggregation from changelog (avgStatusTime metric) */
+function buildStatusTimeData(def, m) {
+  if (!state.hasChangelog) return { empty: ['Changelog unavailable on this board', '— status-time charts need it'] };
+  let rows = [...m.statusTime.entries()]
+    .map(([k, v]) => ({ k, avg: v.sum / v.n, side: classifySide(k), sum: v.sum, n: v.n }));
+  if (!rows.length) return { empty: ['No status transition data found'] };
+
+  let extraSub = '';
+  let labels, values, colors;
+
+  if (def.groupBy === 'stage') {
+    const agg = { 'Stakeholder gates': { sum: 0, n: 0 }, 'Team phases': { sum: 0, n: 0 } };
+    for (const r of rows) {
+      if (!r.side) continue;
+      const t = r.side === 'stakeholder' ? 'Stakeholder gates' : 'Team phases';
+      agg[t].sum += r.sum; agg[t].n += r.n;
+    }
+    rows = Object.entries(agg).filter(([, r]) => r.n).map(([k, r]) => ({ k, avg: r.sum / r.n }));
+    if (!rows.length) return { empty: ['No stakeholder / team stage transitions detected'] };
+    rows.sort((a, b) => b.avg - a.avg);
+    labels = rows.map((r) => r.k);
+    values = rows.map((r) => +(r.avg / DAY).toFixed(2));
+    colors = labels.map((k) => (k === 'Stakeholder gates' ? '#fbbf24cc' : '#22d3eecc'));
+  } else if (def.split === 'stage') {
+    const picked = rows.filter((r) => r.side).sort((a, b) => b.avg - a.avg).slice(0, def.topN || 8);
+    if (!picked.length) return { empty: ['No stakeholder / team stage transitions detected'] };
+    const sh = [], tm = [];
+    picked.forEach((r) => {
+      const d = +(r.avg / DAY).toFixed(1);
+      if (r.side === 'stakeholder') { sh.push(d); tm.push(null); }
+      else { tm.push(d); sh.push(null); }
+    });
+    labels = picked.map((r) => titleize(r.k)).reverse();
+    let shAvg = null, tmAvg = null, sS = 0, sN = 0, tS = 0, tN = 0;
+    picked.forEach((r) => { if (r.side === 'stakeholder') { sS += r.sum; sN++; } else { tS += r.sum; tN++; } });
+    if (sN) shAvg = sS / sN;
+    if (tN) tmAvg = tS / tN;
+    extraSub =
+      `<span style="color:#fcd34d">●</span> Stakeholder gates avg <b>${shAvg != null ? fmtDuration(shAvg) : '—'}</b>` +
+      ` &nbsp;·&nbsp; <span style="color:#67e8f9">●</span> Team phases avg <b>${tmAvg != null ? fmtDuration(tmAvg) : '—'}</b>`;
+    return {
+      labels,
+      datasets: [
+        { label: 'Stakeholder gate', data: sh.reverse(), color: '#fbbf24', rgb: ACCENT_RGB.amber },
+        { label: 'Team phase', data: tm.reverse(), color: '#22d3ee', rgb: ACCENT_RGB.cyan },
+      ],
+      duration: true,
+      subtitle: 'avg days parked per stage · changelog',
+      extraSub,
+    };
+  } else {
+    rows.sort((a, b) => b.avg - a.avg);
+    rows = rows.slice(0, def.topN || 10);
+    labels = rows.map((r) => r.k).reverse();
+    values = rows.map((r) => +(r.avg / DAY).toFixed(2)).reverse();
+    colors = labels.map(() => (ACCENT_HEX[def.color] || '#8b5cf6') + 'cc');
+  }
+
+  return {
+    labels,
+    datasets: [{ label: def.title, data: values, color: ACCENT_HEX[def.color] || ACCENT_HEX.violet, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.violet }],
+    colors,
+    duration: true,
+    subtitle: def.groupBy === 'stage' ? 'avg days · stakeholder vs team · changelog' : 'avg days per status · lifetime · changelog',
+    extraSub,
+  };
+}
+
+function buildChartData(def, m) {
+  const metric = METRIC_DEFS[def.metric];
+  if (!metric) return { empty: ['Unknown metric'] };
+  if (metric.kind === 'time') return buildTimeSeries(def, state.issues);
+  if (metric.kind === 'statusTime') return buildStatusTimeData(def, m);
+  return buildCategoryData(def, state.issues);
+}
+
+/* ── chart card rendering ────────────────────────────────────────── */
+const LEGEND_ON = { display: true, position: 'top', align: 'end', labels: { boxWidth: 8, boxHeight: 8, usePointStyle: true, padding: 14 } };
+
+function chartCardHTML(def, overridden) {
+  const scopeChip = def.builtin
+    ? ''
+    : `<span class="scope-chip">${def.scope === 'global' ? 'all boards' : 'this board'}</span>`;
+  const actions = def.builtin
+    ? `<button class="chart-btn" data-act="edit" data-id="${def.id}" title="Configure this chart">✎</button>` +
+      (overridden ? `<button class="chart-btn" data-act="reset" data-id="${def.id}" title="Reset to default">↺</button>` : '') +
+      `<button class="chart-btn" data-act="hide" data-id="${def.id}" title="Hide this chart">✕</button>`
+    : `<button class="chart-btn" data-act="edit" data-id="${def.id}" title="Configure this chart">✎</button>` +
+      `<button class="chart-btn" data-act="del" data-id="${def.id}" title="Delete this chart">🗑</button>`;
+  return `<div class="card glass chart-card${def.wide ? ' wide' : ''}" data-cid="${def.id}">
+    <div class="chart-head">
+      <div class="chart-titles">
+        <h3>${escapeHtml(def.title)} ${scopeChip}</h3>
+        <span class="chart-sub" id="sub_${def.id}">${escapeHtml(def.subtitle || '')}</span>
+      </div>
+      <div class="chart-actions">${actions}</div>
+    </div>
+    <div class="canvas-wrap"><canvas id="chart_${def.id}"></canvas></div>
+  </div>`;
+}
+
+function chartConfigFor(def, data, theme, canvasId) {
+  const dur = data.duration;
+  const fmtV = dur ? (v) => fmtDuration(v * DAY) : (v) => String(Math.round(v));
+
+  if (def.type === 'doughnut') {
+    return {
+      type: 'doughnut',
+      data: {
+        labels: data.labels,
+        datasets: [{
+          data: data.datasets[0].data,
+          backgroundColor: data.colors,
+          borderColor: 'rgba(10,15,34,.9)',
+          borderWidth: 3,
+          hoverOffset: 8,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: def.centerTotal ? '68%' : '62%',
+        plugins: {
+          legend: { position: 'right', labels: { boxWidth: 9, boxHeight: 9, usePointStyle: true, padding: 12 } },
+          tooltip: {
+            ...theme.plugins.tooltip,
+            callbacks: {
+              label: (c) => {
+                const tot = c.dataset.data.reduce((a, b) => a + b, 0);
+                const pct = tot ? Math.round(c.parsed / tot * 100) : 0;
+                return ` ${fmtV(c.parsed)} · ${pct}%`;
+              },
+            },
+          },
+          centerText: def.centerTotal ? { enable: true, value: data.centerValue, label: data.centerLabel } : { enable: false },
+        },
+      },
+    };
+  }
+
+  if (def.type === 'line') {
+    const el = document.getElementById(canvasId);
+    const ctx = el ? el.getContext('2d') : null;
+    const grad = (rgb) => {
+      if (!ctx) return `rgba(${rgb},.15)`;
+      const g = ctx.createLinearGradient(0, 0, 0, 280);
+      g.addColorStop(0, `rgba(${rgb},.28)`);
+      g.addColorStop(1, `rgba(${rgb},0)`);
+      return g;
+    };
+    return {
+      type: 'line',
+      data: {
+        labels: data.labels,
+        datasets: data.datasets.map((ds) => ({
+          label: ds.label, data: ds.data,
+          borderColor: ds.color, backgroundColor: grad(ds.rgb),
+          fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2.5,
+        })),
+      },
+      options: {
+        ...theme,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { ...theme.plugins, legend: data.datasets.length > 1 ? LEGEND_ON : { display: false } },
+      },
+    };
+  }
+
+  /* bar / hbar */
+  const isH = def.type === 'hbar';
+  const multi = data.datasets.length > 1;
+  return {
+    type: 'bar',
+    data: {
+      labels: data.labels,
+      datasets: data.datasets.map((ds) => ({
+        label: ds.label, data: ds.data,
+        backgroundColor: multi ? ds.color + 'cc' : (data.colors && data.colors.length === data.labels.length ? data.colors : ds.color + 'cc'),
+        hoverBackgroundColor: multi ? ds.color : (data.colors && data.colors.length === data.labels.length ? data.colors : ds.color),
+        borderRadius: 7, borderSkipped: false,
+        barPercentage: multi ? 0.6 : 0.72, categoryPercentage: 0.74,
+      })),
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      indexAxis: isH ? 'y' : 'x',
+      plugins: {
+        legend: multi ? LEGEND_ON : { display: false },
+        tooltip: { ...theme.plugins.tooltip, callbacks: { label: (c) => c.parsed[isH ? 'x' : 'y'] != null ? fmtV(c.parsed[isH ? 'x' : 'y']) : '' } },
+      },
+      scales: isH
+        ? {
+            x: { ...theme.scales.x, ...(dur ? { ticks: { callback: (v) => v + 'd' } } : {}) },
+            y: { grid: { display: false }, ticks: { precision: 0 } },
+          }
+        : theme.scales,
+    },
+  };
+}
+
+function renderCharts(defs, m) {
+  const grid = $('#chartsGrid');
+  const store = loadChartStore();
+
+  Object.values(state.charts).forEach((c) => c && c.destroy());
+  state.charts = {};
+
+  if (!defs.length) {
+    grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No charts on this board yet — click <b>＋ New chart</b> to build one.</div>';
+  } else {
+    grid.innerHTML = defs.map((d) => chartCardHTML(d, !d.builtin ? false : !!store.overrides[d.id])).join('');
+  }
+
+  /* hidden built-ins restore strip */
+  const strip = $('#hiddenChartsStrip');
+  if (store.hidden.length) {
+    strip.innerHTML = 'Hidden charts: ' + store.hidden.map((id) => {
+      const b = BUILTIN_DEFS.find((x) => x.id === id);
+      return `<button class="link-btn" data-restore="${id}">${escapeHtml(b ? b.title : id)} ↺</button>`;
+    }).join(' ');
+    show(strip);
+  } else {
+    hide(strip);
+  }
+
+  const theme = chartTheme();
+  for (const def of defs) {
+    const canvasId = 'chart_' + def.id;
+    const data = buildChartData(def, m);
+    const sub = document.getElementById('sub_' + def.id);
+    if (sub) {
+      const base = data.subtitle || def.subtitle || '';
+      sub.innerHTML = escapeHtml(base) + (data.extraSub ? ` <span class="sub-extra">· ${data.extraSub}</span>` : '');
+    }
+    if (data.empty) {
+      drawCanvasMessage(canvasId, Array.isArray(data.empty) ? data.empty : [data.empty]);
+      continue;
+    }
+    mkChart(canvasId, chartConfigFor(def, data, theme, canvasId));
+  }
+
+  /* per-card actions */
+  grid.querySelectorAll('.chart-btn').forEach((btn) => {
+    btn.addEventListener('click', () => onChartAction(btn.dataset.act, btn.dataset.id));
+  });
+  strip.querySelectorAll('[data-restore]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const s = loadChartStore();
+      s.hidden = s.hidden.filter((id) => id !== btn.dataset.restore);
+      saveChartStore(s);
+      rerenderDashboard();
+      toast('Chart restored.', 'ok');
+    });
+  });
+}
+
+function onChartAction(act, id) {
+  const store = loadChartStore();
+  const builtin = BUILTIN_DEFS.find((b) => b.id === id);
+  const custom = store.custom.find((c) => c.id === id);
+  if (act === 'edit') {
+    if (builtin) openChartModal({ ...builtin, ...(store.overrides[id] || {}) }, { mode: 'builtin' });
+    else if (custom) openChartModal({ ...custom }, { mode: 'custom' });
+  } else if (act === 'hide') {
+    store.hidden = [...new Set([...store.hidden, id])];
+    saveChartStore(store);
+    rerenderDashboard();
+    toast('Chart hidden — restore it from the link below the grid.');
+  } else if (act === 'reset') {
+    delete store.overrides[id];
+    store.hidden = store.hidden.filter((x) => x !== id);
+    saveChartStore(store);
+    rerenderDashboard();
+    toast('Chart reset to default.', 'ok');
+  } else if (act === 'del') {
+    if (!custom) return;
+    if (!confirm(`Delete chart "${custom.title}"?`)) return;
+    store.custom = store.custom.filter((c) => c.id !== id);
+    saveChartStore(store);
+    rerenderDashboard();
+    toast('Chart deleted.', 'ok');
+  }
+}
+
+function rerenderDashboard() {
+  if (state.lastBoard && state.lastMetrics) renderDashboard(state.lastBoard, state.lastMetrics);
+}
+
+/* ── chart builder modal ─────────────────────────────────────────── */
+state.chartEditing = null;
+
+function segSet(segEl, value) {
+  segEl.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.v === value));
+}
+function segGet(segEl) {
+  return segEl.querySelector('button.active')?.dataset.v || null;
+}
+
+function buildSeg(el, options, value) {
+  el.innerHTML = options.map(([v, l]) => `<button type="button" data-v="${v}">${l}</button>`).join('');
+  segSet(el, value);
+}
+
+function openChartModal(def, meta) {
+  state.chartEditing = { ...meta, def: { ...def } };
+  $('#chartModalTitle').textContent =
+    meta.mode === 'new' ? 'New chart' :
+    meta.mode === 'builtin' ? `Configure “${def.title}”` : `Configure “${def.title}”`;
+
+  $('#cTitle').value = def.title || '';
+  buildSeg($('#cType'), [['line', 'Line'], ['bar', 'Bars'], ['hbar', 'Horizontal'], ['doughnut', 'Donut']], def.type || 'bar');
+  buildSeg($('#cScope'), [['board', 'This board only'], ['global', 'All boards']], def.scope === 'global' ? 'global' : 'board');
+
+  $('#cMetric').innerHTML = Object.entries(METRIC_DEFS)
+    .map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
+  $('#cMetric').value = def.metric || 'count';
+  $('#cRange').innerHTML = RANGE_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  $('#cRange').value = String(def.range ?? 90);
+  $('#cBucket').value = def.bucket || 'week';
+  $('#cFilter').value = def.filter || 'all';
+  $('#cSplit').value = def.split || 'none';
+  $('#cColor').value = def.color || 'indigo';
+  $('#cTop').value = String(def.topN || 8);
+  $('#cWide').checked = !!def.wide;
+
+  $('#scopeNote').classList.toggle('hidden', meta.mode === 'new');
+  $('#resetChartBtn').classList.toggle('hidden', meta.mode !== 'builtin');
+  $('#deleteChartBtn').classList.toggle('hidden', meta.mode !== 'custom');
+
+  syncChartForm();
+  show($('#chartModal'));
+}
+
+/* enable/disable form fields based on the chosen metric */
+function syncChartForm() {
+  const metric = $('#cMetric').value;
+  const md = METRIC_DEFS[metric];
+  const kind = md.kind;
+
+  const groupWrap = $('#cGroupWrap');
+  groupWrap.classList.toggle('hidden', kind === 'time');
+  if (kind !== 'time') {
+    const opts = GROUPS_FOR_KIND[kind] || GROUPS_FOR_KIND.category;
+    const cur = $('#cGroup').value;
+    $('#cGroup').innerHTML = opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    if (opts.some(([v]) => v === cur)) $('#cGroup').value = cur;
+  }
+
+  $('#cBucketWrap').classList.toggle('hidden', kind !== 'time');
+  $('#cSplitWrap').classList.toggle('hidden', !(metric === 'avgStatusTime' && $('#cGroup').value === 'status'));
+  $('#cRangeWrap').classList.toggle('hidden', metric === 'avgStatusTime');
+  $('#cFilterWrap').classList.toggle('hidden', kind !== 'category');
+  $('#cTopWrap').classList.toggle('hidden', kind === 'time' || $('#cType').value === 'line');
+  $('#cColorWrap').classList.toggle('hidden', $('#cType').value === 'doughnut');
+}
+
+function chartDefFromForm(base) {
+  const def = { ...(base || {}) };
+  def.title = $('#cTitle').value.trim() || 'Untitled chart';
+  def.type = segGet($('#cType')) || 'bar';
+  def.metric = $('#cMetric').value;
+  def.groupBy = METRIC_DEFS[def.metric].kind === 'time' ? 'time' : $('#cGroup').value;
+  def.range = parseInt($('#cRange').value, 10) || 0;
+  def.bucket = $('#cBucket').value;
+  def.filter = $('#cFilter').value;
+  def.split = $('#cSplit').value;
+  def.color = $('#cColor').value;
+  def.topN = parseInt($('#cTop').value, 10) || 0;
+  def.wide = $('#cWide').checked;
+  return def;
+}
+
+function saveChartFromForm() {
+  const edit = state.chartEditing;
+  if (!edit) return;
+  const store = loadChartStore();
+  if (edit.mode === 'new') {
+    const def = chartDefFromForm({
+      id: 'c' + Date.now().toString(36),
+      scope: segGet($('#cScope')) === 'global' ? 'global' : 'board',
+      boardId: state.boardId,
+    });
+    if (def.scope === 'global') def.boardId = null;
+    store.custom.push(def);
+    toast('Chart added to ' + (def.scope === 'global' ? 'all boards' : 'this board') + '.', 'ok');
+  } else if (edit.mode === 'custom') {
+    const def = chartDefFromForm(edit.def);
+    def.scope = segGet($('#cScope')) === 'global' ? 'global' : 'board';
+    def.boardId = def.scope === 'global' ? null : state.boardId;
+    store.custom = store.custom.map((c) => (c.id === def.id ? def : c));
+    toast('Chart updated.', 'ok');
+  } else if (edit.mode === 'builtin') {
+    const def = chartDefFromForm(edit.def);
+    const override = {};
+    for (const k of ['title', 'subtitle', 'type', 'metric', 'groupBy', 'bucket', 'range', 'filter', 'topN', 'split', 'color', 'wide', 'centerTotal']) {
+      override[k] = def[k];
+    }
+    store.overrides[edit.def.id] = override;
+    store.hidden = store.hidden.filter((x) => x !== edit.def.id);
+    toast('Chart updated for all boards.', 'ok');
+  }
+  saveChartStore(store);
+  hide($('#chartModal'));
+  state.chartEditing = null;
+  rerenderDashboard();
+}
+
+function resetChartFromModal() {
+  const edit = state.chartEditing;
+  if (!edit || edit.mode !== 'builtin') return;
+  const store = loadChartStore();
+  delete store.overrides[edit.def.id];
+  store.hidden = store.hidden.filter((x) => x !== edit.def.id);
+  saveChartStore(store);
+  hide($('#chartModal'));
+  state.chartEditing = null;
+  rerenderDashboard();
+  toast('Chart reset to default.', 'ok');
+}
+
+function deleteChartFromModal() {
+  const edit = state.chartEditing;
+  if (!edit || edit.mode !== 'custom') return;
+  const store = loadChartStore();
+  store.custom = store.custom.filter((c) => c.id !== edit.def.id);
+  saveChartStore(store);
+  hide($('#chartModal'));
+  state.chartEditing = null;
+  rerenderDashboard();
+  toast('Chart deleted.', 'ok');
 }
 
 /* ── rendering ───────────────────────────────────────────────────── */
@@ -839,206 +1540,8 @@ function renderDashboard(board, m) {
     hide(changelogNotice);
   }
 
-  const theme = chartTheme();
-  const legendOn = { display: true, position: 'top', align: 'end', labels: { boxWidth: 8, boxHeight: 8, usePointStyle: true, padding: 14 } };
-
-  /* incoming vs completed pipeline · weekly, last 6 months */
-  const grad = (ctx, rgb) => {
-    const g = ctx.createLinearGradient(0, 0, 0, 280);
-    g.addColorStop(0, `rgba(${rgb},.28)`);
-    g.addColorStop(1, `rgba(${rgb},0)`);
-    return g;
-  };
-  const pctx = $('#pipelineChart').getContext('2d');
-  mkChart('pipelineChart', {
-    type: 'line',
-    data: {
-      labels: m.pipelineWeekly.map((w) => w.label),
-      datasets: [
-        { label: 'Registered', data: m.pipelineWeekly.map((w) => w.created), borderColor: '#6366f1', backgroundColor: grad(pctx, '99,102,241'), fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2.5 },
-        { label: 'Completed', data: m.pipelineWeekly.map((w) => w.resolved), borderColor: '#34d399', backgroundColor: grad(pctx, '52,211,153'), fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2.5 },
-      ],
-    },
-    options: {
-      ...theme,
-      interaction: { mode: 'index', intersect: false },
-      plugins: { ...theme.plugins, legend: legendOn },
-    },
-  });
-
-  /* status distribution doughnut */
-  const distSorted = [...m.statusDist.entries()].sort((a, b) => b[1] - a[1]);
-  const top = distSorted.slice(0, 7);
-  const restSum = distSorted.slice(7).reduce((a, [, v]) => a + v, 0);
-  const dLabels = top.map(([k]) => k).concat(restSum ? ['Other'] : []);
-  const dData = top.map(([, v]) => v).concat(restSum ? [restSum] : []);
-  mkChart('statusChart', {
-    type: 'doughnut',
-    data: {
-      labels: dLabels,
-      datasets: [{
-        data: dData,
-        backgroundColor: dLabels.map((_, i) => PALETTE[i % PALETTE.length]),
-        borderColor: 'rgba(10,15,34,.9)',
-        borderWidth: 3,
-        hoverOffset: 6,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, cutout: '62%',
-      plugins: {
-        legend: { position: 'right', labels: { boxWidth: 9, boxHeight: 9, usePointStyle: true, padding: 14 } },
-        tooltip: theme.plugins.tooltip,
-        centerText: { enable: true, value: m.total, label: 'issues' },
-      },
-    },
-  });
-
-  /* avg time per status */
-  const st = [...m.statusTime.entries()]
-    .map(([k, v]) => ({ k, avg: v.sum / v.n }))
-    .sort((a, b) => b.avg - a.avg)
-    .slice(0, 10)
-    .reverse();
-
-  if (!state.hasChangelog || st.length === 0) {
-    drawCanvasMessage('statusTimeChart', !state.hasChangelog
-      ? ['Changelog data not available for this board', '(team-managed boards or permission limits)']
-      : ['No status transition data found']);
-    if (state.charts.statusTimeChart) {
-      state.charts.statusTimeChart.destroy();
-      state.charts.statusTimeChart = null;
-    }
-  } else {
-    mkChart('statusTimeChart', {
-      type: 'bar',
-      data: {
-        labels: st.map((x) => x.k),
-        datasets: [{ data: st.map((x) => x.avg / DAY), backgroundColor: '#8b5cf6cc', hoverBackgroundColor: '#a78bfa', borderRadius: 7, borderSkipped: false, barPercentage: 0.72 }],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        indexAxis: 'y',
-        plugins: {
-          tooltip: {
-            ...theme.plugins.tooltip,
-            callbacks: { label: (c) => fmtDuration(c.parsed.x * DAY) + ' average' },
-          },
-        },
-        scales: {
-          x: { ...theme.scales.x, ticks: { callback: (v) => v + 'd' } },
-          y: { grid: { display: false }, ticks: { precision: 0 } },
-        },
-      },
-    });
-  }
-
-  /* stakeholder vs team delays · avg days parked in each stage */
-  const pdSub = $('#phaseDelaysSub');
-  if (!state.hasChangelog || m.phaseDelays.length === 0) {
-    drawCanvasMessage('phaseDelaysChart', !state.hasChangelog
-      ? ['Changelog unavailable on this board —', 'cannot compare stakeholder vs team stages']
-      : ['No stakeholder / team stage transitions', 'detected in the last 6 months of changelog']);
-    if (state.charts.phaseDelaysChart) {
-      state.charts.phaseDelaysChart.destroy();
-      state.charts.phaseDelaysChart = null;
-    }
-    if (pdSub) pdSub.textContent = !state.hasChangelog ? 'changelog unavailable on this board' : 'no matching stage transitions found';
-  } else {
-    const picked = m.phaseDelays.slice(0, 8).reverse(); // slowest on top
-    const shData = [], tmData = [];
-    picked.forEach((r) => {
-      const days = +(r.avg / DAY).toFixed(1);
-      if (r.side === 'stakeholder') { shData.push(days); tmData.push(null); }
-      else { tmData.push(days); shData.push(null); }
-    });
-    mkChart('phaseDelaysChart', {
-      type: 'bar',
-      data: {
-        labels: picked.map((r) => titleize(r.status)),
-        datasets: [
-          { label: 'Stakeholder gate', data: shData, backgroundColor: '#fbbf24cc', hoverBackgroundColor: '#fcd34d', borderRadius: 7, borderSkipped: false, barPercentage: 0.6, categoryPercentage: 0.74 },
-          { label: 'Team phase', data: tmData, backgroundColor: '#22d3eecc', hoverBackgroundColor: '#67e8f9', borderRadius: 7, borderSkipped: false, barPercentage: 0.6, categoryPercentage: 0.74 },
-        ],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        indexAxis: 'y',
-        plugins: {
-          legend: legendOn,
-          tooltip: {
-            ...theme.plugins.tooltip,
-            callbacks: { label: (c) => c.parsed.x != null ? `${fmtDuration(c.parsed.x * DAY)} average` : '' },
-          },
-        },
-        scales: {
-          x: { ...theme.scales.x, ticks: { callback: (v) => v + 'd' } },
-          y: { grid: { display: false }, ticks: { precision: 0 } },
-        },
-      },
-    });
-    if (pdSub) {
-      pdSub.innerHTML =
-        `<span style="color:#fcd34d">●</span> Stakeholder gates avg <b>${fmtDuration(m.stakeholderAvgMs)}</b>` +
-        ` &nbsp;·&nbsp; <span style="color:#67e8f9">●</span> Team phases avg <b>${fmtDuration(m.teamAvgMs)}</b>`;
-    }
-  }
-
-  /* active bottlenecks · where open work is parked right now */
-  const openTotal = m.wip;
-  const bCats = BOTTLENECK_ORDER.filter((c) => m.bottlenecks.has(c));
-  if (openTotal === 0 || bCats.length === 0) {
-    drawCanvasMessage('bottleneckChart', ['No open issues — everything is done 🎉']);
-    if (state.charts.bottleneckChart) {
-      state.charts.bottleneckChart.destroy();
-      state.charts.bottleneckChart = null;
-    }
-  } else {
-    mkChart('bottleneckChart', {
-      type: 'doughnut',
-      data: {
-        labels: bCats,
-        datasets: [{
-          data: bCats.map((c) => m.bottlenecks.get(c)),
-          backgroundColor: bCats.map(bottleneckColor),
-          borderColor: 'rgba(10,15,34,.9)',
-          borderWidth: 3,
-          hoverOffset: 8,
-        }],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false, cutout: '68%',
-        plugins: {
-          legend: { position: 'right', labels: { boxWidth: 9, boxHeight: 9, usePointStyle: true, padding: 12 } },
-          tooltip: {
-            ...theme.plugins.tooltip,
-            callbacks: {
-              label: (c) => {
-                const total = c.dataset.data.reduce((a, b) => a + b, 0);
-                const pct = total ? Math.round(c.parsed / total * 100) : 0;
-                return ` ${c.parsed} issues · ${pct}%`;
-              },
-            },
-          },
-          centerText: { enable: true, value: openTotal, label: 'open' },
-        },
-      },
-    });
-  }
-
-  /* weekly throughput */
-  mkChart('throughputChart', {
-    type: 'bar',
-    data: {
-      labels: m.weekly.map((w) => w.label),
-      datasets: [{
-        label: 'Resolved', data: m.weekly.map((w) => w.count),
-        backgroundColor: 'rgba(52,211,153,.55)', hoverBackgroundColor: '#34d399',
-        borderRadius: 7, borderSkipped: false, barPercentage: 0.62,
-      }],
-    },
-    options: theme,
-  });
+  /* dynamic charts (built-in + custom, per-board/global) */
+  renderCharts(effectiveCharts(), m);
 
   /* slow table */
   const rows = m.slow.slice(0, 12).map((r) => {
@@ -1164,6 +1667,26 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('#logoutBtn').addEventListener('click', () => {
     clearConn(); state.conn = null; location.reload();
+  });
+
+  /* chart builder modal wiring */
+  $('#addChartBtn').addEventListener('click', () => {
+    const def = {
+      title: 'New chart', type: 'bar', metric: 'count', groupBy: 'status',
+      range: 90, bucket: 'week', filter: 'all', topN: 8, split: 'none',
+      color: 'indigo', wide: false, scope: 'board',
+    };
+    openChartModal(def, { mode: 'new' });
+  });
+  $('#saveChartBtn').addEventListener('click', saveChartFromForm);
+  $('#resetChartBtn').addEventListener('click', resetChartFromModal);
+  $('#deleteChartBtn').addEventListener('click', deleteChartFromModal);
+  $('#closeChartBtn').addEventListener('click', () => { hide($('#chartModal')); state.chartEditing = null; });
+  $('#chartModal').addEventListener('click', (ev) => {
+    if (ev.target === $('#chartModal')) { hide($('#chartModal')); state.chartEditing = null; }
+  });
+  ['#cMetric', '#cGroup', '#cType'].forEach((sel) => {
+    $(sel).addEventListener('change', syncChartForm);
   });
 
   // restore previous session silently
