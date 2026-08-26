@@ -995,7 +995,7 @@ async function api(path, options = {}) {
   throw e;
 }
 
-async function fetchPaginated(request, cap = 500) {
+async function fetchPaginated(request, cap = 500, pageSize = 50) {
   const base = typeof request === 'string' ? { path: request, method: 'GET' } : request;
   let startAt = 0;
   const out = [];
@@ -1003,11 +1003,13 @@ async function fetchPaginated(request, cap = 500) {
     let page;
     if ((base.method || 'GET') === 'GET') {
       const sep = base.path.includes('?') ? '&' : '?';
-      page = await api(`${base.path}${sep}startAt=${startAt}&maxResults=100`);
+      /* pageSize stays modest (default 50) so each relayed response keeps under the
+         CORS-proxy ~1 MB cap; large boards still paginate via startAt. */
+      page = await api(`${base.path}${sep}startAt=${startAt}&maxResults=${pageSize}`);
     } else {
       page = await api(base.path, {
         method: base.method || 'POST',
-        body: { ...(base.body || {}), startAt, maxResults: 100 },
+        body: { ...(base.body || {}), startAt, maxResults: pageSize },
       });
     }
     const vals = Array.isArray(page.values) ? page.values
@@ -1050,13 +1052,16 @@ function enterApp() {
   $('#setToken').value = '';
   $('#proxyToggle').checked = !!state.conn.useProxy;
   /* show the Admin badge when in the admin panel; show an Org badge on the
-     public app when a non-admin org member signs in. */
+     public app when a non-admin org member signs in. Guard for HTML variants
+     (the admin shell has no #orgBadge). */
+  const adminBadge = $('#adminBadge');
+  const orgBadge = $('#orgBadge');
   if (ADMIN_PANEL) {
-    $('#adminBadge').classList.remove('hidden');
-    $('#orgBadge').classList.add('hidden');
+    if (adminBadge) adminBadge.classList.remove('hidden');
+    if (orgBadge) orgBadge.classList.add('hidden');
   } else {
-    $('#adminBadge').classList.add('hidden');
-    $('#orgBadge').classList.toggle('hidden', !(state.conn && publishEmailOk(state.conn.email)));
+    if (adminBadge) adminBadge.classList.add('hidden');
+    if (orgBadge) orgBadge.classList.toggle('hidden', !(state.conn && publishEmailOk(state.conn.email)));
   }
   /* show/hide admin-only controls (publish / new chart) based on context */
   syncAdminControls();
@@ -1100,6 +1105,9 @@ function syncAdminControls() {
   });
   const adminBadge = $('#adminBadge');
   if (adminBadge) adminBadge.classList.toggle('hidden', !modify);
+  /* org badge reflects auto-verified org membership on the public app */
+  const orgBadge = $('#orgBadge');
+  if (orgBadge) orgBadge.classList.toggle('hidden', modify || !(state.conn && publishEmailOk(state.conn.email)));
 }
 
 /* open a board's dashboard from a board object (keeps URL in sync) */
@@ -1350,20 +1358,63 @@ async function resolveBoardContext(board) {
   return ctx;
 }
 
+/* Jira's legacy `/rest/api/3/search` endpoint has been DISABLED on newer Jira Cloud sites
+   and now returns 410 Gone. The modern endpoint is `/rest/api/3/search/jql`, which:
+     - returns `changelog.histories` + `resolutiondate` (which power the status-time and
+       resolved/throughput/cycle charts — without them those charts show "No data")
+     - paginates with `nextPageToken` + `isLast` (no `startAt`/`total`)
+
+   IMPORTANT: the public CORS proxy (corsproxy.io) BLOCKS POST requests (HTTP 403), so we
+   must do the search as a GET with JQL + fields as query parameters (exactly like Jira's
+   own UI). GET also carries the bearer/Basic auth headers fine and returns full data. */
 async function searchIssuesByJql(jql, withChangelog = false) {
-  return await fetchPaginated({
-    path: '/rest/api/3/search',
-    method: 'POST',
-    body: {
-      jql,
-      /* `fields` + `expand` must be comma-separated strings (not arrays) for the search
-         API to return them. resolutiondate powers the resolved/throughput/cycle charts and
-         changelog powers the status-time (Avg Time in Status / Stakeholder vs Team) charts. */
-      fields: ISSUE_FIELDS.join(','),
-      expand: withChangelog ? 'changelog' : '',
-      fieldsByKeys: false,
-    },
-  }, 600);
+  /* IMPORTANT: the public CORS proxy (corsproxy.io) refuses to relay responses above
+     ~0.8–1 MB (HTTP 413 Payload Too Large). With `expand=changelog` each issue carries a
+     full history, so a large page can blow that limit and abort the whole search → the app
+     falls back to the board endpoints which OMIT `resolutiondate`, leaving the
+     resolved/throughput/cycle charts at "No data". We therefore start at a modest page size
+     and, if the proxy returns 413 on any page, HALVE the page size and restart the search
+     from scratch (Jira's `nextPageToken` cannot resume mid-way). */
+  const MAX_TOTAL = 600;
+  const startPage = withChangelog ? 25 : 50;
+  let pageSize = startPage;
+  let lastErr = null;
+
+  for (let pass = 0; pass < 8; pass++) {
+    const out = [];
+    let nextPageToken = null;
+    let ok = true;
+    while (out.length < MAX_TOTAL) {
+      const qp = new URLSearchParams();
+      qp.set('jql', jql);
+      qp.set('fields', ISSUE_FIELDS.join(','));
+      qp.set('maxResults', String(pageSize));
+      if (withChangelog) qp.set('expand', 'changelog');
+      if (nextPageToken) qp.set('nextPageToken', nextPageToken);
+      let page;
+      try {
+        page = await api(`/rest/api/3/search/jql?${qp.toString()}`, { method: 'GET' });
+      } catch (e) {
+        lastErr = e;
+        if (e.status === 413 && pageSize > 1) {
+          ok = false;               /* response too big for the proxy → shrink and retry */
+          logDiag('warn', 'Search page too large for proxy, shrinking page size', { jql: jql.slice(0, 80), pageSize, status: 413 });
+          break;
+        }
+        throw e;                    /* any other error: let the caller decide (try next strategy) */
+      }
+      if (Array.isArray(page.issues)) out.push(...page.issues);
+      if (page.isLast === true || !page.nextPageToken) break;
+      nextPageToken = page.nextPageToken;
+    }
+    if (ok) return out;             /* completed without a 413 */
+    pageSize = Math.max(1, Math.floor(pageSize / 2));
+  }
+
+  /* couldn't get the whole set under the proxy cap at any page size — surface last error */
+  const e = new Error(`Could not fetch all search results (last error: ${lastErr?.message || 'unknown'})`);
+  e.status = lastErr?.status || 500;
+  throw e;
 }
 
 /* ── dashboard ───────────────────────────────────────────────────── */
@@ -1371,6 +1422,19 @@ async function searchIssuesByJql(jql, withChangelog = false) {
 function hasChangelogData(issues) {
   if (!issues || !issues.length) return false;
   for (const iss of issues) {
+    if (iss.changelog && iss.changelog.histories && iss.changelog.histories.length) return true;
+  }
+  return false;
+}
+
+/* detect whether an issues list has either resolutiondate (resolved/cycle/throughput
+   charts) OR changelog (status-time charts) — i.e. it is a REAL full-fields payload,
+   not a board-endpoint response that only carries `created`. */
+function hasResolutionOrChangelog(issues) {
+  if (!issues || !issues.length) return false;
+  for (const iss of issues) {
+    const f = iss.fields || {};
+    if (f.resolutiondate) return true;
     if (iss.changelog && iss.changelog.histories && iss.changelog.histories.length) return true;
   }
   return false;
@@ -1388,23 +1452,42 @@ async function loadBoardIssues(board) {
      board endpoints (best-effort, status-time charts may warn), then to JQL-by-filter /
      project searches without changelog as a last resort. */
   const attempts = [
-    ...(ctx.filterJql ? [{
-      name: 'search-filter-jql-changelog',
-      run: () => searchIssuesByJql(ctx.filterJql, true),
-      onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Board filter JQL + changelog', note: 'Used the board filter JQL. Full fields (resolutiondate + changelog) loaded.' }; },
-      verify: (issues) => hasChangelogData(issues),
-      onVerifyFail: { source: 'Board filter JQL (no changelog)', note: 'Search returned issues but no changelog history. Trying alternative strategy.' },
-    }] : []),
+    /* PRIMARY: full project-wide search. Kanban/Scrum board filters often restrict the
+       view to UNRESOLVED work (e.g. `resolution = Unresolved`), so querying the board's own
+       JQL returns only WIP — leaving Resolved/Throughput/Avg-cycle at 0. Searching across the
+       board's PROJECTS returns the complete issue set (including resolved + changelog), which
+       is the only way the resolved/throughput/cycle and status-time charts get real data. */
     ...(ctx.projectKeys.length ? [{
       name: 'search-projects-changelog',
       run: () => searchIssuesByJql(`project in (${ctx.projectKeys.map((k) => `"${k}"`).join(', ')}) ORDER BY created DESC`, true),
-      onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Board projects + changelog', note: 'Used Jira search across the board projects. Full fields (resolutiondate + changelog) loaded.' }; },
-      verify: (issues) => hasChangelogData(issues),
-      onVerifyFail: { source: 'Board projects (no changelog)', note: 'Project search returned issues but no changelog history. Trying alternative strategy.' },
+      /* Always accept the project-wide search — it's the only source that reliably returns
+         `resolutiondate` (resolved / throughput / cycle charts) regardless of whether the
+         project also exposes changelog. hasChangelog is derived from the actual payload so
+         status-time charts only warn when the project genuinely has no changelog. */
+      onSuccess: (issues) => {
+        state.hasChangelog = hasChangelogData(issues);
+        state.boardLoadMeta = {
+          source: 'Board projects + changelog',
+          note: state.hasChangelog ? 'Full issue set (includes resolved + changelog).' : 'Full issue set (resolved available, no changelog history).',
+        };
+      },
+    }] : []),
+    ...(ctx.filterJql ? [{
+      name: 'search-filter-jql-changelog',
+      run: () => searchIssuesByJql(ctx.filterJql, true),
+      onSuccess: (issues) => {
+        state.hasChangelog = hasChangelogData(issues);
+        state.boardLoadMeta = {
+          source: 'Board filter JQL + changelog',
+          note: state.hasChangelog ? 'Used the board filter JQL. Full fields (resolutiondate + changelog) loaded.' : 'Board filter JQL returned issues but no changelog history.',
+        };
+      },
+      verify: (issues) => hasResolutionOrChangelog(issues),
+      onVerifyFail: { source: 'Board filter JQL (no data)', note: 'Search returned issues but no resolved/changelog data. Trying board projects.' },
     }] : []),
     {
       name: 'agile-changelog',
-      run: () => fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}&expand=changelog`, 600),
+      run: () => fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}&expand=changelog`, 600, 25),
       onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Agile board issues + changelog', note: '' }; },
       verify: (issues) => hasChangelogData(issues),
       onVerifyFail: { source: 'Agile board issues (no changelog)', note: 'Changelog expansion returned no history. Trying alternative strategy.' },
@@ -1448,7 +1531,7 @@ async function loadBoardIssues(board) {
         lastErr = new Error(`${attempt.name}: no changelog in response`);
         continue;
       }
-      attempt.onSuccess();
+      attempt.onSuccess(issues);
       logDiag('info', 'Board load succeeded', {
         boardId: board.id,
         strategy: attempt.name,
