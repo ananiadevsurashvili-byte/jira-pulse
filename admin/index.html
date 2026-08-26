@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JiraPulse · Admin panel</title>
+<meta name="description" content="Admin panel for JiraPulse — publish each board, manage snapshots and public links." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
+<link rel="stylesheet" href="../styles.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+<script src="https://accounts.google.com/gsi/client" async></script>
+</head>
+<body class="admin-body">
+<div class="orb orb-a" aria-hidden="true"></div>
+<div class="orb orb-b" aria-hidden="true"></div>
+<div class="orb orb-c" aria-hidden="true"></div>
+
+<!-- ══════════ TOP BAR ══════════ -->
+<header id="topbar" class="topbar hidden">
+  <div class="brand" id="brandBtn" role="button" tabindex="0" title="Go to all boards">
+    <svg viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="8" fill="url(#lgA)"/><defs><linearGradient id="lgA" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M6 21l4-7 4 5 5-10 7 12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>Jira<b>Pulse</b></span>
+    <span id="adminBadge" class="admin-badge hidden">Admin</span>
+  </div>
+  <div class="topbar-center">
+    <span id="allBoardsLabel" class="header-title">All boards</span>
+    <select id="boardSelect" class="input board-select" aria-label="Select board"></select>
+    <button id="syncBoardsBtn" class="btn btn-ghost" title="Re-sync board list from Jira">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+      Sync boards
+    </button>
+  </div>
+  <div class="topbar-right">
+    <a class="btn btn-ghost" href="../" title="Open the public app (not the admin panel)">Public view</a>
+    <span id="syncedAt" class="muted small"></span>
+    <button id="openDebugBtn" class="btn btn-ghost" title="Open diagnostics log">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M12 4h9"/><path d="M4 9h16"/><path d="M4 15h16"/><path d="M8 4v16"/></svg>
+      Diagnostics
+    </button>
+    <button id="backToBoardsBtn" class="btn btn-ghost" title="Back to boards">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/><path d="M21 12H9"/></svg>
+      Boards
+    </button>
+    <button id="refreshBtn" class="btn btn-ghost" title="Refresh metrics for current board">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+      Refresh
+    </button>
+    <button id="settingsBtn" class="btn btn-ghost icon-only" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+    <button id="logoutBtn" class="btn btn-ghost icon-only" title="Disconnect">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="main">
+
+  <!-- ══════════ SETUP SCREEN ══════════ -->
+  <section id="setupScreen">
+    <div class="hero glass">
+      <svg class="hero-logo" viewBox="0 0 32 32" width="56" height="56"><rect width="32" height="32" rx="8" fill="url(#lg2A)"/><defs><linearGradient id="lg2A" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M6 21l4-7 4 5 5-10 7 12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h1>Admin panel<br /><span class="grad-text">Manage your deliverable stats.</span></h1>
+      <p class="lead">This is the <b>JiraPulse admin panel</b>. Connect your Jira account to publish board stats, generate shareable links, and control what your organization can see. Your credentials never leave this browser.</p>
+      <form id="connectForm" autocomplete="off">
+        <div class="field-row">
+          <label>Jira site
+            <input id="inDomain" class="input" type="text" placeholder="yourcompany.atlassian.net" required />
+          </label>
+          <label>Email
+            <input id="inEmail" class="input" type="email" placeholder="you@company.com" required />
+          </label>
+        </div>
+        <label>API token
+          <input id="inToken" class="input" type="password" placeholder="Attach your Jira API token" required />
+        </label>
+        <button id="connectBtn" class="btn btn-primary btn-lg" type="submit">
+          <span class="btn-label">Connect to Jira</span>
+          <span class="spinner hidden"></span>
+        </button>
+        <div id="setupError" class="form-error hidden"></div>
+      </form>
+      <details class="help">
+        <summary>How do I get an API token?</summary>
+        <ol>
+          <li>Open <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener">id.atlassian.com → API tokens</a></li>
+          <li>Click <b>Create API token</b>, give it a name and copy the value</li>
+          <li>Paste your site address, account email and token above</li>
+        </ol>
+        <p class="muted small">This admin panel runs fully client-side. Your credentials are stored only in this browser's local storage and sent directly (or via optional CORS proxy) to your Jira site.</p>
+      </details>
+    </div>
+  </section>
+
+  <!-- ══════════ BOARDS SCREEN ══════════ -->
+  <section id="boardsScreen" class="hidden">
+    <div class="screen-head dash-head">
+      <div>
+        <h2>Choose a board</h2>
+        <p class="muted">Synced straight from your Jira instance. Click any card to open its admin dashboard.</p>
+      </div>
+      <div class="dash-head-right">
+        <button id="publishAllBtn" class="btn btn-primary" title="Publish all boards to your organization">⟳ Publish all</button>
+      </div>
+    </div>
+    <div id="boardsGrid" class="boards-grid"></div>
+    <div id="boardsLoading" class="loading-block hidden">
+      <span class="spinner spinner-lg"></span><span>Fetching boards from Jira…</span>
+    </div>
+    <div id="boardsEmpty" class="empty-block hidden">
+      <p>No boards found for this account.<br />Make sure your Jira user has access to company-managed or team-managed boards.</p>
+    </div>
+  </section>
+
+  <!-- ══════════ DASHBOARD SCREEN ══════════ -->
+  <section id="dashScreen" class="hidden">
+    <div id="errorBanner" class="error-banner hidden"></div>
+    <div id="changelogNotice" class="error-banner hidden" style="background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.4);color:#fcd34d;"></div>
+
+    <div class="screen-head dash-head">
+      <div>
+        <h2 id="dashBoardName">—</h2>
+        <span id="issueCountBadge" class="badge"></span>
+      </div>
+      <div class="dash-head-right">
+        <span id="proxyBadge" class="badge badge-warn hidden" title="Requests are being routed through a public CORS proxy because your browser blocked direct calls to Jira">via CORS proxy</span>
+        <button id="addChartBtn" class="btn btn-primary" title="Build a custom chart for this board">＋ New chart</button>
+        <button id="publishBtn" class="btn btn-ghost" title="Publish this board's stats to your organization">⟳ Publish</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi glass">
+        <div class="kpi-top"><span class="kpi-icon ic-indigo">▦</span><span class="kpi-label">Issues analyzed</span></div>
+        <div class="kpi-value" id="kpiTotal">…</div>
+        <div class="kpi-sub muted" id="kpiTotalSub">on this board</div>
+      </div>
+      <div class="kpi glass">
+        <div class="kpi-top"><span class="kpi-icon ic-cyan">＋</span><span class="kpi-label">Created · 30 days</span></div>
+        <div class="kpi-value accent-cyan" id="kpiCreated">…</div>
+        <div class="kpi-sub muted" id="kpiCreatedSub">new tasks registered</div>
+      </div>
+      <div class="kpi glass">
+        <div class="kpi-top"><span class="kpi-icon ic-green">✓</span><span class="kpi-label">Done overall</span></div>
+        <div class="kpi-value accent-green" id="kpiDone">…</div>
+        <div class="kpi-sub muted" id="kpiDoneSub">completion rate</div>
+      </div>
+      <div class="kpi glass">
+        <div class="kpi-top"><span class="kpi-icon ic-green">↻</span><span class="kpi-label">Resolved · 30 days</span></div>
+        <div class="kpi-value accent-green" id="kpiResolved">…</div>
+        <div class="kpi-sub" id="kpiResolvedSub">shipped recently</div>
+      </div>
+      <div class="kpi glass">
+        <div class="kpi-top"><span class="kpi-icon ic-violet">⏱</span><span class="kpi-label">Avg cycle time</span></div>
+        <div class="kpi-value accent-violet" id="kpiCycle">…</div>
+        <div class="kpi-sub" id="kpiCycleSub">create → resolve</div>
+      </div>
+      <div class="kpi glass">
+        <div class="kpi-top"><span class="kpi-icon ic-amber">◔</span><span class="kpi-label">Work in progress</span></div>
+        <div class="kpi-value accent-amber" id="kpiWip">…</div>
+        <div class="kpi-sub muted">not yet done</div>
+      </div>
+    </div>
+
+    <div id="insightsStrip" class="insights-strip hidden"></div>
+
+    <div id="chartsGrid" class="charts-grid"></div>
+    <div id="hiddenChartsStrip" class="hidden-charts-strip hidden"></div>
+
+    <div class="card glass table-card">
+      <h3>Longest sitting in current status <span class="muted small">· open work</span></h3>
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr><th>Key</th><th>Summary</th><th>Status</th><th>Time in status</th><th>Type</th><th>Assignee</th><th>Created</th></tr></thead>
+          <tbody id="slowTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  JiraPulse · admin panel — your credentials never leave this browser
+</footer>
+
+<!-- ══════════ SETTINGS MODAL ══════════ -->
+<div id="settingsModal" class="modal-overlay hidden">
+  <div class="modal glass">
+    <h3>Settings</h3>
+    <label>Jira site<input id="setDomain" class="input" type="text" /></label>
+    <label>Email<input id="setEmail" class="input" type="email" /></label>
+    <label>API token <span class="muted small">(leave blank to keep current)</span>
+      <input id="setToken" class="input" type="password" placeholder="••••••••••••" autocomplete="new-password" />
+    </label>
+    <label class="switch-row">
+      <input id="proxyToggle" type="checkbox" />
+      <span>Route requests via CORS proxy<br /><span class="muted small">Fallback if your browser blocks direct calls to Jira. Note: requests would pass through a public relay.</span></span>
+    </label>
+    <div class="modal-actions">
+      <button id="clearDataBtn" class="btn btn-danger-ghost">Clear local data</button>
+      <span class="spacer"></span>
+      <button id="closeSettingsBtn" class="btn btn-ghost">Close</button>
+      <button id="saveSettingsBtn" class="btn btn-primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="debugModal" class="modal-overlay hidden">
+  <div class="modal glass modal-wide">
+    <h3>Diagnostics</h3>
+    <p class="muted small">If a board fails, open this panel and copy the log. It includes each Jira request, fallback strategy, and response status.</p>
+    <pre id="debugLogOutput" class="debug-log">No diagnostics captured yet.</pre>
+    <div class="modal-actions">
+      <button id="clearDebugBtn" class="btn btn-danger-ghost">Clear log</button>
+      <span class="spacer"></span>
+      <button id="closeDebugBtn" class="btn btn-ghost">Close</button>
+      <button id="copyDebugBtn" class="btn btn-primary">Copy log</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ CHART BUILDER MODAL ══════════ -->
+<div id="chartModal" class="modal-overlay hidden">
+  <div class="modal glass modal-wide">
+    <h3 id="chartModalTitle">New chart</h3>
+
+    <label>Chart title
+      <input id="cTitle" class="input" type="text" placeholder="e.g. Bugs created per week" />
+    </label>
+
+    <div class="form-row">
+      <div class="form-col">
+        <span class="seg-label">Chart type</span>
+        <div id="cType" class="seg"></div>
+      </div>
+      <div class="form-col">
+        <span class="seg-label">Applies to</span>
+        <div id="cScope" class="seg"></div>
+      </div>
+    </div>
+
+    <label>Metric
+      <select id="cMetric" class="input"></select>
+    </label>
+
+    <label id="cGroupWrap" class="hidden">
+      <span class="seg-label">Group by</span>
+      <select id="cGroup" class="input"></select>
+    </label>
+
+    <p id="subtitleHint" class="muted small" style="min-height: 1.2em;"></p>
+
+    <div class="form-row">
+      <label id="cRangeWrap" class="form-col">
+        <span class="seg-label">Time range</span>
+        <select id="cRange" class="input"></select>
+      </label>
+      <label id="cBucketWrap" class="form-col hidden">
+        <span class="seg-label">Bucket</span>
+        <select id="cBucket" class="input">
+          <option value="day">Day</option>
+          <option value="week" selected>Week</option>
+          <option value="month">Month</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="form-row">
+      <label id="cFilterWrap" class="form-col hidden">
+        <span class="seg-label">Filter</span>
+        <select id="cFilter" class="input">
+          <option value="all" selected>All issues</option>
+          <option value="open">Open only</option>
+          <option value="done">Done only</option>
+        </select>
+      </label>
+      <label id="cSplitWrap" class="form-col hidden">
+        <span class="seg-label">Split</span>
+        <select id="cSplit" class="input">
+          <option value="none" selected>None</option>
+          <option value="stage">Stakeholder vs team</option>
+        </select>
+      </label>
+      <label id="cTopWrap" class="form-col hidden">
+        <span class="seg-label">Max groups</span>
+        <select id="cTop" class="input">
+          <option value="5">5</option>
+          <option value="8" selected>8</option>
+          <option value="10">10</option>
+          <option value="15">15</option>
+          <option value="20">20</option>
+        </select>
+      </label>
+      <label id="cColorWrap" class="form-col hidden">
+        <span class="seg-label">Accent</span>
+        <select id="cColor" class="input">
+          <option value="indigo" selected>Indigo</option>
+          <option value="cyan">Cyan</option>
+          <option value="green">Green</option>
+          <option value="amber">Amber</option>
+          <option value="violet">Violet</option>
+          <option value="pink">Pink</option>
+        </select>
+      </label>
+    </div>
+
+    <label class="switch-row">
+      <input id="cWide" type="checkbox" />
+      <span>Full-width chart</span>
+    </label>
+
+    <p id="scopeNote" class="muted small">This is a built-in chart. Editing it here updates it for <b>all boards</b>.</p>
+
+    <div class="modal-actions">
+      <button id="deleteChartBtn" class="btn btn-danger-ghost hidden">Delete</button>
+      <button id="resetChartBtn" class="btn btn-ghost hidden">Reset to default</button>
+      <span class="spacer"></span>
+      <button id="closeChartBtn" class="btn btn-ghost">Close</button>
+    <button id="saveChartBtn" class="btn btn-primary">Save chart</button>
+    </div>
+  </div>
+</div>
+
+<div id="pubModal" class="modal-overlay hidden">
+  <div class="modal glass modal-wide">
+    <h3 id="pubModalTitle">Publish board stats</h3>
+    <p class="muted small">Create a public snapshot anyone in your organization can view. Share the link — viewers sign in with a <b>@caucasusauto.com</b> email and a one-time code.</p>
+
+    <div id="pubCreateWrap">
+      <div class="form-row" style="margin-top:14px">
+        <div class="form-col">
+          <span class="seg-label">Scope</span>
+          <div id="pubScope" class="seg">
+            <button data-v="all" class="active">All boards</button>
+            <button data-v="board">This board</button>
+          </div>
+        </div>
+        <label id="pubBoardSelectWrap" class="form-col hidden">
+          <span class="seg-label">Board</span>
+          <select id="pubBoardSelect" class="input"></select>
+        </label>
+      </div>
+
+      <div style="margin-top:14px">
+        <button id="pubCreateBtn" class="btn btn-primary">Create snapshot</button>
+      </div>
+    </div>
+
+    <div id="pubListWrap" style="margin-top:18px">
+      <h4 style="font-size:0.85rem;font-weight:700;margin-bottom:8px">Published snapshots</h4>
+      <div style="overflow:auto;max-height:240px;border:1px solid var(--border);border-radius:10px">
+        <table id="pubListBody" style="width:100%;border-collapse:collapse;font-size:0.78rem">
+          <thead>
+            <tr style="text-align:left;color:var(--muted)">
+              <th style="padding:8px 10px;border-bottom:1px solid var(--border)">Board</th>
+              <th style="padding:8px 10px;border-bottom:1px solid var(--border)">Scope</th>
+              <th style="padding:8px 10px;border-bottom:1px solid var(--border)">Created</th>
+              <th style="padding:8px 10px;border-bottom:1px solid var(--border)">Token</th>
+              <th style="padding:8px 10px;border-bottom:1px solid var(--border)">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="pubListBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <span class="spacer"></span>
+      <button id="closePubBtn" class="btn btn-ghost">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="pubScreen" class="hidden" style="position:fixed;inset:0;z-index:9000;background:var(--bg);overflow:auto">
+  <div class="dash-wrap">
+    <div class="glass" style="padding:28px;margin-bottom:20px">
+      <div style="display:flex;align-items:flex-start;gap:14px;justify-content:space-between;flex-wrap:wrap">
+        <div style="min-width:0;flex:1">
+          <h2 id="pubTitle" style="font-size:1.7rem;font-weight:800;margin-bottom:6px">Published stats</h2>
+          <p id="pubSubtitle" class="muted">Sign in with your @caucasusauto.com email to view this board snapshot.</p>
+          <p id="pubStatus" class="muted" style="margin-top:8px"></p>
+        </div>
+        <div id="pubAdminBar" class="hidden" style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+          <span id="pubAdminText" style="font-size:0.75rem;padding:5px 12px;border-radius:999px;background:rgba(99,102,241,.15);color:#818cf8;font-weight:700"></span>
+          <button id="pubManageBtn" class="btn btn-ghost" style="font-size:0.8rem">⚙ Publish / manage boards</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="pubAuthBox" class="glass" style="padding:28px">
+      <div id="pubGoogleWrap" style="margin-bottom:14px">
+        <div id="pubGoogleBtn" class="google-btn" style="display:inline-flex;align-items:center;gap:10px;padding:10px 18px;border-radius:10px;border:1px solid var(--border);background:var(--panel);cursor:pointer;font-size:0.88rem;font-weight:600;color:var(--text)">
+          <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.05c0-.8-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          <span id="pubGoogleText">Sign in with Google</span>
+        </div>
+      </div>
+
+      <div style="text-align:center;color:var(--muted);font-size:0.78rem;margin-bottom:14px">— or with email —</div>
+
+      <label>Email
+        <input id="pubEmail" class="input" type="text" placeholder="you@caucasusauto.com" />
+      </label>
+      <div style="margin-top:10px">
+        <button id="pubSendBtn" class="btn btn-primary">Send code</button>
+      </div>
+
+      <div id="pubCodeWrap" class="hidden" style="margin-top:14px">
+        <label>Access code
+          <input id="pubCode" class="input" type="text" placeholder="6-digit code" maxlength="6" />
+        </label>
+        <div style="margin-top:10px;display:flex;gap:10px">
+          <button id="pubVerifyBtn" class="btn btn-primary">Verify</button>
+          <a id="pubMailLink" class="btn btn-ghost" target="_blank" rel="noopener">Email me the code</a>
+        </div>
+      </div>
+    </div>
+
+    <div id="pubContent" class="hidden" style="margin-top:20px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+        <span id="pubIssueCount" class="muted"></span>
+        <span id="pubChangelogBadge" class="data-badge ok">✓ changelog</span>
+        <button id="pubBackBtn" class="btn btn-ghost" style="margin-left:auto">← Back</button>
+      </div>
+
+      <div id="pubLinkBox" class="hidden glass" style="padding:14px 18px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:0.8rem;font-weight:700;white-space:nowrap">🔗 Share link</span>
+          <input id="pubLinkInput" class="input" type="text" readonly style="flex:1;min-width:200px;font-size:0.78rem;font-family:var(--mono);color:var(--muted)" />
+          <button id="pubCopyLinkBtn" class="btn btn-ghost" style="font-size:0.78rem">Copy</button>
+        </div>
+        <div class="muted" style="font-size:0.72rem;margin-top:6px">Only you (admin) can see this link. Viewers authenticate with a @caucasusauto.com Google or email account.</div>
+      </div>
+
+      <div id="pubBoardsList" class="pub-charts-grid"></div>
+      <div id="pubChartsGrid" class="pub-charts-grid hidden"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>window.ADMIN_PANEL = true;</script>
+<script src="../app.js"></script>
+</body>
+</html>
