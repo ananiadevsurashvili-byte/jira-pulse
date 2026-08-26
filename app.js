@@ -36,6 +36,12 @@ function escapeHtml(s) {
 const LS_PUBLISH = 'jp_publish_v1';
 const PUBLISH_DOMAIN = 'caucasusauto.com';   /* allowed email domain */
 const PUBLISH_TOKEN_LEN = 16;
+const ADMIN_EMAIL = 'anania.devsurashvili@caucasusauto.com';  /* the JiraPulse admin */
+
+/* is this email the admin? */
+function isAdminEmail(email) {
+  return (email || '').toLowerCase().trim() === ADMIN_EMAIL;
+}
 
 function loadPublishStore() {
   try { return JSON.parse(localStorage.getItem(LS_PUBLISH) || '{}'); } catch { return {}; }
@@ -64,20 +70,64 @@ function newPublishToken() {
   return Array.from(a, (x) => chars[x % chars.length]).join('');
 }
 
-/* create a publish snapshot for a board */
-function createPublishSnapshot(boardId, scope) {
+/* create a publish snapshot for a board, or for every board (scope='all') */
+async function createPublishSnapshot(boardId, scope) {
+  if (scope === 'all') return await createAllBoardsSnapshot();
   const board = state.boards.find((b) => b.id === boardId);
   if (!board) return null;
   const snapshot = {
     token: newPublishToken(),
     boardId,
     boardName: board.name,
-    scope: scope || 'all',          /* 'all' = every board, or specific boardId */
+    scope: 'board',
     createdAt: Date.now(),
     issues: state.issues,
     metrics: state.lastMetrics,
     charts: effectiveCharts(),
     hasChangelog: state.hasChangelog,
+  };
+  const store = loadPublishStore();
+  store[snapshot.token] = snapshot;
+  savePublishStore(store);
+  return snapshot;
+}
+
+/* build a snapshot that bundles every board with its own issues + metrics + charts */
+async function createAllBoardsSnapshot() {
+  const now = Date.now();
+  const records = [];
+  let anyChangelog = false;
+  for (const board of state.boards) {
+    try {
+      logDiag('info', 'Publish: loading board for all-boards snapshot', { boardId: board.id, name: board.name });
+      const issues = await loadBoardIssues(board);
+      const m = computeMetrics(issues);
+      anyChangelog = anyChangelog || state.hasChangelog;
+      records.push({
+        boardId: board.id,
+        name: board.name,
+        issuesCount: issues.length,
+        issues,
+        metrics: m,
+        charts: effectiveCharts(),
+        hasChangelog: state.hasChangelog,
+      });
+    } catch (e) {
+      logDiag('warn', 'Publish: board skipped in all-boards snapshot', { boardId: board.id, name: board.name, message: e?.message });
+    }
+  }
+  if (!records.length) { toast('Could not load any boards to publish.', 'warn'); return null; }
+  const snapshot = {
+    token: newPublishToken(),
+    boardId: null,
+    boardName: 'All boards',
+    scope: 'all',
+    createdAt: now,
+    issues: [],
+    metrics: null,
+    charts: [],
+    boards: records,
+    hasChangelog: anyChangelog,
   };
   const store = loadPublishStore();
   store[snapshot.token] = snapshot;
@@ -105,7 +155,14 @@ function parseShareToken() {
 }
 
 /* ── public share screen logic ─────────────────────────────────────── */
-let pubState = { snapshot: null, email: '', verified: false, codeSent: false };
+let pubState = {
+  snapshot: null,
+  email: '',
+  verified: false,
+  codeSent: false,
+  isAdmin: false,          /* true when the viewer is the JiraPulse admin */
+  currentBoard: null,      /* board being viewed when snapshot.scope === 'all' */
+};
 
 /* Google OAuth client id (leave empty to disable Google sign-in) */
 const GOOGLE_CLIENT_ID = '671098966570-21bp1aeud5o2glbjsliif3foi6n71gmh.apps.googleusercontent.com';
@@ -131,11 +188,12 @@ function initGoogleButton() {
         /* verified Google account in the right domain — grant access */
         pubState.email = email;
         pubState.verified = true;
+        pubState.isAdmin = isAdminEmail(email);
         $('#pubStatus').textContent = 'Verified via Google. Loading snapshot…';
         $('#pubStatus').className = 'ok';
         $('#pubContent').classList.remove('hidden');
         $('#pubAuthBox').classList.add('hidden');
-        renderPubSnapshot();
+        renderPubContent();
       },
       context: 'use',
       ux_mode: 'popup',
@@ -166,9 +224,17 @@ function showPubScreen(snapshot) {
   pubState.email = '';
   pubState.verified = false;
   pubState.codeSent = false;
+  pubState.isAdmin = false;
+  pubState.currentBoard = null;
 
-  $('#pubTitle').textContent = snapshot.boardName + ' — published stats';
-  $('#pubSubtitle').textContent = 'Sign in with your ' + PUBLISH_DOMAIN + ' email to view this board snapshot.';
+  /* title depends on scope */
+  if (snapshot.scope === 'all') {
+    $('#pubTitle').textContent = 'Organization board stats';
+    $('#pubSubtitle').textContent = 'Sign in with your ' + PUBLISH_DOMAIN + ' email to view the published board stats.';
+  } else {
+    $('#pubTitle').textContent = snapshot.boardName + ' — published stats';
+    $('#pubSubtitle').textContent = 'Sign in with your ' + PUBLISH_DOMAIN + ' email to view this board snapshot.';
+  }
   $('#pubEmail').value = '';
   $('#pubEmail').disabled = false;
   $('#pubEmail').placeholder = 'you@' + PUBLISH_DOMAIN;
@@ -183,6 +249,7 @@ function showPubScreen(snapshot) {
   $('#pubContent').classList.add('hidden');
   $('#pubAuthBox').classList.remove('hidden');
   $('#pubAuthBox').classList.add('glass');
+  $('#pubAdminBar').classList.add('hidden');
 
   /* hide app chrome */
   hide($( '#dashScreen'));
@@ -198,6 +265,7 @@ function pubSendCode() {
     return;
   }
   pubState.email = email;
+  pubState.isAdmin = isAdminEmail(email);
   const code = publishCode(pubState.snapshot.token, email);
   pubState.codeSent = true;
 
@@ -221,43 +289,121 @@ function pubVerifyCode() {
   const expected = publishCode(pubState.snapshot.token, pubState.email);
   if (entered === expected) {
     pubState.verified = true;
+    pubState.isAdmin = isAdminEmail(pubState.email);
     $('#pubStatus').textContent = 'Verified. Loading snapshot…';
     $('#pubStatus').className = 'ok';
     $('#pubContent').classList.remove('hidden');
     $('#pubAuthBox').classList.add('hidden');
-    renderPubSnapshot();
+    renderPubContent();
   } else {
     $('#pubStatus').textContent = 'Wrong code. Please try again.';
     $('#pubStatus').className = 'error';
   }
 }
 
-function renderPubSnapshot() {
+function renderPubContent() {
   const snap = pubState.snapshot;
-  $('#pubTitle').textContent = snap.boardName;
-  $('#pubSubtitle').textContent = 'Snapshot taken ' + new Date(snap.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) +
-    ' · ' + snap.issues.length + ' issues';
-  $('#pubIssueCount').textContent = snap.issues.length + ' issues';
+  const admin = pubState.isAdmin;
+
+  /* admin bar — visible only to the admin */
+  const adminBar = $('#pubAdminBar');
+  if (admin) {
+    adminBar.classList.remove('hidden');
+    $('#pubAdminText').textContent = 'Signed in as ' + pubState.email + ' · Admin';
+    $('#pubManageBtn').style.display = '';
+  } else {
+    adminBar.classList.add('hidden');
+  }
+
+  /* title/subtitle */
+  if (snap.scope === 'all') {
+    $('#pubTitle').textContent = 'Organization board stats';
+    $('#pubSubtitle').textContent = 'All published boards · snapshot ' +
+      new Date(snap.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  } else {
+    $('#pubTitle').textContent = snap.boardName;
+    $('#pubSubtitle').textContent = 'Snapshot taken ' + new Date(snap.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) +
+      ' · ' + snap.issues.length + ' issues';
+  }
+
+  $('#pubIssueCount').textContent = snap.scope === 'all'
+    ? snap.boards.length + ' boards'
+    : snap.issues.length + ' issues';
   $('#pubChangelogBadge').textContent = snap.hasChangelog ? '✓ changelog' : '⚠ no changelog';
   $('#pubChangelogBadge').className = 'data-badge ' + (snap.hasChangelog ? 'ok' : 'missing');
 
-  /* render charts using the snapshot metrics */
-  const grid = $('#pubChartsGrid');
-  const defs = snap.charts;
-  if (!defs.length) {
-    grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No charts in this snapshot.</div>';
-  } else {
-    grid.innerHTML = defs.map((d) => chartCardHTML(d, false)).join('');
-  }
-  const theme = chartTheme();
-  for (const def of defs) {
-    const canvasId = 'pub_chart_' + def.id;
-    const data = buildChartData(def, snap.metrics);
-    if (data.empty) {
-      drawCanvasMessage(canvasId, Array.isArray(data.empty) ? data.empty : [data.empty]);
-      continue;
+  const boardsList = $('#pubBoardsList');
+  const chartsGrid = $('#pubChartsGrid');
+
+  if (snap.scope === 'all') {
+    /* ── all-boards view: show the boards list ── */
+    chartsGrid.classList.add('hidden');
+    boardsList.classList.remove('hidden');
+    const boards = snap.boards || [];
+    if (!boards.length) {
+      boardsList.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No boards published.</div>';
+    } else {
+      boardsList.innerHTML = boards.map((b) => `
+        <div class="pub-board-row" data-bid="${b.boardId}">
+          <span class="board-open" style="color:var(--muted)">▸</span>
+          <div>
+            <div class="bname">${escapeHtml(b.name)}</div>
+            <div class="bmeta">${b.issuesCount} issues · ${b.hasChangelog ? 'changelog ✓' : 'no changelog'}</div>
+          </div>
+        </div>`).join('');
+      boardsList.querySelectorAll('.pub-board-row').forEach((row) => {
+        row.addEventListener('click', () => {
+          const b = boards.find((x) => String(x.boardId) === row.dataset.bid);
+          if (b) openBoardSnapshot(b);
+        });
+      });
     }
-    mkChart(canvasId, chartConfigFor(def, data, theme, canvasId));
+  } else {
+    /* ── single-board view: render the charts ── */
+    boardsList.classList.add('hidden');
+    chartsGrid.classList.remove('hidden');
+    const grid = chartsGrid;
+    const defs = snap.charts;
+    if (!defs.length) {
+      grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No charts in this snapshot.</div>';
+    } else {
+      grid.innerHTML = defs.map((d) => chartCardHTML(d, false)).join('');
+    }
+    const theme = chartTheme();
+    for (const def of defs) {
+      const canvasId = 'chart_' + def.id;
+      const data = buildChartData(def, snap.metrics);
+      if (data.empty) {
+        drawCanvasMessage(canvasId, Array.isArray(data.empty) ? data.empty : [data.empty]);
+        continue;
+      }
+      mkChart(canvasId, chartConfigFor(def, data, theme, canvasId));
+    }
+  }
+}
+
+/* helper: when viewing an 'all' snapshot and the admin clicks a board, show that board's snapshot */
+function openBoardSnapshot(boardRec) {
+  const snap = pubState.snapshot;
+  /* build a single-board snapshot view from the board record inside the 'all' snapshot */
+  if (boardRec.charts) {
+    pubState.currentBoard = boardRec;
+    const sub = {
+      token: snap.token,
+      boardId: boardRec.boardId,
+      boardName: boardRec.name,
+      scope: 'board',
+      createdAt: snap.createdAt,
+      issues: boardRec.issues,
+      metrics: boardRec.metrics,
+      charts: boardRec.charts,
+      hasChangelog: boardRec.hasChangelog,
+    };
+    pubState.snapshot = sub;
+    renderPubContent();
+    /* remember it's a drill-down so the Back button restores the all-boards view */
+    $('#pubBackBtn').dataset.fromAll = '1';
+    $('#pubBackBtn').textContent = '← All boards';
   }
 }
 
@@ -270,8 +416,17 @@ function hidePubScreen() {
 let pubModalState = { mode: 'all' /* 'all' | 'board' */, boardId: null };
 
 function openPublishModal() {
-  if (!state.conn) { toast('Connect to Jira first.', 'warn'); return; }
-  if (!state.boards.length) { toast('No boards loaded yet.', 'warn'); return; }
+  const connected = state.conn && state.boards.length;
+  if (!connected) {
+    toast(state.conn ? 'No boards loaded yet.' : 'Connect to Jira first to create new snapshots — you can still manage existing ones.', 'warn');
+  }
+
+  /* hide the "create" area when not connected (admins can still copy/delete existing links) */
+  const createWrap = $( '#pubCreateWrap');
+  if (createWrap) createWrap.style.display = connected ? '' : 'none';
+  if (connected) {
+    $('#pubBoardSelect').innerHTML = state.boards.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
+  }
 
   const allSnapshots = listPublishSnapshots();
   $('#pubListBody').innerHTML = allSnapshots.length
@@ -282,7 +437,7 @@ function openPublishModal() {
         <td><span class="mono">${escapeHtml(s.token)}</span></td>
         <td>
           <button class="link-btn" data-copy="${escapeHtml(s.token)}">copy link</button>
-          <button class="link-btn" data-open="${s.token}">open</button>
+          <button class="link-btn" data-open="${s.token}" style="display:${connected ? '' : 'none'}">open</button>
           <button class="link-btn" data-del="${s.token}" style="color:#f87171">delete</button>
         </td>
       </tr>`).join('')
@@ -308,23 +463,30 @@ function openPublishModal() {
     });
   });
 
-  $('#pubBoardSelect').innerHTML = state.boards.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
-    $('#pubBoardSelect').parentElement.classList.add('hidden');
     $('#pubCreateBtn').textContent = 'Create snapshot';
-    $('#pubModalTitle').textContent = 'Publish board stats';
+    $('#pubModalTitle').textContent = connected ? 'Publish board stats' : 'Manage published snapshots';
     show($( '#pubModal'));
 }
 
-function createSnapshotFromModal() {
+async function createSnapshotFromModal() {
   const scope = $( '#pubScope').querySelector('button.active').dataset.v;
   const boardId = scope === 'all' ? state.boardId : parseInt($( '#pubBoardSelect').value, 10);
-  if (!boardId) { toast('Select a board first.', 'warn'); return; }
-  const snap = createPublishSnapshot(boardId, scope);
-  if (!snap) { toast('Could not create snapshot.', 'warn'); return; }
-  const link = location.origin + location.pathname + '?share=' + snap.token;
-  navigator.clipboard.writeText(link).then(() => toast('Snapshot created — link copied.', 'ok')).catch(() => toast('Snapshot created. Token: ' + snap.token, 'ok'));
-  hide($( '#pubModal'));
-  openPublishModal();
+  /* for 'all' scope the boardId is not required */
+  if (scope === 'board' && !boardId) { toast('Select a board first.', 'warn'); return; }
+  const btn = $( '#pubCreateBtn');
+  btn.disabled = true;
+  btn.textContent = 'Creating…';
+  try {
+    const snap = await createPublishSnapshot(boardId, scope);
+    if (!snap) { toast('Could not create snapshot.', 'warn'); return; }
+    const link = location.origin + location.pathname + '?share=' + snap.token;
+    navigator.clipboard.writeText(link).then(() => toast('Snapshot created — link copied.', 'ok')).catch(() => toast('Snapshot created. Token: ' + snap.token, 'ok'));
+    hide($( '#pubModal'));
+    openPublishModal();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create snapshot';
+  }
 }
 
 function safeData(value) {
@@ -2094,6 +2256,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /* publish modal wiring */
   $('#publishBtn').addEventListener('click', openPublishModal);
+  $('#publishAllBtn').addEventListener('click', async () => {
+    if (!state.conn) { toast('Connect to Jira first.', 'warn'); return; }
+    if (!state.boards.length) { toast('No boards loaded yet.', 'warn'); return; }
+    const btn = $( '#publishAllBtn');
+    btn.disabled = true;
+    btn.textContent = 'Publishing…';
+    try {
+      const snap = await createAllBoardsSnapshot();
+      if (!snap) return;
+      const link = location.origin + location.pathname + '?share=' + snap.token;
+      navigator.clipboard.writeText(link).then(() => toast('All boards published — link copied.', 'ok')).catch(() => toast('All boards published. Token: ' + snap.token, 'ok'));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '⟳ Publish all';
+    }
+  });
   $('#closePubBtn').addEventListener('click', () => hide($( '#pubModal')));
   $('#pubModal').addEventListener('click', (ev) => {
     if (ev.target === $( '#pubModal')) hide($( '#pubModal'));
@@ -2111,7 +2289,25 @@ document.addEventListener('DOMContentLoaded', () => {
   /* public share screen wiring */
   $('#pubSendBtn').addEventListener('click', pubSendCode);
   $('#pubVerifyBtn').addEventListener('click', pubVerifyCode);
-  $('#pubBackBtn').addEventListener('click', hidePubScreen);
+  $('#pubManageBtn').addEventListener('click', () => {
+    /* admin can manage snapshots even if viewing from a share link without a live connection */
+    openPublishModal();
+  });
+  $('#pubBackBtn').addEventListener('click', () => {
+    /* if we drilled into a board from an all-boards snapshot, go back to the list */
+    if ($('#pubBackBtn').dataset.fromAll === '1' && pubState.snapshot.scope === 'board') {
+      const snap = listPublishSnapshots().find((s) => s.token === pubState.snapshot.token);
+      if (snap && snap.scope === 'all') {
+        pubState.snapshot = snap;
+        pubState.currentBoard = null;
+        $('#pubBackBtn').dataset.fromAll = '';
+        $('#pubBackBtn').textContent = '← Back';
+        renderPubContent();
+        return;
+      }
+    }
+    hidePubScreen();
+  });
   $('#pubEmail').addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') pubSendCode();
   });
