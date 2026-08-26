@@ -21,11 +21,13 @@
 
 <!-- ══════════ TOP BAR ══════════ -->
 <header id="topbar" class="topbar hidden">
-  <div class="brand">
+  <div class="brand" id="brandBtn" role="button" tabindex="0" title="Go to all boards">
     <svg viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="8" fill="url(#lg)"/><defs><linearGradient id="lg" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M6 21l4-7 4 5 5-10 7 12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <span>Jira<b>Pulse</b></span>
+    <span id="adminBadge" class="admin-badge hidden">Admin</span>
   </div>
   <div class="topbar-center">
+    <span id="allBoardsLabel" class="header-title">All boards</span>
     <select id="boardSelect" class="input board-select" aria-label="Select board"></select>
     <button id="syncBoardsBtn" class="btn btn-ghost" title="Re-sync board list from Jira">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
