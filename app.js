@@ -1076,19 +1076,30 @@ function boardLink(boardId) {
    is the admin account. Regular org viewers are read-only. */
 function canModify() {
   if (state.inShareScreen) return false;   /* share viewers are always read-only */
-  if (ADMIN_PANEL) return true;
-  /* outside the admin panel everyone — even the admin — is a read-only org viewer */
-  const email = (state.conn && state.conn.email) || '';
-  return orgIsAdmin(email);
+  /* modify/publish powers live ONLY inside the dedicated /admin/ panel.
+     Outside it, everyone (even the admin account) is a read-only org viewer, so the
+     public/user view shows the same charts & design but no admin buttons/functions. */
+  return !!ADMIN_PANEL;
 }
 
-/* hide/show all admin-only controls in the topbar + board/dashboard headers */
+/* hide/show all admin-only controls in the topbar + board/dashboard headers.
+   Outside /admin/ the user view is read-only: hide publish, new-chart, the settings &
+   diagnostics buttons, and the admin badge. Navigation (Boards / Refresh) stays so users
+   can browse boards, but they get no editing powers. */
 function syncAdminControls() {
   const modify = canModify();
   ['publishAllBtn', 'publishBtn', 'addChartBtn'].forEach((id) => {
     const el = $('#'.concat(id));
     if (el) el.style.display = modify ? '' : 'none';
   });
+  /* user view is read-only: hide admin-gated utilities (settings + diagnostics) */
+  const adminIds = ['openDebugBtn', 'settingsBtn'];
+  adminIds.forEach((id) => {
+    const el = $('#'.concat(id));
+    if (el) el.style.display = modify ? '' : 'none';
+  });
+  const adminBadge = $('#adminBadge');
+  if (adminBadge) adminBadge.classList.toggle('hidden', !modify);
 }
 
 /* open a board's dashboard from a board object (keeps URL in sync) */
@@ -1182,11 +1193,10 @@ function handleAuthError(e) {
 }
 
 function adminRedirectUrl() {
-  /* never redirect inside the admin panel, on a share link, or when not the admin */
-  if (ADMIN_PANEL) return null;
-  if (!state.conn || !isAdminEmail(state.conn.email)) return null;
-  if (location.hash && location.hash.startsWith('#p=')) return null;
-  return location.origin + publicRootPath() + 'admin/';
+  /* disabled: the root URL is ALWAYS the org user view. The /admin/ panel is reached
+     explicitly via the admin link (it has its own token connect flow). Even the admin
+     account can sign in at the root to test the exact read-only user experience. */
+  return null;
 }
 
 /* ── connect flow ────────────────────────────────────────────────── */
@@ -1393,6 +1403,13 @@ async function loadBoardIssues(board) {
       onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Board filter JQL + changelog', note: 'Used Jira issue search based on the board filter.' }; },
       verify: (issues) => hasChangelogData(issues),
       onVerifyFail: { source: 'Board filter JQL (no changelog)', note: 'Search returned issues but no changelog history. Trying alternative strategy.' },
+    }] : []),
+    ...(ctx.projectKeys.length ? [{
+      name: 'search-projects-changelog',
+      run: () => searchIssuesByJql(`project in (${ctx.projectKeys.map((k) => `"${k}"`).join(', ')}) ORDER BY created DESC`, true),
+      onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Board projects + changelog', note: 'Used Jira search across the board projects.' }; },
+      verify: (issues) => hasChangelogData(issues),
+      onVerifyFail: { source: 'Board projects (no changelog)', note: 'Project search returned issues but no changelog history. Trying alternative strategy.' },
     }] : []),
     ...(ctx.filterJql ? [{
       name: 'search-filter-jql-basic',
@@ -2828,11 +2845,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (saved) enterApp();
       else showSetup();
     } else {
-      /* PUBLIC APP: the root URL is always the org user view. Even the admin (or a
-         saved session) is routed to the published-boards gate so the admin can test
-         the exact experience their organization members see. Never show the Jira
-         API-token form or the admin dashboard here. */
-      showPublicLanding();
+      /* PUBLIC APP (root URL): org members land here. If a Jira session exists on this
+         device, open the LIVE read-only dashboard so users see the same charts & design
+         as the admin panel — but without any admin functions/buttons (no publish, no new
+         chart, no settings, no diagnostics). Without a session, fall back to the secure
+         published-snapshot gate. */
+      if (saved) enterApp();
+      else showPublicLanding();
     }
   }
 
