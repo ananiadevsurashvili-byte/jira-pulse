@@ -95,6 +95,62 @@ function fmtDate(ts) {
   return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+/* draw an "empty state" message directly onto a chart canvas */
+function drawCanvasMessage(id, lines) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const ctx = el.getContext('2d');
+  ctx.clearRect(0, 0, el.width, el.height);
+  ctx.save();
+  ctx.font = '600 13px Inter, system-ui';
+  ctx.fillStyle = '#8b93ad';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  lines.forEach((line, i) => {
+    ctx.fillText(line, el.width / 2, el.height / 2 + (i - (lines.length - 1) / 2) * 20);
+  });
+  ctx.restore();
+}
+
+/* count-up animation for KPI numbers */
+function animateValue(el, target) {
+  if (!el) return;
+  const from = parseInt(el.textContent, 10) || 0;
+  if (from === target) { el.textContent = target; return; }
+  const dur = 650;
+  const t0 = performance.now();
+  function frame(t) {
+    const p = Math.min(1, (t - t0) / dur);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(from + (target - from) * eased);
+    if (p < 1) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+function titleize(s) {
+  return String(s || '').toLowerCase().split(/\s+/)
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
+}
+
+function pctDelta(prev, cur) {
+  if (!prev) return cur ? 100 : null;
+  return Math.round((cur - prev) / prev * 100);
+}
+
+/* small ▲/▼ badge used under KPI values */
+function trendBadge(prev, cur, label, mode = 'up-good') {
+  const d = pctDelta(prev, cur);
+  if (d === null) return `<span class="muted">${escapeHtml(label)}</span>`;
+  let cls = 'trend-flat';
+  if (mode !== 'neutral') {
+    const good = mode === 'up-good' ? d >= 0 : d <= 0;
+    cls = good ? 'trend-good' : 'trend-bad';
+  }
+  const arrow = d >= 0 ? '▲' : '▼';
+  return `<span class="trend ${cls}">${arrow} ${Math.abs(d)}%</span> <span class="muted">${escapeHtml(label)}</span>`;
+}
+
 /* ── connection / API layer ──────────────────────────────────────── */
 function normalizeDomain(raw) {
   let v = String(raw || '').trim().toLowerCase();
@@ -496,18 +552,26 @@ function addTime(map, name, ms) {
 
 function computeMetrics(issues) {
   const NOW = Date.now();
+  const WEEKS = 26; // 6 months of weekly pipeline buckets
   const m = {
     total: issues.length,
     created30: 0, resolved30: 0, done: 0, wip: 0,
+    createdPrev30: 0, resolvedPrev30: 0,
     cycles: [],
+    cycleRecent: [], cyclePrev: [],
     statusDist: new Map(),
     statusTime: new Map(),
+    bottlenecks: new Map(),
     slow: [],
     dailyCreated: Array(30).fill(0),
     dailyResolved: Array(30).fill(0),
     weekly: Array.from({ length: 12 }, (_, i) => ({
       count: 0,
       label: fmtDate(NOW - (11 - i) * 7 * DAY),
+    })),
+    pipelineWeekly: Array.from({ length: WEEKS }, (_, i) => ({
+      created: 0, resolved: 0,
+      label: fmtDate(NOW - (WEEKS - 1 - i) * 7 * DAY),
     })),
   };
 
@@ -523,14 +587,26 @@ function computeMetrics(issues) {
       m.created30++;
       m.dailyCreated[Math.max(0, 29 - Math.floor((NOW - created) / DAY))]++;
     }
+    if (created && NOW - created >= 30 * DAY && NOW - created < 60 * DAY) m.createdPrev30++;
     if (resolved) {
       if (NOW - resolved < 30 * DAY) {
         m.resolved30++;
         m.dailyResolved[Math.max(0, 29 - Math.floor((NOW - resolved) / DAY))]++;
       }
+      if (NOW - resolved >= 30 * DAY && NOW - resolved < 60 * DAY) m.resolvedPrev30++;
       const wkIdx = Math.floor((NOW - resolved) / (7 * DAY));
       if (wkIdx >= 0 && wkIdx < 12) m.weekly[11 - wkIdx].count++;
-      if (created) m.cycles.push(resolved - created);
+      const pwIdx = WEEKS - 1 - Math.floor((NOW - resolved) / (7 * DAY));
+      if (pwIdx >= 0 && pwIdx < WEEKS) m.pipelineWeekly[pwIdx].resolved++;
+      if (created) {
+        m.cycles.push(resolved - created);
+        if (NOW - resolved < 30 * DAY) m.cycleRecent.push(resolved - created);
+        else if (NOW - resolved < 60 * DAY) m.cyclePrev.push(resolved - created);
+      }
+    }
+    if (created) {
+      const pwIdx = WEEKS - 1 - Math.floor((NOW - created) / (7 * DAY));
+      if (pwIdx >= 0 && pwIdx < WEEKS) m.pipelineWeekly[pwIdx].created++;
     }
     if (doneCat) m.done++; else m.wip++;
 
@@ -557,6 +633,8 @@ function computeMetrics(issues) {
     addTime(m.statusTime, prevName, curAge);
 
     if (!doneCat) {
+      const bcat = classifyBottleneck(statusName);
+      m.bottlenecks.set(bcat, (m.bottlenecks.get(bcat) || 0) + 1);
       m.slow.push({
         key: iss.key,
         summary: f.summary || '',
@@ -570,13 +648,89 @@ function computeMetrics(issues) {
   }
 
   m.cycleAvg = m.cycles.length ? m.cycles.reduce((a, b) => a + b, 0) / m.cycles.length : null;
+  m.cycleRecentAvg = m.cycleRecent.length ? m.cycleRecent.reduce((a, b) => a + b, 0) / m.cycleRecent.length : null;
+  m.cyclePrevAvg = m.cyclePrev.length ? m.cyclePrev.reduce((a, b) => a + b, 0) / m.cyclePrev.length : null;
   m.doneRate = m.total ? Math.round((m.done / m.total) * 100) : 0;
   m.slow.sort((a, b) => b.age - a.age);
+
+  /* stakeholder-vs-team phase delays (from changelog status times) */
+  m.phaseDelays = [...m.statusTime.entries()]
+    .map(([k, v]) => ({ status: k, avg: v.sum / v.n, side: classifySide(k), sum: v.sum, n: v.n }))
+    .filter((r) => r.side)
+    .sort((a, b) => b.avg - a.avg);
+  let shSum = 0, shN = 0, tmSum = 0, tmN = 0;
+  for (const r of m.phaseDelays) {
+    if (r.side === 'stakeholder') { shSum += r.sum; shN += r.n; }
+    else { tmSum += r.sum; tmN += r.n; }
+  }
+  m.stakeholderAvgMs = shN ? shSum / shN : null;
+  m.teamAvgMs = tmN ? tmSum / tmN : null;
+
   return m;
 }
 
 /* ── rendering ───────────────────────────────────────────────────── */
 const PALETTE = ['#6366f1', '#22d3ee', '#34d399', '#fbbf24', '#f472b6', '#a78bfa', '#38bdf8', '#fb923c'];
+
+/* ── status intelligence ─────────────────────────────────────────── */
+/* Stakeholder gates: approvals, sign-offs, external reviews.
+   Team phases: development, testing, QA work. */
+const RE_STAKEHOLDER = /(business\s*owner|internal\s*it|\bbd\b|business\s*development|approv|sign[\s-]?off|steering|compliance|\blegal\b|security\s*review|acceptance)/;
+const RE_TEAM = /(dev|cod(e|ing)|build|implement|\bbug|\bqa\b|test|uat|verif|integrat|refactor|deploy|release)/;
+
+function classifySide(name) {
+  const s = String(name || '').toLowerCase();
+  if (!s) return null;
+  if (RE_STAKEHOLDER.test(s)) return 'stakeholder';
+  if (RE_TEAM.test(s)) return 'team';
+  return null;
+}
+
+/* Bottleneck buckets for open work. First matching rule wins,
+   so order matters (e.g. "Internal IT Approval" → Technical Analysis). */
+const BOTTLENECK_RULES = [
+  { cat: 'Testing',            color: '#22d3ee', re: /\b(uat|qa|test|verif|regression)/ },
+  { cat: 'In Development',     color: '#6366f1', re: /(ready\s*for\s*dev|\bdev|develop|\bbug|cod(e|ing)\b|in\s*progress|implement)/ },
+  { cat: 'Pending Review',     color: '#fbbf24', re: /(pre[\s-]*analys|business\s*owner|product\s*owner|\bbd\b)/ },
+  { cat: 'Technical Analysis', color: '#8b5cf6', re: /(technical|internal\s*it|analys|analyz|investigat|estimat|specificat|\bspec\b|solution|design)/ },
+  { cat: 'Pending Review',     color: '#fbbf24', re: /(approv|review|pending|waiting|hold|block)/ },
+];
+
+function classifyBottleneck(name) {
+  const s = String(name || '').toLowerCase();
+  for (const r of BOTTLENECK_RULES) if (r.re.test(s)) return r.cat;
+  return 'Other';
+}
+
+function bottleneckColor(cat) {
+  const hit = BOTTLENECK_RULES.find((r) => r.cat === cat);
+  return hit ? hit.color : '#64748b';
+}
+const BOTTLENECK_ORDER = ['Pending Review', 'Technical Analysis', 'In Development', 'Testing', 'Other'];
+
+/* draws a big number + label inside doughnut holes */
+const centerTextPlugin = {
+  id: 'centerText',
+  afterDraw(chart) {
+    const opts = chart.config.options?.plugins?.centerText;
+    if (!opts || !opts.enable) return;
+    const meta = chart.getDatasetMeta(0);
+    if (!meta.data.length) return;
+    const { x, y } = meta.data[0];
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '800 26px Inter, system-ui';
+    ctx.fillStyle = '#e9edf8';
+    ctx.fillText(String(opts.value ?? ''), x, y - 7);
+    ctx.font = '700 10px Inter, system-ui';
+    ctx.fillStyle = '#8b93ad';
+    ctx.fillText(String(opts.label ?? '').toUpperCase(), x, y + 14);
+    ctx.restore();
+  },
+};
+Chart.register(centerTextPlugin);
 
 function chartTheme() {
   Chart.defaults.color = '#8b93ad';
@@ -611,20 +765,71 @@ function mkChart(id, cfg) {
   return state.charts[id];
 }
 
+function buildInsights(m) {
+  const out = [];
+  if (m.bottlenecks.size) {
+    const [cat, n] = [...m.bottlenecks.entries()].sort((a, b) => b[1] - a[1])[0];
+    out.push({ icon: '⛔', cls: 'ins-warn', html: `<b>${n}</b> open issue${n !== 1 ? 's' : ''} currently sitting in <b>${escapeHtml(cat)}</b>` });
+  }
+  if (m.phaseDelays.length) {
+    const w = m.phaseDelays[0];
+    out.push({ icon: '⏳', cls: 'ins-warn', html: `Slowest stage right now: <b>${escapeHtml(titleize(w.status))}</b> · ${fmtDuration(w.avg)} average` });
+  }
+  const thr = pctDelta(m.resolvedPrev30, m.resolved30);
+  if (thr !== null) {
+    out.push({ icon: thr >= 0 ? '📈' : '📉', cls: thr >= 0 ? 'ins-good' : 'ins-bad', html: `Throughput <b>${thr >= 0 ? '+' : ''}${thr}%</b> vs the previous 30 days` });
+  }
+  const aged = m.slow.filter((r) => r.age > 14 * DAY).length;
+  if (aged) {
+    out.push({ icon: '🧊', cls: 'ins-bad', html: `<b>${aged}</b> open issue${aged !== 1 ? 's' : ''} stuck longer than 14 days` });
+  }
+  if (m.created30 || m.resolved30) {
+    const net = m.resolved30 - m.created30;
+    out.push({
+      icon: net >= 0 ? '✅' : '📥',
+      cls: net >= 0 ? 'ins-good' : 'ins-warn',
+      html: `Net flow <b>${net >= 0 ? '+' : ''}${net}</b> issues in 30 days — backlog ${net >= 0 ? 'shrinking' : 'growing'}`,
+    });
+  }
+  return out.slice(0, 4);
+}
+
 function renderDashboard(board, m) {
-  /* KPIs */
-  $('#kpiTotal').textContent = m.total;
+  /* KPIs (animated) */
+  animateValue($('#kpiTotal'), m.total);
   $('#kpiTotalSub').textContent = 'issues on this board';
-  $('#kpiCreated').textContent = m.created30;
-  $('#kpiDone').textContent = m.done;
+  animateValue($('#kpiCreated'), m.created30);
+  $('#kpiCreatedSub').innerHTML = trendBadge(m.createdPrev30, m.created30, 'vs prior 30d', 'neutral');
+  animateValue($('#kpiDone'), m.done);
   $('#kpiDoneSub').textContent = m.doneRate + '% completion rate';
-  $('#kpiResolved').textContent = m.resolved30;
+  animateValue($('#kpiResolved'), m.resolved30);
+  $('#kpiResolvedSub').innerHTML = trendBadge(m.resolvedPrev30, m.resolved30, 'vs prior 30d', 'up-good');
   $('#kpiCycle').textContent = m.cycleAvg != null ? fmtDuration(m.cycleAvg) : '—';
   $('#kpiCycle').classList.toggle('muted', m.cycleAvg == null);
-  $('#kpiWip').textContent = m.wip;
+  if (m.cycleRecentAvg != null && m.cyclePrevAvg != null) {
+    const d = pctDelta(m.cyclePrevAvg, m.cycleRecentAvg);
+    $('#kpiCycleSub').innerHTML = d === null
+      ? '<span class="muted">create → resolve</span>'
+      : `<span class="trend ${d <= 0 ? 'trend-good' : 'trend-bad'}">${d <= 0 ? '▼' : '▲'} ${Math.abs(d)}%</span> <span class="muted">${Math.abs(d)}% ${d <= 0 ? 'faster' : 'slower'} than prior 30d</span>`;
+  } else {
+    $('#kpiCycleSub').innerHTML = '<span class="muted">create → resolve</span>';
+  }
+  animateValue($('#kpiWip'), m.wip);
   $('#issueCountBadge').textContent = `${m.total} issues analyzed`;
 
-  // Show changelog notice if needed
+  /* auto-insights */
+  const strip = $('#insightsStrip');
+  const ins = buildInsights(m);
+  if (ins.length) {
+    strip.innerHTML = ins.map((x, i) =>
+      `<div class="insight" style="animation-delay:${i * 70}ms"><span class="ins-icon">${x.icon}</span><span>${x.html}</span></div>`
+    ).join('');
+    show(strip);
+  } else {
+    hide(strip);
+  }
+
+  /* changelog availability notice */
   const changelogNotice = $('#changelogNotice');
   if (!state.hasChangelog) {
     const extraNote = state.boardLoadMeta?.note ? ` ${state.boardLoadMeta.note}` : '';
@@ -635,26 +840,30 @@ function renderDashboard(board, m) {
   }
 
   const theme = chartTheme();
+  const legendOn = { display: true, position: 'top', align: 'end', labels: { boxWidth: 8, boxHeight: 8, usePointStyle: true, padding: 14 } };
 
-  /* created vs resolved */
-  const labels = [...Array(30)].map((_, i) => fmtDate(Date.now() - (29 - i) * DAY));
+  /* incoming vs completed pipeline · weekly, last 6 months */
   const grad = (ctx, rgb) => {
     const g = ctx.createLinearGradient(0, 0, 0, 280);
     g.addColorStop(0, `rgba(${rgb},.28)`);
     g.addColorStop(1, `rgba(${rgb},0)`);
     return g;
   };
-  const lctx = $('#createdResolvedChart').getContext('2d');
-  mkChart('createdResolvedChart', {
+  const pctx = $('#pipelineChart').getContext('2d');
+  mkChart('pipelineChart', {
     type: 'line',
     data: {
-      labels,
+      labels: m.pipelineWeekly.map((w) => w.label),
       datasets: [
-        { label: 'Created', data: m.dailyCreated, borderColor: '#6366f1', backgroundColor: grad(lctx, '99,102,241'), fill: true, tension: 0.35, pointRadius: 2, borderWidth: 2 },
-        { label: 'Resolved', data: m.dailyResolved, borderColor: '#22d3ee', backgroundColor: grad(lctx, '34,211,238'), fill: true, tension: 0.35, pointRadius: 2, borderWidth: 2 },
+        { label: 'Registered', data: m.pipelineWeekly.map((w) => w.created), borderColor: '#6366f1', backgroundColor: grad(pctx, '99,102,241'), fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2.5 },
+        { label: 'Completed', data: m.pipelineWeekly.map((w) => w.resolved), borderColor: '#34d399', backgroundColor: grad(pctx, '52,211,153'), fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2.5 },
       ],
     },
-    options: { ...theme, plugins: { ...theme.plugins, legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 8, boxHeight: 8, usePointStyle: true } } } },
+    options: {
+      ...theme,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { ...theme.plugins, legend: legendOn },
+    },
   });
 
   /* status distribution doughnut */
@@ -680,6 +889,7 @@ function renderDashboard(board, m) {
       plugins: {
         legend: { position: 'right', labels: { boxWidth: 9, boxHeight: 9, usePointStyle: true, padding: 14 } },
         tooltip: theme.plugins.tooltip,
+        centerText: { enable: true, value: m.total, label: 'issues' },
       },
     },
   });
@@ -690,21 +900,11 @@ function renderDashboard(board, m) {
     .sort((a, b) => b.avg - a.avg)
     .slice(0, 10)
     .reverse();
-  
+
   if (!state.hasChangelog || st.length === 0) {
-    // Show empty state message on the chart
-    const ctx = $('#statusTimeChart').getContext('2d');
-    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    ctx.font = '13px Inter, system-ui';
-    ctx.fillStyle = '#8b93ad';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const lines = !state.hasChangelog
+    drawCanvasMessage('statusTimeChart', !state.hasChangelog
       ? ['Changelog data not available for this board', '(team-managed boards or permission limits)']
-      : ['No status transition data found'];
-    lines.forEach((line, i) => {
-      ctx.fillText(line, ctx.canvas.width / 2, ctx.canvas.height / 2 + (i - (lines.length - 1) / 2) * 20);
-    });
+      : ['No status transition data found']);
     if (state.charts.statusTimeChart) {
       state.charts.statusTimeChart.destroy();
       state.charts.statusTimeChart = null;
@@ -733,6 +933,99 @@ function renderDashboard(board, m) {
     });
   }
 
+  /* stakeholder vs team delays · avg days parked in each stage */
+  const pdSub = $('#phaseDelaysSub');
+  if (!state.hasChangelog || m.phaseDelays.length === 0) {
+    drawCanvasMessage('phaseDelaysChart', !state.hasChangelog
+      ? ['Changelog unavailable on this board —', 'cannot compare stakeholder vs team stages']
+      : ['No stakeholder / team stage transitions', 'detected in the last 6 months of changelog']);
+    if (state.charts.phaseDelaysChart) {
+      state.charts.phaseDelaysChart.destroy();
+      state.charts.phaseDelaysChart = null;
+    }
+    if (pdSub) pdSub.textContent = !state.hasChangelog ? 'changelog unavailable on this board' : 'no matching stage transitions found';
+  } else {
+    const picked = m.phaseDelays.slice(0, 8).reverse(); // slowest on top
+    const shData = [], tmData = [];
+    picked.forEach((r) => {
+      const days = +(r.avg / DAY).toFixed(1);
+      if (r.side === 'stakeholder') { shData.push(days); tmData.push(null); }
+      else { tmData.push(days); shData.push(null); }
+    });
+    mkChart('phaseDelaysChart', {
+      type: 'bar',
+      data: {
+        labels: picked.map((r) => titleize(r.status)),
+        datasets: [
+          { label: 'Stakeholder gate', data: shData, backgroundColor: '#fbbf24cc', hoverBackgroundColor: '#fcd34d', borderRadius: 7, borderSkipped: false, barPercentage: 0.6, categoryPercentage: 0.74 },
+          { label: 'Team phase', data: tmData, backgroundColor: '#22d3eecc', hoverBackgroundColor: '#67e8f9', borderRadius: 7, borderSkipped: false, barPercentage: 0.6, categoryPercentage: 0.74 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: {
+          legend: legendOn,
+          tooltip: {
+            ...theme.plugins.tooltip,
+            callbacks: { label: (c) => c.parsed.x != null ? `${fmtDuration(c.parsed.x * DAY)} average` : '' },
+          },
+        },
+        scales: {
+          x: { ...theme.scales.x, ticks: { callback: (v) => v + 'd' } },
+          y: { grid: { display: false }, ticks: { precision: 0 } },
+        },
+      },
+    });
+    if (pdSub) {
+      pdSub.innerHTML =
+        `<span style="color:#fcd34d">●</span> Stakeholder gates avg <b>${fmtDuration(m.stakeholderAvgMs)}</b>` +
+        ` &nbsp;·&nbsp; <span style="color:#67e8f9">●</span> Team phases avg <b>${fmtDuration(m.teamAvgMs)}</b>`;
+    }
+  }
+
+  /* active bottlenecks · where open work is parked right now */
+  const openTotal = m.wip;
+  const bCats = BOTTLENECK_ORDER.filter((c) => m.bottlenecks.has(c));
+  if (openTotal === 0 || bCats.length === 0) {
+    drawCanvasMessage('bottleneckChart', ['No open issues — everything is done 🎉']);
+    if (state.charts.bottleneckChart) {
+      state.charts.bottleneckChart.destroy();
+      state.charts.bottleneckChart = null;
+    }
+  } else {
+    mkChart('bottleneckChart', {
+      type: 'doughnut',
+      data: {
+        labels: bCats,
+        datasets: [{
+          data: bCats.map((c) => m.bottlenecks.get(c)),
+          backgroundColor: bCats.map(bottleneckColor),
+          borderColor: 'rgba(10,15,34,.9)',
+          borderWidth: 3,
+          hoverOffset: 8,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '68%',
+        plugins: {
+          legend: { position: 'right', labels: { boxWidth: 9, boxHeight: 9, usePointStyle: true, padding: 12 } },
+          tooltip: {
+            ...theme.plugins.tooltip,
+            callbacks: {
+              label: (c) => {
+                const total = c.dataset.data.reduce((a, b) => a + b, 0);
+                const pct = total ? Math.round(c.parsed / total * 100) : 0;
+                return ` ${c.parsed} issues · ${pct}%`;
+              },
+            },
+          },
+          centerText: { enable: true, value: openTotal, label: 'open' },
+        },
+      },
+    });
+  }
+
   /* weekly throughput */
   mkChart('throughputChart', {
     type: 'bar',
@@ -750,12 +1043,14 @@ function renderDashboard(board, m) {
   /* slow table */
   const rows = m.slow.slice(0, 12).map((r) => {
     const cls = r.age > 14 * DAY ? 'age-hot' : r.age > 5 * DAY ? 'age-warm' : '';
+    const barColor = r.age > 14 * DAY ? '#f87171' : r.age > 5 * DAY ? '#fbbf24' : '#34d399';
+    const barPct = Math.min(100, Math.round(r.age / (30 * DAY) * 100));
     const link = state.conn ? `${state.conn.domain}/browse/${r.key}` : '#';
     return `<tr>
       <td><a href="${link}" target="_blank" rel="noopener">${r.key}</a></td>
       <td>${escapeHtml(r.summary)}</td>
       <td><span class="status-pill">${escapeHtml(r.status)}</span></td>
-      <td class="${cls}">${fmtDuration(r.age)}</td>
+      <td class="${cls}">${fmtDuration(r.age)}<div class="age-bar"><i style="width:${barPct}%;background:${barColor}"></i></div></td>
       <td><span class="type-chip">${escapeHtml(r.type)}</span></td>
       <td class="muted">${escapeHtml(r.assignee)}</td>
       <td class="muted">${r.created ? fmtDate(r.created) : '—'}</td>
