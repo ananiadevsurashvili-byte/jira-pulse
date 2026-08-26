@@ -94,9 +94,14 @@
 
   <!-- ══════════ BOARDS SCREEN ══════════ -->
   <section id="boardsScreen" class="hidden">
-    <div class="screen-head">
-      <h2>Choose a board</h2>
-      <p class="muted">Synced straight from your Jira instance. Click any card to open its analytics dashboard.</p>
+    <div class="screen-head dash-head">
+      <div>
+        <h2>Choose a board</h2>
+        <p class="muted">Synced straight from your Jira instance. Click any card to open its analytics dashboard.</p>
+      </div>
+      <div class="dash-head-right">
+        <button id="publishAllBtn" class="btn btn-primary" title="Publish all boards to your organization">⟳ Publish all</button>
+      </div>
     </div>
     <div id="boardsGrid" class="boards-grid"></div>
     <div id="boardsLoading" class="loading-block hidden">
@@ -321,22 +326,24 @@
     <h3 id="pubModalTitle">Publish board stats</h3>
     <p class="muted small">Create a public snapshot anyone in your organization can view. Share the link — viewers sign in with a <b>@caucasusauto.com</b> email and a one-time code.</p>
 
-    <div class="form-row" style="margin-top:14px">
-      <div class="form-col">
-        <span class="seg-label">Scope</span>
-        <div id="pubScope" class="seg">
-          <button data-v="all" class="active">All boards</button>
-          <button data-v="board">This board</button>
+    <div id="pubCreateWrap">
+      <div class="form-row" style="margin-top:14px">
+        <div class="form-col">
+          <span class="seg-label">Scope</span>
+          <div id="pubScope" class="seg">
+            <button data-v="all" class="active">All boards</button>
+            <button data-v="board">This board</button>
+          </div>
         </div>
+        <label id="pubBoardSelectWrap" class="form-col hidden">
+          <span class="seg-label">Board</span>
+          <select id="pubBoardSelect" class="input"></select>
+        </label>
       </div>
-      <label id="pubBoardSelectWrap" class="form-col hidden">
-        <span class="seg-label">Board</span>
-        <select id="pubBoardSelect" class="input"></select>
-      </label>
-    </div>
 
-    <div style="margin-top:14px">
-      <button id="pubCreateBtn" class="btn btn-primary">Create snapshot</button>
+      <div style="margin-top:14px">
+        <button id="pubCreateBtn" class="btn btn-primary">Create snapshot</button>
+      </div>
     </div>
 
     <div id="pubListWrap" style="margin-top:18px">
@@ -365,14 +372,22 @@
 </div>
 
 <div id="pubScreen" class="hidden" style="position:fixed;inset:0;z-index:9000;background:var(--bg);overflow:auto">
-  <div class="dash-wrap" style="max-width:900px;margin:0 auto;padding:24px 20px">
-    <div class="glass card" style="padding:24px;margin-bottom:16px">
-      <h2 id="pubTitle" style="font-size:1.4rem;font-weight:800;margin-bottom:6px">Published stats</h2>
-      <p id="pubSubtitle" class="muted">Sign in to view this board snapshot.</p>
-      <p id="pubStatus" class="muted" style="margin-top:8px"></p>
+  <div class="dash-wrap">
+    <div class="glass" style="padding:28px;margin-bottom:20px">
+      <div style="display:flex;align-items:flex-start;gap:14px;justify-content:space-between;flex-wrap:wrap">
+        <div style="min-width:0;flex:1">
+          <h2 id="pubTitle" style="font-size:1.7rem;font-weight:800;margin-bottom:6px">Published stats</h2>
+          <p id="pubSubtitle" class="muted">Sign in with your @caucasusauto.com email to view this board snapshot.</p>
+          <p id="pubStatus" class="muted" style="margin-top:8px"></p>
+        </div>
+        <div id="pubAdminBar" class="hidden" style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+          <span id="pubAdminText" style="font-size:0.75rem;padding:5px 12px;border-radius:999px;background:rgba(99,102,241,.15);color:#818cf8;font-weight:700"></span>
+          <button id="pubManageBtn" class="btn btn-ghost" style="font-size:0.8rem">⚙ Publish / manage boards</button>
+        </div>
+      </div>
     </div>
 
-    <div id="pubAuthBox" class="glass card" style="padding:24px">
+    <div id="pubAuthBox" class="glass" style="padding:28px">
       <div id="pubGoogleWrap" style="margin-bottom:14px">
         <div id="pubGoogleBtn" class="google-btn" style="display:inline-flex;align-items:center;gap:10px;padding:10px 18px;border-radius:10px;border:1px solid var(--border);background:var(--panel);cursor:pointer;font-size:0.88rem;font-weight:600;color:var(--text)">
           <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.05c0-.8-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
@@ -400,13 +415,14 @@
       </div>
     </div>
 
-    <div id="pubContent" class="hidden" style="margin-top:16px">
+    <div id="pubContent" class="hidden" style="margin-top:20px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
         <span id="pubIssueCount" class="muted"></span>
         <span id="pubChangelogBadge" class="data-badge ok">✓ changelog</span>
         <button id="pubBackBtn" class="btn btn-ghost" style="margin-left:auto">← Back</button>
       </div>
-      <div id="pubChartsGrid" class="charts-grid"></div>
+      <div id="pubBoardsList" class="pub-charts-grid"></div>
+      <div id="pubChartsGrid" class="pub-charts-grid hidden"></div>
     </div>
   </div>
 </div>
