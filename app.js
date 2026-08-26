@@ -75,16 +75,17 @@ async function createPublishSnapshot(boardId, scope) {
   if (scope === 'all') return await createAllBoardsSnapshot();
   const board = state.boards.find((b) => b.id === boardId);
   if (!board) return null;
+  const defs = effectiveCharts();
+  const payload = buildBoardRenderPayload(state.issues, state.lastMetrics, defs, state.hasChangelog);
   const snapshot = {
     token: newPublishToken(),
     boardId,
     boardName: board.name,
     scope: 'board',
     createdAt: Date.now(),
-    issues: state.issues,
-    metrics: state.lastMetrics,
-    charts: effectiveCharts(),
+    issuesCount: state.issues.length,
     hasChangelog: state.hasChangelog,
+    charts: payload.charts,       // [{ def, data }] — self-contained render data
   };
   const store = loadPublishStore();
   store[snapshot.token] = snapshot;
@@ -92,25 +93,29 @@ async function createPublishSnapshot(boardId, scope) {
   return snapshot;
 }
 
-/* build a snapshot that bundles every board with its own issues + metrics + charts */
+/* build a snapshot that bundles every board with its own portable render payload */
 async function createAllBoardsSnapshot() {
   const now = Date.now();
   const records = [];
   let anyChangelog = false;
+  const defs = effectiveCharts();
   for (const board of state.boards) {
     try {
       logDiag('info', 'Publish: loading board for all-boards snapshot', { boardId: board.id, name: board.name });
       const issues = await loadBoardIssues(board);
       const m = computeMetrics(issues);
       anyChangelog = anyChangelog || state.hasChangelog;
+      const prevBoardId = state.boardId, prevBoard = state.lastBoard;
+      /* temporarily point board context at this board so render payload carries its name */
+      state.boardId = board.id; state.lastBoard = board;
+      const payload = buildBoardRenderPayload(issues, m, defs, state.hasChangelog);
+      state.boardId = prevBoardId; state.lastBoard = prevBoard;
       records.push({
         boardId: board.id,
         name: board.name,
         issuesCount: issues.length,
-        issues,
-        metrics: m,
-        charts: effectiveCharts(),
         hasChangelog: state.hasChangelog,
+        charts: payload.charts,
       });
     } catch (e) {
       logDiag('warn', 'Publish: board skipped in all-boards snapshot', { boardId: board.id, name: board.name, message: e?.message });
@@ -123,11 +128,10 @@ async function createAllBoardsSnapshot() {
     boardName: 'All boards',
     scope: 'all',
     createdAt: now,
-    issues: [],
-    metrics: null,
+    issuesCount: records.reduce((a, r) => a + r.issuesCount, 0),
+    hasChangelog: anyChangelog,
     charts: [],
     boards: records,
-    hasChangelog: anyChangelog,
   };
   const store = loadPublishStore();
   store[snapshot.token] = snapshot;
@@ -148,10 +152,115 @@ function deletePublishSnapshot(token) {
   savePublishStore(store);
 }
 
+/* turn issues + metrics + chart defs into a portable, precomputed render payload.
+   This collapses raw issues (and non-serializable Maps inside metrics) into the
+   exact arrays Chart.js needs, so a snapshot can be embedded in a URL and drawn
+   on any device WITHOUT a Jira connection or the full issue list. */
+function buildBoardRenderPayload(issues, m, defs, hasChangelog) {
+  const charts = (defs || []).map((def) => {
+    const data = buildChartData(def, m, issues, hasChangelog);
+    return { def, data };
+  });
+  return {
+    boardId: state.boardId,
+    boardName: state.lastBoard ? state.lastBoard.name : '',
+    issuesCount: issues.length,
+    hasChangelog,
+    charts,
+  };
+}
+
+/* encode a snapshot into a compact, self-contained share hash (#p=<compressed>) */
+function encodeSharePayload(snap) {
+  const obj = {
+    v: 2,
+    scope: snap.scope,
+    boardName: snap.scope === 'all' ? 'All boards' : snap.boardName,
+    boardId: snap.boardId,
+    createdAt: snap.createdAt,
+    hasChangelog: snap.hasChangelog,
+    charts: snap.charts,   // array of { def, data }
+    boards: snap.boards,   // array of portable board records (for scope 'all')
+  };
+  const json = JSON.stringify(obj);
+  const compressed = typeof LZString !== 'undefined' ? LZString.compressToEncodedURIComponent(json) : encodeURIComponent(json);
+  return compressed;
+}
+
+function decodeSharePayload(compressed) {
+  if (compressed == null) return null;
+  try {
+    const json = typeof LZString !== 'undefined' ? LZString.decompressFromEncodedURIComponent(compressed) : decodeURIComponent(compressed);
+    if (!json) return null;
+    return JSON.parse(json);
+  } catch (e) {
+    logDiag('warn', 'Failed to decode share payload', { message: e?.message });
+    return null;
+  }
+}
+
+/* build a share URL from a snapshot (self-contained, works on any device) */
+function buildShareUrl(snap) {
+  const payload = encodeSharePayload(snap);
+  return location.origin + location.pathname + '#p=' + payload;
+}
+
+/* check if current URL is a self-contained share link */
+function parseSharePayload() {
+  const u = new URL(location.href);
+  const p = u.hash.match(/^#p=(.+)$/);
+  if (!p) return null;
+  return decodeSharePayload(p[1]);
+}
+
 /* check if current URL has a share token */
 function parseShareToken() {
   const u = new URL(location.href);
   return u.searchParams.get('share');
+}
+
+/* normalize both share formats into a snapshot object for rendering.
+   Priority: self-contained #p= payload, then legacy ?share= localStorage token. */
+function loadShareSnapshot() {
+  const payload = parseSharePayload();
+  if (payload) {
+    /* self-contained link — works on any device. Build a snapshot view-model. */
+    const snap = {
+      token: null,
+      boardId: payload.boardId,
+      boardName: payload.boardName,
+      scope: payload.scope,
+      createdAt: payload.createdAt,
+      issuesCount: payload.scope === 'all' ? (payload.boards || []).reduce((a, b) => a + (b.issuesCount || 0), 0) : 0,
+      hasChangelog: payload.hasChangelog,
+      charts: payload.charts || [],
+      boards: payload.boards || [],
+    };
+    /* for single-board payloads, issuesCount lives on the payload too */
+    if (payload.scope === 'board') snap.issuesCount = payload.issuesCount || 0;
+    return snap;
+  }
+  const shareToken = parseShareToken();
+  if (shareToken) {
+    const store = loadPublishStore();
+    const snap = store[shareToken];
+    if (snap) {
+      /* migrate any old v1 snapshot (which stored raw issues/metrics) to portable render */
+      if (snap.issues && !snap.charts?.length) {
+        const charts = effectiveCharts().map((def) => ({ def, data: buildChartData(def, snap.metrics, snap.issues, snap.hasChangelog) }));
+        snap.charts = charts;
+        snap.issuesCount = snap.issues.length;
+        delete snap.issues;
+        delete snap.metrics;
+        savePublishStore(store);
+      }
+      return snap;
+    }
+    toast('This published link is no longer available.', 'warn');
+    location.href = location.pathname;
+    return null;
+  }
+  return null;
 }
 
 /* ── public share screen logic ─────────────────────────────────────── */
@@ -162,6 +271,7 @@ let pubState = {
   codeSent: false,
   isAdmin: false,          /* true when the viewer is the JiraPulse admin */
   currentBoard: null,      /* board being viewed when snapshot.scope === 'all' */
+  allSnapshot: null,       /* parent all-boards snapshot when drilled into a board */
 };
 
 /* Google OAuth client id (leave empty to disable Google sign-in) */
@@ -251,10 +361,19 @@ function showPubScreen(snapshot) {
   $('#pubAuthBox').classList.add('glass');
   $('#pubAdminBar').classList.add('hidden');
 
-  /* hide app chrome */
+  /* hide app chrome — include setup + topbar so a share link opened directly
+     never leaves the connect/setup screen visible beneath the share overlay */
+  hide($( '#setupScreen'));
+  hide($( '#topbar'));
   hide($( '#dashScreen'));
   hide($( '#boardsScreen'));
   show($( '#pubScreen'));
+}
+
+/* stable seed for the access code — self-contained links have no token, so
+   derive a deterministic seed from boardId + scope + createdAt */
+function pubCodeSeed(snap) {
+  return snap.token || (snap.scope + '|' + (snap.boardId || 'all') + '|' + (snap.createdAt || 'jp'));
 }
 
 function pubSendCode() {
@@ -266,7 +385,7 @@ function pubSendCode() {
   }
   pubState.email = email;
   pubState.isAdmin = isAdminEmail(email);
-  const code = publishCode(pubState.snapshot.token, email);
+  const code = publishCode(pubCodeSeed(pubState.snapshot), email);
   pubState.codeSent = true;
 
   /* show code inline (no backend) and offer mailto link */
@@ -286,7 +405,7 @@ function pubSendCode() {
 
 function pubVerifyCode() {
   const entered = $('#pubCode').value.trim();
-  const expected = publishCode(pubState.snapshot.token, pubState.email);
+  const expected = publishCode(pubCodeSeed(pubState.snapshot), pubState.email);
   if (entered === expected) {
     pubState.verified = true;
     pubState.isAdmin = isAdminEmail(pubState.email);
@@ -315,6 +434,16 @@ function renderPubContent() {
     adminBar.classList.add('hidden');
   }
 
+  /* admin share-link box — only visible to admin once they're inside a board view */
+  const linkBox = $('#pubLinkBox');
+  if (admin && snap.scope === 'board') {
+    const link = buildShareUrl(snap);
+    $('#pubLinkInput').value = link;
+    linkBox.classList.remove('hidden');
+  } else {
+    linkBox.classList.add('hidden');
+  }
+
   /* title/subtitle */
   if (snap.scope === 'all') {
     $('#pubTitle').textContent = 'Organization board stats';
@@ -323,12 +452,12 @@ function renderPubContent() {
   } else {
     $('#pubTitle').textContent = snap.boardName;
     $('#pubSubtitle').textContent = 'Snapshot taken ' + new Date(snap.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) +
-      ' · ' + snap.issues.length + ' issues';
+      ' · ' + (snap.issuesCount ?? 0) + ' issues';
   }
 
   $('#pubIssueCount').textContent = snap.scope === 'all'
     ? snap.boards.length + ' boards'
-    : snap.issues.length + ' issues';
+    : (snap.issuesCount ?? 0) + ' issues';
   $('#pubChangelogBadge').textContent = snap.hasChangelog ? '✓ changelog' : '⚠ no changelog';
   $('#pubChangelogBadge').className = 'data-badge ' + (snap.hasChangelog ? 'ok' : 'missing');
 
@@ -350,10 +479,23 @@ function renderPubContent() {
             <div class="bname">${escapeHtml(b.name)}</div>
             <div class="bmeta">${b.issuesCount} issues · ${b.hasChangelog ? 'changelog ✓' : 'no changelog'}</div>
           </div>
+          ${admin ? `<button class="link-btn" data-copyboard="${b.boardId}" style="margin-left:auto;font-size:0.72rem">🔗 copy link</button>` : ''}
         </div>`).join('');
       boardsList.querySelectorAll('.pub-board-row').forEach((row) => {
+        const bid = row.dataset.bid;
+        const copyBtn = row.querySelector('[data-copyboard]');
+        if (copyBtn) {
+          copyBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            const b = boards.find((x) => String(x.boardId) === bid);
+            if (b) {
+              const link = buildShareUrl({ scope: 'board', boardId: b.boardId, boardName: b.name, createdAt: snap.createdAt, hasChangelog: b.hasChangelog, charts: b.charts || [], issuesCount: b.issuesCount });
+              navigator.clipboard.writeText(link).then(() => toast('Board link copied.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
+            }
+          });
+        }
         row.addEventListener('click', () => {
-          const b = boards.find((x) => String(x.boardId) === row.dataset.bid);
+          const b = boards.find((x) => String(x.boardId) === bid);
           if (b) openBoardSnapshot(b);
         });
       });
@@ -363,18 +505,19 @@ function renderPubContent() {
     boardsList.classList.add('hidden');
     chartsGrid.classList.remove('hidden');
     const grid = chartsGrid;
-    const defs = snap.charts;
-    if (!defs.length) {
+    const charts = snap.charts || [];
+    if (!charts.length) {
       grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No charts in this snapshot.</div>';
     } else {
-      grid.innerHTML = defs.map((d) => chartCardHTML(d, false)).join('');
+      grid.innerHTML = charts.map((c) => chartCardHTML(c.def, false)).join('');
     }
     const theme = chartTheme();
-    for (const def of defs) {
+    for (const c of charts) {
+      const def = c.def;
+      const data = c.data;
       const canvasId = 'chart_' + def.id;
-      const data = buildChartData(def, snap.metrics);
-      if (data.empty) {
-        drawCanvasMessage(canvasId, Array.isArray(data.empty) ? data.empty : [data.empty]);
+      if (!data || data.empty) {
+        drawCanvasMessage(canvasId, Array.isArray(data?.empty) ? data.empty : [data ? data.empty : 'No data']);
         continue;
       }
       mkChart(canvasId, chartConfigFor(def, data, theme, canvasId));
@@ -382,26 +525,24 @@ function renderPubContent() {
   }
 }
 
-/* helper: when viewing an 'all' snapshot and the admin clicks a board, show that board's snapshot */
+/* helper: when viewing an 'all' snapshot and a viewer clicks a board, show that board's snapshot */
 function openBoardSnapshot(boardRec) {
   const snap = pubState.snapshot;
-  /* build a single-board snapshot view from the board record inside the 'all' snapshot */
   if (boardRec.charts) {
     pubState.currentBoard = boardRec;
+    pubState.allSnapshot = snap;   /* remember parent for Back */
     const sub = {
       token: snap.token,
       boardId: boardRec.boardId,
       boardName: boardRec.name,
       scope: 'board',
       createdAt: snap.createdAt,
-      issues: boardRec.issues,
-      metrics: boardRec.metrics,
+      issuesCount: boardRec.issuesCount,
       charts: boardRec.charts,
       hasChangelog: boardRec.hasChangelog,
     };
     pubState.snapshot = sub;
     renderPubContent();
-    /* remember it's a drill-down so the Back button restores the all-boards view */
     $('#pubBackBtn').dataset.fromAll = '1';
     $('#pubBackBtn').textContent = '← All boards';
   }
@@ -409,7 +550,10 @@ function openBoardSnapshot(boardRec) {
 
 function hidePubScreen() {
   hide($( '#pubScreen'));
-  location.href = location.pathname;
+  /* clear the #p= hash so the URL no longer points to the share, then reload app */
+  if (location.hash) location.hash = '';
+  if (loadConn()) enterApp();
+  else showSetup();
 }
 
 /* ── publish modal (admin only) ─────────────────────────────────────── */
@@ -446,13 +590,17 @@ function openPublishModal() {
   $('#pubListBody').querySelectorAll('[data-copy]').forEach((b) => {
     b.addEventListener('click', () => {
       const token = b.dataset.copy;
-      const link = location.origin + location.pathname + '?share=' + token;
+      const snap = allSnapshots.find((s) => s.token === token);
+      const link = snap ? buildShareUrl(snap) : (location.origin + location.pathname + '?share=' + token);
       navigator.clipboard.writeText(link).then(() => toast('Link copied to clipboard.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
     });
   });
   $('#pubListBody').querySelectorAll('[data-open]').forEach((b) => {
     b.addEventListener('click', () => {
-      window.open(location.origin + location.pathname + '?share=' + b.dataset.open, '_blank');
+      const token = b.dataset.open;
+      const snap = allSnapshots.find((s) => s.token === token);
+      const link = snap ? buildShareUrl(snap) : (location.origin + location.pathname + '?share=' + token);
+      window.open(link, '_blank');
     });
   });
   $('#pubListBody').querySelectorAll('[data-del]').forEach((b) => {
@@ -479,7 +627,7 @@ async function createSnapshotFromModal() {
   try {
     const snap = await createPublishSnapshot(boardId, scope);
     if (!snap) { toast('Could not create snapshot.', 'warn'); return; }
-    const link = location.origin + location.pathname + '?share=' + snap.token;
+    const link = buildShareUrl(snap);
     navigator.clipboard.writeText(link).then(() => toast('Snapshot created — link copied.', 'ok')).catch(() => toast('Snapshot created. Token: ' + snap.token, 'ok'));
     hide($( '#pubModal'));
     openPublishModal();
@@ -1426,8 +1574,10 @@ function buildCategoryData(def, issues) {
 }
 
 /* status-time aggregation from changelog (avgStatusTime metric) */
-function buildStatusTimeData(def, m) {
-  if (!state.hasChangelog) return { empty: ['Changelog unavailable on this board', '— status-time charts need it'] };
+function buildStatusTimeData(def, m, hasChangelog) {
+  const hc = hasChangelog != null ? hasChangelog : state.hasChangelog;
+  if (!hc || !m || !m.statusTime) return { empty: ['Changelog unavailable on this board', '— status-time charts need it'] };
+
   let rows = [...m.statusTime.entries()]
     .map(([k, v]) => ({ k, avg: v.sum / v.n, side: classifySide(k), sum: v.sum, n: v.n }));
   if (!rows.length) return { empty: ['No status transition data found'] };
@@ -1493,12 +1643,14 @@ function buildStatusTimeData(def, m) {
   };
 }
 
-function buildChartData(def, m) {
+function buildChartData(def, m, issues, hasChangelog) {
   const metric = METRIC_DEFS[def.metric];
+  const iss = issues || state.issues;
+  const hc = hasChangelog != null ? hasChangelog : state.hasChangelog;
   if (!metric) return { empty: ['Unknown metric'] };
-  if (metric.kind === 'time') return buildTimeSeries(def, state.issues);
-  if (metric.kind === 'statusTime') return buildStatusTimeData(def, m);
-  return buildCategoryData(def, state.issues);
+  if (metric.kind === 'time') return buildTimeSeries(def, iss);
+  if (metric.kind === 'statusTime') return buildStatusTimeData(def, m, hc);
+  return buildCategoryData(def, iss);
 }
 
 /* ── chart card rendering ────────────────────────────────────────── */
@@ -2265,7 +2417,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const snap = await createAllBoardsSnapshot();
       if (!snap) return;
-      const link = location.origin + location.pathname + '?share=' + snap.token;
+      const link = buildShareUrl(snap);
       navigator.clipboard.writeText(link).then(() => toast('All boards published — link copied.', 'ok')).catch(() => toast('All boards published. Token: ' + snap.token, 'ok'));
     } finally {
       btn.disabled = false;
@@ -2293,18 +2445,20 @@ document.addEventListener('DOMContentLoaded', () => {
     /* admin can manage snapshots even if viewing from a share link without a live connection */
     openPublishModal();
   });
+  $('#pubCopyLinkBtn').addEventListener('click', () => {
+    const val = $('#pubLinkInput').value;
+    if (val) navigator.clipboard.writeText(val).then(() => toast('Share link copied.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
+  });
   $('#pubBackBtn').addEventListener('click', () => {
     /* if we drilled into a board from an all-boards snapshot, go back to the list */
-    if ($('#pubBackBtn').dataset.fromAll === '1' && pubState.snapshot.scope === 'board') {
-      const snap = listPublishSnapshots().find((s) => s.token === pubState.snapshot.token);
-      if (snap && snap.scope === 'all') {
-        pubState.snapshot = snap;
-        pubState.currentBoard = null;
-        $('#pubBackBtn').dataset.fromAll = '';
-        $('#pubBackBtn').textContent = '← Back';
-        renderPubContent();
-        return;
-      }
+    if ($('#pubBackBtn').dataset.fromAll === '1' && pubState.snapshot.scope === 'board' && pubState.allSnapshot) {
+      pubState.snapshot = pubState.allSnapshot;
+      pubState.currentBoard = null;
+      pubState.allSnapshot = null;
+      $('#pubBackBtn').dataset.fromAll = '';
+      $('#pubBackBtn').textContent = '← Back';
+      renderPubContent();
+      return;
     }
     hidePubScreen();
   });
@@ -2315,27 +2469,27 @@ document.addEventListener('DOMContentLoaded', () => {
     if (ev.key === 'Enter') pubVerifyCode();
   });
 
-  /* check for share token on load */
-  const shareToken = parseShareToken();
-  if (shareToken) {
-    const store = loadPublishStore();
-    const snap = store[shareToken];
-    if (snap) showPubScreen(snap);
-    else {
-      toast('This published link is no longer available.', 'warn');
-      location.href = location.pathname;
-    }
-  }
+  /* initialize Google sign-in button (only on the share screen) */
+  initGoogleButton();
 
-  // restore previous session silently
-  const saved = loadConn();
-  if (saved) {
-    state.conn = saved;
-    enterApp();
-    api('/rest/api/3/myself')
-      .catch((e) => handleAuthError(e));
+  /* load a shared snapshot — self-contained (#p=) or legacy token (?share=) */
+  const loadedSnap = loadShareSnapshot();
+  if (loadedSnap) {
+    showPubScreen(loadedSnap);
+    /* if this browser also has a previously saved Jira session, keep it ready in the background */
+    const bg = loadConn();
+    if (bg) { state.conn = bg; }
   } else {
-    showSetup();
+    // no share link — restore previous session silently
+    const saved = loadConn();
+    if (saved) {
+      state.conn = saved;
+      enterApp();
+      api('/rest/api/3/myself')
+        .catch((e) => handleAuthError(e));
+    } else {
+      showSetup();
+    }
   }
 
   window.addEventListener('error', (ev) => {
