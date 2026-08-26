@@ -456,3 +456,63 @@ body {
   .hero { padding: 32px 24px 26px; }
   #syncedAt { display: none; }
 }
+
+/* ── dash-head right group ── */
+.dash-head-right { display: flex; align-items: center; gap: 10px; }
+
+/* ── chart card actions ── */
+.chart-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s ease; }
+.chart-card:hover .chart-actions { opacity: 1; }
+.chart-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px;
+  background: var(--panel); border: 1px solid var(--border);
+  color: var(--muted); font-size: 0.85rem; cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.chart-btn:hover { background: var(--panel-strong); border-color: var(--border-strong); color: var(--text); }
+.chart-btn[data-act="del"]:hover { background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.4); color: #fca5a5; }
+.chart-btn[data-act="hide"]:hover { background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.4); color: #fcd34d; }
+
+.scope-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  background: rgba(34, 211, 238, 0.1); color: #67e8f9; border: 1px solid rgba(34, 211, 238, 0.3);
+}
+
+/* ── segmented control ── */
+.seg { display: inline-flex; background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 2px; }
+.seg button {
+  padding: 6px 14px; border-radius: 7px; border: none; background: transparent;
+  color: var(--muted); font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.seg button:hover { background: var(--panel-strong); color: var(--text); }
+.seg button.active { background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4); }
+.seg-label { display: block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #8b93ad; margin-bottom: 5px; }
+
+/* ── form grid ── */
+.form-row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+.form-col { display: flex; flex-direction: column; gap: 6px; }
+@media (max-width: 1100px) { .form-row { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 720px) { .form-row { grid-template-columns: 1fr; } }
+
+/* ── link buttons (hidden charts strip) ── */
+.link-btn {
+  background: none; border: none; color: var(--cyan); font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; padding: 0; transition: opacity 0.12s ease;
+}
+.link-btn:hover { opacity: 0.7; text-decoration: underline; }
+
+/* ── subtitle extra info ── */
+.sub-extra { font-size: 0.68rem; color: var(--muted); font-weight: 500; }
+
+/* ── hidden charts restore strip ── */
+.hidden-charts-strip {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 14px; margin: -10px 0 16px;
+  background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 11px; color: #fcd34d; font-size: 0.78rem; font-weight: 500;
+}
+.hidden-charts-strip .muted { color: #a9965a; }
