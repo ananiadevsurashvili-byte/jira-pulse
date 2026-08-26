@@ -138,12 +138,12 @@
       <div class="kpi glass">
         <div class="kpi-top"><span class="kpi-icon ic-green">↻</span><span class="kpi-label">Resolved · 30 days</span></div>
         <div class="kpi-value accent-green" id="kpiResolved">…</div>
-        <div class="kpi-sub muted">shipped recently</div>
+        <div class="kpi-sub" id="kpiResolvedSub">shipped recently</div>
       </div>
       <div class="kpi glass">
         <div class="kpi-top"><span class="kpi-icon ic-violet">⏱</span><span class="kpi-label">Avg cycle time</span></div>
         <div class="kpi-value accent-violet" id="kpiCycle">…</div>
-        <div class="kpi-sub muted">create → resolve</div>
+        <div class="kpi-sub" id="kpiCycleSub">create → resolve</div>
       </div>
       <div class="kpi glass">
         <div class="kpi-top"><span class="kpi-icon ic-amber">◔</span><span class="kpi-label">Work in progress</span></div>
@@ -152,21 +152,48 @@
       </div>
     </div>
 
+    <div id="insightsStrip" class="insights-strip hidden"></div>
+
     <div class="charts-grid">
       <div class="card glass chart-card wide">
-        <h3>Created vs resolved <span class="muted small">· last 30 days</span></h3>
-        <div class="canvas-wrap"><canvas id="createdResolvedChart"></canvas></div>
+        <div class="chart-head">
+          <h3>Incoming vs completed</h3>
+          <span class="chart-sub">registered vs resolved · weekly · last 6 months</span>
+        </div>
+        <div class="canvas-wrap"><canvas id="pipelineChart"></canvas></div>
       </div>
       <div class="card glass chart-card">
-        <h3>Status distribution</h3>
+        <div class="chart-head">
+          <h3>Stakeholder vs team delays</h3>
+        </div>
+        <span class="chart-sub chart-sub-block" id="phaseDelaysSub">average days parked per stage · from changelog</span>
+        <div class="canvas-wrap"><canvas id="phaseDelaysChart"></canvas></div>
+      </div>
+      <div class="card glass chart-card">
+        <div class="chart-head">
+          <h3>Active bottlenecks</h3>
+          <span class="chart-sub">where open work is right now</span>
+        </div>
+        <div class="canvas-wrap"><canvas id="bottleneckChart"></canvas></div>
+      </div>
+      <div class="card glass chart-card">
+        <div class="chart-head">
+          <h3>Status distribution</h3>
+        </div>
         <div class="canvas-wrap"><canvas id="statusChart"></canvas></div>
       </div>
       <div class="card glass chart-card">
-        <h3>Average time per status <span class="muted small">· lifetime</span></h3>
+        <div class="chart-head">
+          <h3>Average time per status</h3>
+          <span class="chart-sub">lifetime · from changelog</span>
+        </div>
         <div class="canvas-wrap"><canvas id="statusTimeChart"></canvas></div>
       </div>
       <div class="card glass chart-card wide">
-        <h3>Weekly throughput <span class="muted small">· resolved per week, last 12 weeks</span></h3>
+        <div class="chart-head">
+          <h3>Weekly throughput</h3>
+          <span class="chart-sub">resolved per week · last 12 weeks</span>
+        </div>
         <div class="canvas-wrap"><canvas id="throughputChart"></canvas></div>
       </div>
     </div>
@@ -182,6 +209,10 @@
     </div>
   </section>
 </main>
+
+<footer class="site-footer">
+  JiraPulse · client-side delivery analytics — your credentials never leave this browser
+</footer>
 
 <!-- ══════════ SETTINGS MODAL ══════════ -->
 <div id="settingsModal" class="modal-overlay hidden">
