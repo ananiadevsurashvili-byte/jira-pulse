@@ -228,8 +228,17 @@ body {
 .chip-simple { background: rgba(52, 211, 153, 0.1); color: #6ee7b7; border-color: rgba(52, 211, 153, 0.3); }
 .board-open { font-size: 0.8rem; font-weight: 600; color: #a5b4fc; }
 
-/* grouped board lists ([P] org boards first, then all other boards) */
-.board-group { margin-bottom: 26px; }
+/* ── boards ── */
+/* #boardsGrid is a block stack: each .board-group takes the full width and lays out
+   its own card grid. (Making it a grid would place the two groups side-by-side as
+   columns, cramming cards into half the available width.) */
+#boardsGrid {
+  display: block;
+}
+.board-group { margin-bottom: 28px; }
+.board-group .boards-grid {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
 .board-group-title {
   font-size: 0.72rem;
   font-weight: 800;
@@ -475,6 +484,7 @@ body {
   display: inline-block;
 }
 .spinner-lg { width: 34px; height: 34px; border-width: 3px; border-top-color: var(--accent); }
+.spinner-sm { width: 11px; height: 11px; border-width: 2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── scrollbar ── */
@@ -606,10 +616,14 @@ body {
 #pubScreen .pub-charts-grid .chart-card { min-height: 280px; height: 100%; }
 #pubScreen .pub-charts-grid .chart-card.wide { grid-column: span 2; }
 #pubScreen .pub-charts-grid .canvas-wrap { height: 280px; }
-/* boards list reuses the same responsive layout as the chart grid */
+/* boards list reuses the same responsive layout as the chart grid.
+   The section titles span BOTH columns so "[P] Org boards" and "All other boards"
+   are two clearly separated full-width blocks, not cramped grid cells. */
 #pubBoardsList { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 #pubBoardsList .pub-board-row { margin-bottom: 0; }
 #pubBoardsList .pub-board-row.wide { grid-column: span 2; }
+#pubBoardsList .board-group-title { grid-column: span 2; }
+#pubBoardsList .board-group-title:not(:first-child) { margin-top: 16px; }
 /* public share screen responsive · matches the admin dashboard */
 @media (max-width: 920px) {
   #pubScreen .pub-charts-grid,

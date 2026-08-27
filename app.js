@@ -1370,7 +1370,17 @@ function renderBoardCards() {
   });
 }
 
+/* board-context cache: avoids re-hitting 3–4 Jira endpoints every time you re-open a board.
+   The cache is keyed by board id and persists for the session (in memory). */
+const _boardCtxCache = new Map();
+
 async function resolveBoardContext(board) {
+  const cached = _boardCtxCache.get(board.id);
+  if (cached) {
+    logDiag('info', 'Board context cache hit', { boardId: board.id, filterId: cached.filterId, projectKeys: cached.projectKeys.length, filterJql: cached.filterJql.slice(0, 80) });
+    return cached;
+  }
+
   const ctx = {
     boardId: board.id,
     boardName: board.name,
@@ -1381,22 +1391,22 @@ async function resolveBoardContext(board) {
     projectKeys: [],
   };
 
-  try {
-    const freshBoard = await api(`/rest/agile/1.0/board/${board.id}`);
-    ctx.location = freshBoard.location || ctx.location;
-    ctx.boardType = freshBoard.type || ctx.boardType;
-    logDiag('info', 'Board details resolved', { boardId: board.id, boardType: ctx.boardType, location: ctx.location });
-  } catch (e) {
-    logDiag('warn', 'Board details lookup failed', { boardId: board.id, status: e.status, message: e.message });
-  }
+  /* run the independent lookups in parallel; failures are non-fatal (each try/catch).
+     The filter JQL depends on filterId, so it is chained after the config resolves. */
+  const [boardResp, cfgResp, projectsResp] = await Promise.all([
+    api(`/rest/agile/1.0/board/${board.id}`).catch((e) => { logDiag('warn', 'Board details lookup failed', { boardId: board.id, status: e.status, message: e.message }); return null; }),
+    api(`/rest/agile/1.0/board/${board.id}/configuration`).catch((e) => { logDiag('warn', 'Board configuration lookup failed', { boardId: board.id, status: e.status, message: e.message }); return null; }),
+    fetchPaginated(`/rest/agile/1.0/board/${board.id}/project`, 100).catch((e) => { logDiag('warn', 'Board projects lookup failed', { boardId: board.id, status: e.status, message: e.message }); return []; }),
+  ]);
 
-  try {
-    const cfg = await api(`/rest/agile/1.0/board/${board.id}/configuration`);
-    ctx.filterId = cfg?.filter?.id || null;
-    logDiag('info', 'Board configuration resolved', { boardId: board.id, filterId: ctx.filterId });
-  } catch (e) {
-    logDiag('warn', 'Board configuration lookup failed', { boardId: board.id, status: e.status, message: e.message });
+  if (boardResp) {
+    ctx.location = boardResp.location || ctx.location;
+    ctx.boardType = boardResp.type || ctx.boardType;
   }
+  ctx.filterId = cfgResp?.filter?.id || null;
+  ctx.projectKeys = (projectsResp || []).map((p) => p.key).filter(Boolean);
+
+  logDiag('info', 'Board details resolved', { boardId: board.id, boardType: ctx.boardType, filterId: ctx.filterId, projectKeys: ctx.projectKeys.length });
 
   if (ctx.filterId) {
     try {
@@ -1408,15 +1418,9 @@ async function resolveBoardContext(board) {
     }
   }
 
-  try {
-    const projects = await fetchPaginated(`/rest/agile/1.0/board/${board.id}/project`, 100);
-    ctx.projectKeys = projects.map((p) => p.key).filter(Boolean);
-    logDiag('info', 'Board projects resolved', { boardId: board.id, projectKeys: ctx.projectKeys });
-  } catch (e) {
-    logDiag('warn', 'Board projects lookup failed', { boardId: board.id, status: e.status, message: e.message });
-  }
-
   if (!ctx.projectKeys.length && ctx.location?.projectKey) ctx.projectKeys = [ctx.location.projectKey];
+
+  _boardCtxCache.set(board.id, ctx);
   return ctx;
 }
 
@@ -1626,8 +1630,10 @@ async function selectBoard(board) {
   hide($('#errorBanner'));
 
   $('#dashBoardName').textContent = board.name;
-  $('#issueCountBadge').textContent = 'syncing…';
   $('#syncedAt').textContent = '';
+
+  /* clear the previous board's data immediately so it never lingers during sync */
+  showDashLoading(board.name);
 
   try {
     logDiag('info', 'Board selected', { boardId: board.id, name: board.name, type: board.type, location: board.location || null });
@@ -1638,10 +1644,6 @@ async function selectBoard(board) {
     state.lastBoard = board;
     state.lastMetrics = m;
 
-    ['kpiTotal', 'kpiCreated', 'kpiDone', 'kpiResolved', 'kpiCycle', 'kpiWip'].forEach((id) => ($('#' + id).textContent = '…'));
-    $('#slowTableBody').innerHTML = '';
-    Object.values(state.charts).forEach((ch) => ch && ch.destroy());
-    state.charts = {};
     hide($('#errorBanner'));
 
     renderDashboard(board, m);
@@ -2790,6 +2792,22 @@ function buildInsights(m) {
     });
   }
   return out.slice(0, 4);
+}
+
+/* clear the dashboard and show a loading state while a new board syncs.
+   This prevents the PREVIOUS board's charts/KPIs from lingering on screen during
+   the (sometimes slow) fetch — the user never sees stale data from another board. */
+function showDashLoading(boardName) {
+  ['kpiTotal', 'kpiCreated', 'kpiDone', 'kpiResolved', 'kpiCycle', 'kpiWip'].forEach((id) => ($('#' + id).textContent = '…'));
+  ['kpiTotalSub', 'kpiCreatedSub', 'kpiDoneSub', 'kpiResolvedSub', 'kpiCycleSub', 'kpiWipSub'].forEach((id) => { const el = $('#' + id); if (el) el.textContent = 'syncing…'; });
+  $('#issueCountBadge').textContent = 'syncing…';
+  $('#slowTableBody').innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:26px"><span class="spinner spinner-sm"></span> Loading ${escapeHtml(boardName || 'this board')}…</td></tr>`;
+  hide($('#insightsStrip'));
+  hide($('#changelogNotice'));
+  /* destroy current chart canvases + replace the grid with a loading placeholder */
+  Object.values(state.charts).forEach((c) => c && c.destroy());
+  state.charts = {};
+  $('#chartsGrid').innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:42px;color:var(--muted)"><span class="spinner spinner-lg"></span><div style="margin-top:14px">Syncing your dashboard…</div></div>';
 }
 
 function renderDashboard(board, m) {
