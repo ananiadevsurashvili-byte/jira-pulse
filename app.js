@@ -82,12 +82,20 @@ function publishEmailOk(email) {
   return e.endsWith('@' + PUBLISH_DOMAIN) && e.split('@')[1] === PUBLISH_DOMAIN;
 }
 
-/* generate a fresh random token */
+/* generate a fresh random token (used only for legacy/one-off links) */
 function newPublishToken() {
   const a = new Uint32Array(PUBLISH_TOKEN_LEN);
   crypto.getRandomValues(a);
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   return Array.from(a, (x) => chars[x % chars.length]).join('');
+}
+
+/* STABLE publish identity so the same share link is reused across republishes.
+   Republishing overwrites the SAME store entry → the link a viewer already has
+   keeps working and shows the latest data, without minting a new URL each time. */
+function publishId(scope, boardId) {
+  if (scope === 'all') return 'ALL_BOARDS';
+  return 'BOARD_' + boardId;
 }
 
 /* create a publish snapshot for a board, or for every board (scope='all') */
@@ -98,7 +106,8 @@ async function createPublishSnapshot(boardId, scope) {
   const defs = effectiveCharts();
   const payload = buildBoardRenderPayload(state.issues, state.lastMetrics, defs, state.hasChangelog);
   const snapshot = {
-    token: newPublishToken(),
+    token: publishId('board', boardId),   // stable: republishing updates this same snapshot
+    pubId: publishId('board', boardId),
     boardId,
     boardName: board.name,
     scope: 'board',
@@ -148,7 +157,8 @@ async function createAllBoardsSnapshot(onProgress) {
   }
   if (!records.length) { toast('Could not load any boards to publish.', 'warn'); return null; }
   const snapshot = {
-    token: newPublishToken(),
+    token: publishId('all', null),   // stable: republishing updates this same snapshot
+    pubId: publishId('all', null),
     boardId: null,
     boardName: 'All boards',
     scope: 'all',
@@ -164,10 +174,25 @@ async function createAllBoardsSnapshot(onProgress) {
   return snapshot;
 }
 
-/* list all snapshots */
+/* list all snapshots — deduped by pubId so only the NEWEST version of each stable
+   snapshot is returned. This is what makes "republish → same link shows latest" work:
+   old copies of a board/all snapshot never shadow the fresh one. */
 function listPublishSnapshots() {
   const store = loadPublishStore();
-  return Object.values(store).sort((a, b) => b.createdAt - a.createdAt);
+  const all = Object.values(store);
+  const latest = new Map();
+  for (const s of all) {
+    const key = s.pubId || s.token || (s.scope + ':' + (s.boardId || 'all'));
+    const cur = latest.get(key);
+    if (!cur || (s.createdAt || 0) > (cur.createdAt || 0)) latest.set(key, s);
+  }
+  return [...latest.values()].sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/* the newest single snapshot (board or all) — used to boot the public org view */
+function latestPublishSnapshot() {
+  const snaps = listPublishSnapshots();
+  return snaps.length ? snaps[0] : null;
 }
 
 /* delete a snapshot */
@@ -224,9 +249,18 @@ function decodeSharePayload(compressed) {
   }
 }
 
-/* build a share URL from a snapshot (self-contained, works on any device).
-   Always points at the public app root (never /admin/) so the link opens for viewers. */
+/* build a share URL from a snapshot. Always points at the public app root (never /admin/).
+   When the snapshot exists in this browser's publish store (it has a stable token), we return
+   a small `?share=<token>` link — this AUTO-UPDATES on republish because the store entry is
+   overwritten in place, so viewers keep the same link and always see the latest data.
+   For manufactured sub-payloads (e.g. a board drilled out of an "all" snapshot) that have no
+   store entry, we embed the data as a self-contained `#p=` payload so it still works anywhere. */
 function buildShareUrl(snap) {
+  const store = loadPublishStore();
+  const tid = snap.pubId || snap.token;
+  if (tid && store[tid]) {
+    return location.origin + publicRootPath() + '?share=' + encodeURIComponent(tid);
+  }
   const payload = encodeSharePayload(snap);
   return location.origin + publicRootPath() + '#p=' + payload;
 }
@@ -586,7 +620,8 @@ function renderPubContent() {
     if (!boards.length) {
       boardsList.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No boards published.</div>';
     } else {
-      boardsList.innerHTML = boards.map((b) => `
+      /* split [P] org boards from the rest so they always appear first */
+      const pubRow = (b) => `
         <div class="pub-board-row" data-bid="${b.boardId}">
           <span class="board-open" style="color:var(--muted)">▸</span>
           <div>
@@ -594,7 +629,13 @@ function renderPubContent() {
             <div class="bmeta">${b.issuesCount} issues · ${b.hasChangelog ? 'changelog ✓' : 'no changelog'}</div>
           </div>
           ${admin ? `<button class="link-btn" data-copyboard="${b.boardId}" style="margin-left:auto;font-size:0.72rem">🔗 copy link</button>` : ''}
-        </div>`).join('');
+        </div>`;
+      const P = boards.filter((b) => isPBoard(b));
+      const others = boards.filter((b) => !isPBoard(b));
+      let html = '';
+      if (P.length) html += `<div class="board-group-title">[P] Org boards</div>${P.map(pubRow).join('')}<div style="height:14px"></div>`;
+      if (others.length) html += `<div class="board-group-title">All other boards</div>${others.map(pubRow).join('')}`;
+      boardsList.innerHTML = html;
       boardsList.querySelectorAll('.pub-board-row').forEach((row) => {
         const bid = row.dataset.bid;
         const copyBtn = row.querySelector('[data-copyboard]');
@@ -1275,9 +1316,15 @@ function boardTypeClass(t) {
   return 'chip';
 }
 
-function renderBoardCards() {
-  const grid = $('#boardsGrid');
-  grid.innerHTML = state.boards.map((b, i) => `
+/* is this board one of the "[P]" org boards? Its project name (e.g. "[P] Automarket")
+   marks it as a shared org-flow Kanban board with the same statuses → shown first. */
+function isPBoard(b) {
+  return /^\[P\]/i.test(b.location?.projectName || '') || /^\[P\]/i.test(b.name || '');
+}
+
+/* render a single board card (shared by the grouped list + the sorter) */
+function boardCardHTML(b, i) {
+  return `
     <div class="board-card glass" data-id="${b.id}" style="animation-delay:${Math.min(i * 35, 400)}ms">
       <div class="board-card-head">
         <h3>${escapeHtml(b.name)}</h3>
@@ -1289,7 +1336,22 @@ function renderBoardCards() {
       </div>
       ${b.location?.projectName ? `<div class="muted small" style="margin-bottom:12px">Project · ${escapeHtml(b.location.projectName)}</div>` : '<div style="height:24px"></div>'}
       <span class="board-open">Open dashboard →</span>
-    </div>`).join('');
+    </div>`;
+}
+
+function renderBoardCards() {
+  const grid = $('#boardsGrid');
+  const pBoards = state.boards.filter(isPBoard);
+  const otherBoards = state.boards.filter((b) => !isPBoard(b));
+  let html = '';
+  if (pBoards.length) {
+    html += `<div class="board-group"><span class="board-group-title">[P] Org boards</span><div class="boards-grid">${pBoards.map((b, ci) => boardCardHTML(b, ci)).join('')}</div></div>`;
+  }
+  if (otherBoards.length) {
+    html += `<div class="board-group"><span class="board-group-title">All other boards</span><div class="boards-grid">${otherBoards.map((b, ci) => boardCardHTML(b, ci)).join('')}</div></div>`;
+  }
+  grid.innerHTML = html;
+  /* event wiring is shared for all cards (grouped grids are still DOM children) */
   grid.querySelectorAll('.board-card .board-copy-link').forEach((btn) => {
     btn.addEventListener('click', (ev) => {
       ev.stopPropagation();
@@ -1617,6 +1679,8 @@ function computeMetrics(issues) {
     cycleRecent: [], cyclePrev: [],
     statusDist: new Map(),
     statusTime: new Map(),
+    blockedDist: new Map(),     // blocked/canceled/rejected work by status
+    blockedCount: 0,
     bottlenecks: new Map(),
     slow: [],
     dailyCreated: Array(30).fill(0),
@@ -1634,7 +1698,9 @@ function computeMetrics(issues) {
   for (const iss of issues) {
     const f = iss.fields || {};
     const created = f.created ? Date.parse(f.created) : null;
-    const resolved = f.resolutiondate ? Date.parse(f.resolutiondate) : null;
+    /* completion moment: prefer resolutiondate, else first changelog entry into a
+       completed status (eg Released / Babysitting / Done Approved have no resolutiondate) */
+    const resolved = issueCompletedAt(f, iss.changelog);
     const statusName = f.status?.name || 'Unknown';
     const doneCat = f.status?.statusCategory?.key === 'done'
       || String(f.status?.statusCategory?.name || '').toLowerCase() === 'done';
@@ -1668,8 +1734,18 @@ function computeMetrics(issues) {
 
     m.statusDist.set(statusName, (m.statusDist.get(statusName) || 0) + 1);
 
-    /* time-in-status from changelog */
+    /* blocked / canceled / rejected work — counted separately (shown in its own chart) */
+    if (isBlockedStatus(f)) {
+      m.blockedCount++;
+      m.blockedDist.set(statusName, (m.blockedDist.get(statusName) || 0) + 1);
+    }
+
+    /* time-in-status from changelog. Excluded statuses (done/canceled/blocked) are
+       still recorded for the Status Distribution, but we DROP their contributions to
+       the active-work status-time / phase-delay maps so "Avg Time in Status" and
+       "Stakeholder vs Team Delays" reflect real flow time, not parked/finished states. */
     const evts = [];
+    const excludedNow = isExcludedStatus(f);
     for (const h of iss.changelog?.histories || []) {
       for (const it of h.items || []) {
         if (String(it.field).toLowerCase() === 'status') {
@@ -1681,14 +1757,18 @@ function computeMetrics(issues) {
     let prevTs = created ?? NOW;
     let prevName = evts.length ? (evts[0].from || statusName) : statusName;
     for (const ev of evts) {
-      if (ev.ts > prevTs) addTime(m.statusTime, prevName, ev.ts - prevTs);
+      if (ev.ts > prevTs && !isExcludedStatus({ status: { name: prevName } })) {
+        addTime(m.statusTime, prevName, ev.ts - prevTs);
+      }
       prevTs = ev.ts;
       if (ev.to) prevName = ev.to;
     }
     const curAge = Math.max(0, NOW - prevTs);
-    addTime(m.statusTime, prevName, curAge);
+    if (!excludedNow && !isExcludedStatus({ status: { name: prevName } })) {
+      addTime(m.statusTime, prevName, curAge);
+    }
 
-    if (!doneCat) {
+    if (!doneCat && !isExcludedStatus(f)) {
       const bcat = classifyBottleneck(statusName);
       m.bottlenecks.set(bcat, (m.bottlenecks.get(bcat) || 0) + 1);
       m.slow.push({
@@ -1709,10 +1789,11 @@ function computeMetrics(issues) {
   m.doneRate = m.total ? Math.round((m.done / m.total) * 100) : 0;
   m.slow.sort((a, b) => b.age - a.age);
 
-  /* stakeholder-vs-team phase delays (from changelog status times) */
+  /* stakeholder-vs-team phase delays (from changelog status times) — only ACTIVE statuses,
+     with the excluded done/blocked/canceled set filtered out */
   m.phaseDelays = [...m.statusTime.entries()]
     .map(([k, v]) => ({ status: k, avg: v.sum / v.n, side: classifySide(k), sum: v.sum, n: v.n }))
-    .filter((r) => r.side)
+    .filter((r) => r.side && !isExcludedStatus({ status: { name: r.status } }))
     .sort((a, b) => b.avg - a.avg);
   let shSum = 0, shN = 0, tmSum = 0, tmN = 0;
   for (const r of m.phaseDelays) {
@@ -1734,6 +1815,7 @@ const METRIC_DEFS = {
   created:       { label: 'Issues created over time',      kind: 'time' },
   resolved:      { label: 'Issues resolved over time',     kind: 'time' },
   count:         { label: 'Issue count by group',          kind: 'category' },
+  blockedCount:  { label: 'Blocked / canceled by status',  kind: 'category', blockedOnly: true },
   avgCycle:      { label: 'Avg cycle time by group',       kind: 'category', duration: true, resolvedOnly: true },
   openAge:       { label: 'Current age of open issues',    kind: 'category', duration: true, openOnly: true },
   avgStatusTime: { label: 'Avg time in status by group',   kind: 'statusTime', duration: true },
@@ -1772,9 +1854,10 @@ const ACCENT_HEX = {
 /* the built-in charts, expressed as editable definitions */
 const BUILTIN_DEFS = [
   { id: 'pipeline', title: 'Incoming vs Completed', subtitle: 'Created vs resolved over time', type: 'line', metric: 'flow', groupBy: 'time', bucket: 'week', range: 182, filter: 'all', topN: 0, split: 'none', color: 'indigo', wide: true, centerTotal: false },
-  { id: 'throughput', title: 'Weekly Throughput', subtitle: 'Resolved issues per week', type: 'bar', metric: 'resolved', groupBy: 'time', bucket: 'week', range: 84, filter: 'all', topN: 0, split: 'none', color: 'green', wide: true, centerTotal: false },
+  { id: 'throughput', title: 'Monthly Throughput', subtitle: 'Completed issues per month (Done/Approved/Babysitting/Released)', type: 'bar', metric: 'resolved', groupBy: 'time', bucket: 'month', range: 182, filter: 'all', topN: 0, split: 'none', color: 'green', wide: true, centerTotal: false },
   { id: 'createdTrend', title: 'Issues Created', subtitle: 'Weekly creation trend', type: 'line', metric: 'created', groupBy: 'time', bucket: 'week', range: 182, filter: 'all', topN: 0, split: 'none', color: 'cyan', wide: false, centerTotal: false },
-  { id: 'resolvedTrend', title: 'Issues Resolved', subtitle: 'Weekly resolution trend', type: 'line', metric: 'resolved', groupBy: 'time', bucket: 'week', range: 182, filter: 'all', topN: 0, split: 'none', color: 'green', wide: false, centerTotal: false },
+  { id: 'resolvedTrend', title: 'Issues Resolved', subtitle: 'Monthly completion trend', type: 'line', metric: 'resolved', groupBy: 'time', bucket: 'month', range: 182, filter: 'all', topN: 0, split: 'none', color: 'green', wide: false, centerTotal: false },
+  { id: 'blockedDist', title: 'Blocked & Canceled', subtitle: 'Work sitting on blocked/canceled/rejected statuses', type: 'hbar', metric: 'blockedCount', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 10, split: 'none', color: 'pink', wide: false, centerTotal: false },
   { id: 'bottlenecks', title: 'Active Bottlenecks', subtitle: 'Where open work is parked', type: 'doughnut', metric: 'count', groupBy: 'bottleneck', bucket: 'week', range: 0, filter: 'open', topN: 0, split: 'none', color: 'indigo', wide: false, centerTotal: true },
   { id: 'statusDist', title: 'Status Distribution', subtitle: 'All issues by current status', type: 'doughnut', metric: 'count', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 8, split: 'none', color: 'violet', wide: false, centerTotal: true },
   { id: 'statusTime', title: 'Avg Time in Status', subtitle: 'Lifetime average per status · changelog', type: 'hbar', metric: 'avgStatusTime', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 12, split: 'none', color: 'violet', wide: false, centerTotal: false },
@@ -1818,6 +1901,62 @@ function statusIsDone(f) {
     || String(f.status?.statusCategory?.name || '').toLowerCase() === 'done';
 }
 
+/* ── status intelligence (org flow) ─────────────────────────────────
+   In the [P] boards the work is finished through these statuses, and crucially these
+   issues carry NO `resolutiondate` — completion is only visible in the changelog. We
+   therefore treat these as the "Completed" set and derive a completion timestamp from
+   the FIRST transition into one of them (or from resolutiondate when present). */
+
+/* statuses that count as a delivered / completed outcome (throughput, resolved) */
+const COMPLETED_STATUSES = ['Done Approved', 'Released', 'Babysitting', 'Done', 'Closed', 'Resolved'];
+const COMPLETED_RE = /^(done approved|released|babysitting|done|closed|resolved|ready for release|ready for development|onboarding completed|hired)$/i;
+
+/* terminal statuses that are NOT a completed delivery — excluded from delivery metrics
+   and flagged separately as "stuck/removed" work (Blocked / Canceled / Rejected…). */
+const BLOCKED_STATUSES = ['Blocked', 'Canceled', 'Cancelled', 'Rejected', 'Declined', 'Discarded', 'Stuck', 'On Hold'];
+const BLOCKED_RE = /^(blocked|canceled|cancelled|rejected|declined|discarded|stuck|on hold)$/i;
+
+/* does a status name represent a completed delivery? */
+function isCompletedStatus(f) {
+  const name = String(f?.status?.name || '');
+  if (COMPLETED_STATUSES.includes(name)) return true;
+  return COMPLETED_RE.test(name);
+}
+
+/* does a status name represent blocked/canceled/rejected work? */
+function isBlockedStatus(f) {
+  const name = String(f?.status?.name || '');
+  if (BLOCKED_STATUSES.includes(name)) return true;
+  return BLOCKED_RE.test(name);
+}
+
+/* derive the moment an issue was COMPLETED. Prefer `resolutiondate`, but for issues
+   that stay in a done status without one (e.g. "Released"/"Babysitting"), walk the
+   changelog for the first transition into a completed status. Returns a ms timestamp or null. */
+function issueCompletedAt(f, changelog) {
+  if (f?.resolutiondate) return Date.parse(f.resolutiondate);
+  const histories = (changelog || {}).histories || [];
+  const evts = [];
+  for (const h of histories) {
+    for (const it of h.items || []) {
+      if (String(it.field).toLowerCase() === 'status' && it.toString) {
+        evts.push({ ts: Date.parse(h.created), to: it.toString });
+      }
+    }
+  }
+  evts.sort((a, b) => a.ts - b.ts);
+  for (const ev of evts) {
+    if (isCompletedStatus({ status: { name: ev.to } })) return ev.ts;
+  }
+  return null;
+}
+
+/* helper: is this status one of the 'excluded' terminal set (used to keep status-time &
+   phase-delay charts focused on active work, not finished/cancelled states)? */
+function isExcludedStatus(f) {
+  return isCompletedStatus(f) || isBlockedStatus(f);
+}
+
 function groupKeyOf(def, f) {
   switch (def.groupBy) {
     case 'assignee': return f.assignee?.displayName || 'Unassigned';
@@ -1854,7 +1993,10 @@ function buildTimeSeries(def, issues) {
   for (const iss of issues) {
     const f = iss.fields || {};
     if (wantCreated && f.created) oldest = Math.min(oldest, Date.parse(f.created));
-    if (wantResolved && f.resolutiondate) oldest = Math.min(oldest, Date.parse(f.resolutiondate));
+    if (wantResolved) {
+      const ts = issueCompletedAt(f, iss.changelog);
+      if (ts) oldest = Math.min(oldest, ts);
+    }
   }
   if (!isFinite(oldest)) return { empty: 'No dated issues found for this chart' };
   if (!rangeDays) rangeDays = Math.ceil((NOW - oldest) / DAY) + 1;
@@ -1885,16 +2027,18 @@ function buildTimeSeries(def, issues) {
       }
       if (idx >= 0 && idx < nBuckets) createdCounts[idx]++;
     }
-    if (wantResolved && f.resolutiondate) {
-      const ts = Date.parse(f.resolutiondate);
-      let idx;
-      if (bucket === 'month') {
-        const d = new Date(ts);
-        idx = nBuckets - 1 - (nowMonthIdx - (d.getFullYear() * 12 + d.getMonth()));
-      } else {
-        idx = nBuckets - 1 - Math.floor((NOW - ts) / bucketMs);
+    if (wantResolved) {
+      const ts = issueCompletedAt(f, iss.changelog);
+      if (ts) {
+        let idx;
+        if (bucket === 'month') {
+          const d = new Date(ts);
+          idx = nBuckets - 1 - (nowMonthIdx - (d.getFullYear() * 12 + d.getMonth()));
+        } else {
+          idx = nBuckets - 1 - Math.floor((NOW - ts) / bucketMs);
+        }
+        if (idx >= 0 && idx < nBuckets) resolvedCounts[idx]++;
       }
-      if (idx >= 0 && idx < nBuckets) resolvedCounts[idx]++;
     }
   }
 
@@ -1938,9 +2082,13 @@ function buildCategoryData(def, issues) {
     const f = iss.fields || {};
     let val;
     if (def.metric === 'count') val = 1;
-    else if (def.metric === 'avgCycle') {
-      if (!f.resolutiondate || !f.created) continue;
-      val = Date.parse(f.resolutiondate) - Date.parse(f.created);
+    else if (def.metric === 'blockedCount') {
+      if (!isBlockedStatus(f)) continue;
+      val = 1;
+    } else if (def.metric === 'avgCycle') {
+      const doneAt = issueCompletedAt(f, iss.changelog);
+      if (!doneAt || !f.created) continue;
+      val = doneAt - Date.parse(f.created);
     } else if (def.metric === 'openAge') {
       if (!f.created) continue;
       val = Math.max(0, NOW - Date.parse(f.created));

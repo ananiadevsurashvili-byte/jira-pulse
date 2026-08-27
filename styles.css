@@ -227,6 +227,28 @@ body {
 .chip-scrum { background: rgba(99, 102, 241, 0.12); color: #a5b4fc; border-color: rgba(99, 102, 241, 0.35); }
 .chip-simple { background: rgba(52, 211, 153, 0.1); color: #6ee7b7; border-color: rgba(52, 211, 153, 0.3); }
 .board-open { font-size: 0.8rem; font-weight: 600; color: #a5b4fc; }
+
+/* grouped board lists ([P] org boards first, then all other boards) */
+.board-group { margin-bottom: 26px; }
+.board-group-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #a5b4fc;
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.board-group-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(99,102,241,.35), transparent);
+}
+#pubBoardsList .board-group-title { margin-top: 6px; }
+
 .loading-block, .empty-block {
   display: flex; flex-direction: column; align-items: center; gap: 14px;
   padding: 70px 20px; color: var(--muted); text-align: center;
