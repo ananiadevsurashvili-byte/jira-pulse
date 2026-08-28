@@ -567,7 +567,7 @@ body {
 /* form labels and inputs in modal */
 .modal label { display: flex; flex-direction: column; gap: 6px; }
 .modal .seg-label { margin-bottom: 4px; }
-.modal .input { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 0.85rem; transition: border-color 0.12s ease, box-shadow 0.12s ease; }
+.modal .input { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-strong); color: var(--text); font-size: 0.85rem; transition: border-color 0.12s ease, box-shadow 0.12s ease; }
 .modal .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15); }
 .modal .switch-row { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; color: var(--muted); cursor: pointer; }
 .modal .switch-row input { width: 18px; height: 18px; accent-color: var(--accent); }
