@@ -11,16 +11,21 @@ const DAY = 86400000;
 const LS_CONN = 'jp_conn_v1';
 const LS_RELAY = 'jp_relay_v1';
 const LS_LAST_BOARD = 'jp_last_board_v1';
-/* Keyless CORS relays used as fallback when the browser blocks direct calls to Jira.
-   corsproxy.io introduced a mandatory API key (Aug 2025) — the old keyless URL now
-   returns 401, which is why the app started reporting "Could not reach …".
-   api.cors.lol is verified keyless and forwards the Authorization header to Jira
-   (rate limit: 20 requests / 5 min per IP — fine for a single analyst session). */
+/* ── CORS relay cascade ──────────────────────────────────────────────
+   Browsers cannot call the Jira Cloud REST API directly from a GitHub Pages
+   site (Jira sends no CORS headers), so requests must pass through a relay.
+   The FIRST relay is JiraPulse's OWN hosted relay — a free Val Town HTTP val
+   (100,000 requests/day, forwards the Authorization header verbatim, accepts
+   only https://*.atlassian.net targets, stores nothing). It is tried before
+   anything else; the public keyless relays below and a final direct attempt
+   serve as fallbacks. A relay configured in Settings is always tried first. */
+const OWN_RELAY = 'https://gensweaty--65df49bca6d911f19f231607ee4eb77e.web.val.run/?url=';
 const RELAYS = [
-  /* { key, url } — corsproxy.io also accepts a user-supplied API key */
+  /* { key, build, keyless } — corsproxy.io also accepts a user-supplied API key */
+  { key: 'own', build: (url) => OWN_RELAY + encodeURIComponent(url), keyless: true },
+  { key: 'cors.lol', build: (url) => 'https://api.cors.lol/?url=' + encodeURIComponent(url), keyless: true },
   { key: 'corsproxy', build: (url, conn) =>
       'https://corsproxy.io/?' + (conn?.proxyApiKey ? 'key=' + encodeURIComponent(conn.proxyApiKey) + '&' : '') + 'url=' + encodeURIComponent(url), keyless: false },
-  { key: 'cors.lol', build: (url) => 'https://api.cors.lol/?url=' + encodeURIComponent(url), keyless: true },
 ];
 const ISSUE_FIELDS = ['summary', 'status', 'resolutiondate', 'created', 'issuetype', 'assignee', 'priority', 'labels'];
 
@@ -985,18 +990,28 @@ async function api(path, options = {}) {
   };
   if (options.body != null) headers['Content-Type'] = 'application/json';
 
-  /* Build the attempt list: [custom relay →] direct → [keyless/keyed relays].
-     Each attempt is tried in order; the first one that reaches Jira wins. A
-     user-configured relay (Settings) is always tried first. */
+  /* Build the attempt list: [custom relay →] [built-in relays (own first) →]
+     direct. Each attempt is tried in order; the first one that reaches Jira
+     wins. A user-configured relay (Settings) is always tried first. The
+     built-in own relay (Val Town) is tried before the direct call, which is
+     CORS-blocked on GitHub Pages and always fails — its single failure costs
+     ~100 ms and it stays last purely as a future-proof escape hatch. */
   const attempts = [];
   let viaProxy = false;
   const withRelay = (r) => attempts.push({
     url: r.build(url, c),
     relay: r.key,
-    /* relay responses are identifiable by their error payload shape */
-    isRelayErr: r.key === 'corsproxy'
-      ? (s, b) => (s === 401 || s === 403) && typeof b?.error === 'string' && /api key|invalid or inactive/i.test(b.error)
-      : (s, b) => s === 429 && typeof b === 'string' && /rate limit/i.test(b),
+    /* relay responses are identifiable by their error payload shape.
+       - own (Val Town): {error:"..."} JSON for app-level rejections; the Val
+         Town platform itself answers 500 {message:"..."} when the val is down.
+       - corsproxy: {error:"..."} mentioning api key / invalid or inactive.
+       - cors.lol: plain-text 429 rate-limit bodies. */
+    isRelayErr: r.key === 'own'
+      ? (s, b) => (s === 500 && typeof b?.message === 'string' && /not found/i.test(b.message))
+        || (s === 502 && typeof b?.error === 'string' && /upstream/i.test(b.error))
+      : r.key === 'corsproxy'
+        ? (s, b) => (s === 401 || s === 403) && typeof b?.error === 'string' && /api key|invalid or inactive/i.test(b.error)
+        : (s, b) => s === 429 && typeof b === 'string' && /rate limit/i.test(b),
   });
   if (c.proxyUrl) {
     /* custom relay template with {url} placeholder (falls back to suffix style) */
@@ -1005,12 +1020,16 @@ async function api(path, options = {}) {
       : c.proxyUrl + encodeURIComponent(u) };
     withRelay(custom);
   }
-  if (!c.useProxy) attempts.push({ url, relay: null, isRelayErr: null }); /* direct first when allowed */
+  /* built-in relays next (own hosted relay first), then a final direct call.
+     The direct attempt is last because Jira never sends CORS headers to a
+     browser — on GitHub Pages it always fails; it only wins on hosts that
+     proxy /rest/* server-side. */
   if (!c.proxyUrl) {
     for (const r of RELAYS) {
       if (r.keyless || c.proxyApiKey) withRelay(r);
     }
   }
+  if (!c.useProxy) attempts.push({ url, relay: null, isRelayErr: null });
 
   let lastErr = null;
   for (const attempt of attempts) {
@@ -1071,9 +1090,9 @@ async function api(path, options = {}) {
   }
   const e = new Error(
     `Could not reach ${c.domain} (${lastErr?.message || 'network error'}). ` +
-    `Direct browser calls to Jira are CORS-blocked and all fallback relays failed. ` +
-    `Free public relays are rate-limited; for a permanent fix deploy your own free relay ` +
-    `(see cors-relay/README.md, ~5 min) or paste a corsproxy.io API key in Settings, then retry.`
+    `The built-in online relay and all fallbacks failed. ` +
+    `Please retry in a minute; if it persists, check your connection or paste a ` +
+    `custom relay URL (Settings → Relay settings).`
   );
   logDiag('error', 'API request failed completely', { method, path, message: e.message });
   throw e;

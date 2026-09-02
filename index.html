@@ -128,7 +128,7 @@
         <span id="issueCountBadge" class="badge"></span>
       </div>
       <div class="dash-head-right">
-        <span id="proxyBadge" class="badge badge-warn hidden" title="Requests are being routed through a public CORS proxy because your browser blocked direct calls to Jira">via CORS proxy</span>
+        <span id="proxyBadge" class="badge badge-warn hidden" title="Requests are being routed through JiraPulse's hosted relay (100k requests/day, free).">via relay</span>
         <button id="addChartBtn" class="btn btn-primary" title="Build a custom chart for this board">＋ New chart</button>
         <button id="publishBtn" class="btn btn-ghost" title="Publish this board's stats to your organization">⟳ Publish</button>
       </div>
@@ -199,7 +199,7 @@
     </label>
     <label class="switch-row">
       <input id="proxyToggle" type="checkbox" />
-      <span>Prefer CORS relay for all requests<br /><span class="muted small">Skips the direct browser→Jira call. Jira blocks browser calls (CORS), so the app already falls back to a public relay automatically; this forces relay-first. Requests pass through a public relay.</span></span>
+      <span>Relay-only mode<br /><span class="muted small">Requests always go through the hosted relay (default: built-in relay → fallbacks → direct). Turning this on skips the final direct browser→Jira attempt, which Jira blocks anyway (CORS).</span></span>
     </label>
     <label>corsproxy.io API key <span class="muted small">(optional)</span>
       <input id="proxyKeyInput" class="input" type="password" placeholder="paste key for higher limits" autocomplete="off" />

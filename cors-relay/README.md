@@ -1,33 +1,50 @@
-# JiraPulse personal CORS relay (Cloudflare Worker)
+# JiraPulse relay
 
 Jira Cloud does not send CORS headers, so a browser app on GitHub Pages cannot
-call the Jira REST API directly. JiraPulse falls back to free public relays,
-but those are rate-limited or now require API keys. **Your own relay is free
-(100,000 requests/day) and takes ~5 minutes to set up — once.**
+call the Jira REST API directly. JiraPulse ships with its **own hosted relay**
+already built in — nothing to install, nothing to configure.
 
-## Deploy (5 minutes)
+## Hosted relay (default, zero setup)
 
-1. Create/log in to a free account at <https://dash.cloudflare.com>
-2. Left menu → **Workers & Pages** → **Create** → **Create Worker**
-3. Name it e.g. `jira-relay` → **Deploy** → **Edit code**
-4. Delete the sample code, paste the contents of [`worker.js`](./worker.js), **Deploy**
-5. Copy the URL shown, e.g. `https://jira-relay.your-name.workers.dev`
-6. Open JiraPulse → **⚙ Settings** → **Custom relay URL** and paste:
+The app's first-choice relay runs on [Val Town](https://www.val.town)'s free
+tier (100,000 requests/day):
 
-   ```
-   https://jira-relay.your-name.workers.dev/?url={url}
-   ```
+```
+https://gensweaty--65df49bca6d911f19f231607ee4eb77e.web.val.run/?url={url}
+```
 
-   (keep the literal `{url}` placeholder) → **Save**
-
-All Jira requests now go through your private relay. Done.
-
-## What it does
-
-- Forwards any request (incl. `Authorization`) verbatim to `https://*.atlassian.net`
-  — **only** Atlassian hosts are allowed.
+- Forwards any request (incl. `Authorization`) verbatim to
+  `https://*.atlassian.net` — **only** Atlassian hosts are allowed.
 - Adds permissive CORS headers to the response so the browser accepts it.
 - Stores nothing, logs nothing, no API key needed.
+- Source: [`relay-source.ts`](./relay-source.ts) (deployed as a public
+  [HTTP val](https://www.val.town/x/gensweaty/jira-relay)).
+
+## Re-deploy / edit the hosted relay
+
+The val account is `gensweaty` (Google sign-in). To update the code:
+open <https://www.val.town/x/gensweaty/jira-relay/code/main.tsx>, edit, save —
+or redeploy via the Val Town REST API:
+
+```powershell
+$token = "<val-town-api-token>"   # Settings → API tokens
+$body  = Get-Content relay-source.ts -Raw
+Invoke-RestMethod -Method Put `
+  -Uri "https://api.val.town/v2/vals/9891c927-1c5d-4b37-8396-a0cac13233d8/files?path=main.tsx" `
+  -Headers @{ Authorization = "Bearer $token" } `
+  -ContentType "application/json" `
+  -Body (@{ content = $body; type = "http" } | ConvertTo-Json)
+```
+
+## Optional: your own private relay
+
+Anyone can also run a private copy:
+
+- **Val Town** — create a free HTTP val at <https://www.val.town>, paste
+  `relay-source.ts`, and put `https://<handle>--<id>.web.val.run/?url={url}`
+  into JiraPulse → **⚙ Settings → Custom relay URL**.
+- **Cloudflare Workers** — deploy [`worker.js`](./worker.js) (same logic,
+  Workers runtime) and use `https://jira-relay.<your-subdomain>.workers.dev/?url={url}`.
 
 ## Why not rely on public relays?
 
@@ -36,4 +53,4 @@ All Jira requests now go through your private relay. Done.
 | corsproxy.io (keyless) | dead — now requires a paid API key |
 | api.cors.lol | works but rate-limited: 20 req / 5 min / IP |
 | corsproxy.io (with key) | fine — paste your key in Settings |
-| **your own worker** | **unlimited for personal use, zero cost** |
+| **JiraPulse hosted relay** | **default — 100k req/day, free** |
