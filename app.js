@@ -1071,7 +1071,8 @@ async function api(path, options = {}) {
   const e = new Error(
     `Could not reach ${c.domain} (${lastErr?.message || 'network error'}). ` +
     `Direct browser calls to Jira are CORS-blocked and all fallback relays failed. ` +
-    `Open Settings to configure a relay (custom relay URL or corsproxy.io API key), or try again in a few minutes.`
+    `Free public relays are rate-limited; for a permanent fix deploy your own free relay ` +
+    `(see cors-relay/README.md, ~5 min) or paste a corsproxy.io API key in Settings, then retry.`
   );
   logDiag('error', 'API request failed completely', { method, path, message: e.message });
   throw e;
