@@ -9,6 +9,7 @@ const ADMIN_PANEL = typeof window.ADMIN_PANEL !== 'undefined' && window.ADMIN_PA
 const $ = (s) => document.querySelector(s);
 const DAY = 86400000;
 const LS_CONN = 'jp_conn_v1';
+const LS_RELAY = 'jp_relay_v1';
 const LS_LAST_BOARD = 'jp_last_board_v1';
 /* Keyless CORS relays used as fallback when the browser blocks direct calls to Jira.
    corsproxy.io introduced a mandatory API key (Aug 2025) — the old keyless URL now
@@ -1111,6 +1112,14 @@ async function fetchPaginated(request, cap = 500, pageSize = 50) {
 
 /* ── persistence ─────────────────────────────────────────────────── */
 function saveConn() { localStorage.setItem(LS_CONN, JSON.stringify(state.conn)); }
+/* relay preferences survive independently of the Jira connection, so they are
+   not lost if the user configures a relay before ever connecting successfully */
+function loadRelayPrefs() {
+  try { return JSON.parse(localStorage.getItem(LS_RELAY)) || null; } catch (_) { return null; }
+}
+function saveRelayPrefs(useProxy, proxyApiKey, proxyUrl) {
+  localStorage.setItem(LS_RELAY, JSON.stringify({ useProxy, proxyApiKey, proxyUrl }));
+}
 function loadConn() {
   try {
     const raw = localStorage.getItem(LS_CONN);
@@ -1134,6 +1143,8 @@ function enterApp() {
   $('#setEmail').value = state.conn.email;
   $('#setToken').value = '';
   $('#proxyToggle').checked = !!state.conn.useProxy;
+  $('#proxyKeyInput').value = state.conn.proxyApiKey || '';
+  $('#proxyUrlInput').value = state.conn.proxyUrl || '';
   /* show the Admin badge when in the admin panel; show an Org badge on the
      public app when a non-admin org member signs in. Guard for HTML variants
      (the admin shell has no #orgBadge). */
@@ -1295,9 +1306,13 @@ async function connect(domainRaw, email, token) {
   const domain = normalizeDomain(domainRaw);
   if (!email.trim()) throw new Error('Email is required.');
   if (!token.trim()) throw new Error('API token is required.');
-  state.conn = { domain, email: email.trim(), token: token.trim(), useProxy: false,
-        /* keep relay preferences set earlier in Settings across reconnects */
-        proxyApiKey: state.conn?.proxyApiKey || '', proxyUrl: state.conn?.proxyUrl || '' };
+  /* relay prefs come from the dedicated store (saved via Settings, even
+     pre-connection) and fall back to whatever a previous session had */
+  const rp = loadRelayPrefs() || {};
+  state.conn = { domain, email: email.trim(), token: token.trim(),
+        useProxy: rp.useProxy ?? false,
+        proxyApiKey: rp.proxyApiKey ?? state.conn?.proxyApiKey ?? '',
+        proxyUrl: rp.proxyUrl ?? state.conn?.proxyUrl ?? '' };
   state.usedProxy = false;
   await api('/rest/api/3/myself'); // auth check
   saveConn();
@@ -2929,11 +2944,16 @@ function updateProxyBadge() {
 
 /* ── settings modal ──────────────────────────────────────────────── */
 function openSettings() {
-  if (!state.conn) return;
+  /* Settings must open even before the first successful connection — the
+     relay inputs are the escape hatch for "Could not reach" errors. */
+  if (!state.conn) state.conn = { domain: '', email: '', token: '', useProxy: false, proxyApiKey: '', proxyUrl: '' };
   $('#setDomain').value = state.conn.domain.replace(/^https?:\/\//, '');
   $('#setEmail').value = state.conn.email;
   $('#setToken').value = '';
   $('#proxyToggle').checked = !!state.conn.useProxy;
+  /* relay prefs must round-trip — otherwise a re-save would wipe them */
+  $('#proxyKeyInput').value = state.conn.proxyApiKey || '';
+  $('#proxyUrlInput').value = state.conn.proxyUrl || '';
   show($('#settingsModal'));
 }
 
@@ -2953,20 +2973,30 @@ async function copyDiagnostics() {
 }
 
 async function saveSettings() {
-  const email = $('#setEmail').value.trim() || state.conn.email;
-  const token = $('#setToken').value.trim() || state.conn.token;
-  let domain;
-  try { domain = normalizeDomain($('#setDomain').value || state.conn.domain); }
-  catch (e) { toast(e.message, 'err'); return; }
   const proxyUrl = $('#proxyUrlInput').value.trim();
-  state.conn = { domain, email, token, useProxy: $('#proxyToggle').checked,
-    proxyApiKey: $('#proxyKeyInput').value.trim(),
-    proxyUrl,
-  };
-  saveConn();
+  const proxyApiKey = $('#proxyKeyInput').value.trim();
+  const useProxy = $('#proxyToggle').checked;
+  const hasSession = !!(state.conn && state.conn.token);
+  saveRelayPrefs(useProxy, proxyApiKey, proxyUrl);
+  if (hasSession) {
+    const email = $('#setEmail').value.trim() || state.conn.email;
+    const token = $('#setToken').value.trim() || state.conn.token;
+    let domain;
+    try { domain = normalizeDomain($('#setDomain').value || state.conn.domain); }
+    catch (e) { toast(e.message, 'err'); return; }
+    state.conn = { domain, email, token, useProxy, proxyApiKey, proxyUrl };
+    saveConn();
+  } else {
+    /* pre-connection: the user is configuring the relay escape hatch for a
+       "Could not reach" error — relay prefs are already persisted above; keep
+       the (non-)session as-is and stay on the setup screen */
+    if (state.conn && !state.conn.token) {
+      state.conn = { ...state.conn, useProxy, proxyApiKey, proxyUrl };
+    }
+  }
   hide($('#settingsModal'));
-  toast('Settings saved.', 'ok');
-  goBoards();
+  toast(hasSession ? 'Settings saved.' : 'Relay settings saved. Now connect to Jira.', 'ok');
+  if (hasSession) goBoards();
 }
 
 /* ── event wiring ────────────────────────────────────────────────── */
@@ -2994,6 +3024,11 @@ document.addEventListener('DOMContentLoaded', () => {
       setBtnBusy(btn, false);
     }
   });
+
+  /* relay settings are reachable from the setup screen — without them a user
+     blocked by CORS/rate-limited public relays has no way to configure one */
+  const setupRelayBtn = $('#setupRelayBtn');
+  if (setupRelayBtn) setupRelayBtn.addEventListener('click', openSettings);
 
   $('#boardSelect').addEventListener('change', (ev) => {
     const val = ev.target.value;
@@ -3142,7 +3177,17 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
     // no share link — restore previous session silently
     const saved = loadConn();
-    if (saved) { state.conn = saved; }
+    if (saved) {
+      /* merge relay prefs from the dedicated store (covers sessions saved
+         before the relay fields existed, without overriding newer values) */
+      const rp = loadRelayPrefs();
+      if (rp) {
+        if (saved.useProxy == null) saved.useProxy = rp.useProxy;
+        if (!saved.proxyApiKey) saved.proxyApiKey = rp.proxyApiKey || '';
+        if (!saved.proxyUrl) saved.proxyUrl = rp.proxyUrl || '';
+      }
+      state.conn = saved;
+    }
 
     if (ADMIN_PANEL) {
       /* ADMIN PANEL: show the live, synced dashboard. If a session exists, enter the
