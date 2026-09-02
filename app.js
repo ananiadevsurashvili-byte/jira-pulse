@@ -10,11 +10,21 @@ const $ = (s) => document.querySelector(s);
 const DAY = 86400000;
 const LS_CONN = 'jp_conn_v1';
 const LS_LAST_BOARD = 'jp_last_board_v1';
-const PROXY = 'https://corsproxy.io/?url=';
+/* Keyless CORS relays used as fallback when the browser blocks direct calls to Jira.
+   corsproxy.io introduced a mandatory API key (Aug 2025) — the old keyless URL now
+   returns 401, which is why the app started reporting "Could not reach …".
+   api.cors.lol is verified keyless and forwards the Authorization header to Jira
+   (rate limit: 20 requests / 5 min per IP — fine for a single analyst session). */
+const RELAYS = [
+  /* { key, url } — corsproxy.io also accepts a user-supplied API key */
+  { key: 'corsproxy', build: (url, conn) =>
+      'https://corsproxy.io/?' + (conn?.proxyApiKey ? 'key=' + encodeURIComponent(conn.proxyApiKey) + '&' : '') + 'url=' + encodeURIComponent(url), keyless: false },
+  { key: 'cors.lol', build: (url) => 'https://api.cors.lol/?url=' + encodeURIComponent(url), keyless: true },
+];
 const ISSUE_FIELDS = ['summary', 'status', 'resolutiondate', 'created', 'issuetype', 'assignee', 'priority', 'labels'];
 
 const state = {
-  conn: null,          // { domain, email, token, useProxy }
+  conn: null,          // { domain, email, token, useProxy, proxyApiKey, proxyUrl }
   boards: [],
   boardId: null,
   issues: [],
@@ -974,19 +984,42 @@ async function api(path, options = {}) {
   };
   if (options.body != null) headers['Content-Type'] = 'application/json';
 
+  /* Build the attempt list: [custom relay →] direct → [keyless/keyed relays].
+     Each attempt is tried in order; the first one that reaches Jira wins. A
+     user-configured relay (Settings) is always tried first. */
   const attempts = [];
   let viaProxy = false;
-  if (c.useProxy) attempts.push(PROXY + encodeURIComponent(url));
-  else { attempts.push(url); attempts.push(PROXY + encodeURIComponent(url)); }
+  const withRelay = (r) => attempts.push({
+    url: r.build(url, c),
+    relay: r.key,
+    /* relay responses are identifiable by their error payload shape */
+    isRelayErr: r.key === 'corsproxy'
+      ? (s, b) => (s === 401 || s === 403) && typeof b?.error === 'string' && /api key|invalid or inactive/i.test(b.error)
+      : (s, b) => s === 429 && typeof b === 'string' && /rate limit/i.test(b),
+  });
+  if (c.proxyUrl) {
+    /* custom relay template with {url} placeholder (falls back to suffix style) */
+    const custom = { key: 'custom', build: (u) => c.proxyUrl.includes('{url}')
+      ? c.proxyUrl.replace('{url}', encodeURIComponent(u))
+      : c.proxyUrl + encodeURIComponent(u) };
+    withRelay(custom);
+  }
+  if (!c.useProxy) attempts.push({ url, relay: null, isRelayErr: null }); /* direct first when allowed */
+  if (!c.proxyUrl) {
+    for (const r of RELAYS) {
+      if (r.keyless || c.proxyApiKey) withRelay(r);
+    }
+  }
 
   let lastErr = null;
-  for (const target of attempts) {
+  for (const attempt of attempts) {
+    const target = attempt.url;
     /* abort a request that hangs — prevents publish-all ("Publishing…") from
        spinning forever on a single unreachable endpoint */
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 25000);
     try {
-      logDiag('info', 'API request', { method, path, viaProxy: target !== url, body: options.body || null });
+      logDiag('info', 'API request', { method, path, viaProxy: target !== url, relay: attempt.relay || null, body: options.body || null });
       const res = await fetch(target, {
         method,
         headers,
@@ -998,6 +1031,13 @@ async function api(path, options = {}) {
       const text = await res.text();
       try { body = JSON.parse(text); } catch (_) { /* non-json */ }
       if (!res.ok) {
+        /* relay's own error (key/limit/abuse block) is NOT Jira's answer — fall
+           through to the next relay instead of surfacing it to the user */
+        if (attempt.isRelayErr && attempt.isRelayErr(res.status, body ?? text)) {
+          logDiag('warn', 'Relay rejected the request, trying next relay', { relay: attempt.relay, status: res.status, body });
+          lastErr = new Error(`relay ${attempt.relay}: HTTP ${res.status}`);
+          continue;
+        }
         const jiraMsg = body && (body.errorMessages?.join('; ') || body.message);
         const err = new Error(jiraMsg || `Jira responded with HTTP ${res.status}`);
         err.status = res.status;
@@ -1030,7 +1070,8 @@ async function api(path, options = {}) {
   }
   const e = new Error(
     `Could not reach ${c.domain} (${lastErr?.message || 'network error'}). ` +
-    `If this is a CORS block by the browser, open Settings and enable "Route requests via CORS proxy".`
+    `Direct browser calls to Jira are CORS-blocked and all fallback relays failed. ` +
+    `Open Settings to configure a relay (custom relay URL or corsproxy.io API key), or try again in a few minutes.`
   );
   logDiag('error', 'API request failed completely', { method, path, message: e.message });
   throw e;
@@ -1253,7 +1294,9 @@ async function connect(domainRaw, email, token) {
   const domain = normalizeDomain(domainRaw);
   if (!email.trim()) throw new Error('Email is required.');
   if (!token.trim()) throw new Error('API token is required.');
-  state.conn = { domain, email: email.trim(), token: token.trim(), useProxy: false };
+  state.conn = { domain, email: email.trim(), token: token.trim(), useProxy: false,
+        /* keep relay preferences set earlier in Settings across reconnects */
+        proxyApiKey: state.conn?.proxyApiKey || '', proxyUrl: state.conn?.proxyUrl || '' };
   state.usedProxy = false;
   await api('/rest/api/3/myself'); // auth check
   saveConn();
@@ -2914,7 +2957,11 @@ async function saveSettings() {
   let domain;
   try { domain = normalizeDomain($('#setDomain').value || state.conn.domain); }
   catch (e) { toast(e.message, 'err'); return; }
-  state.conn = { domain, email, token, useProxy: $('#proxyToggle').checked };
+  const proxyUrl = $('#proxyUrlInput').value.trim();
+  state.conn = { domain, email, token, useProxy: $('#proxyToggle').checked,
+    proxyApiKey: $('#proxyKeyInput').value.trim(),
+    proxyUrl,
+  };
   saveConn();
   hide($('#settingsModal'));
   toast('Settings saved.', 'ok');

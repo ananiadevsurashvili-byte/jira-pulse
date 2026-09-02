@@ -198,7 +198,13 @@
     </label>
     <label class="switch-row">
       <input id="proxyToggle" type="checkbox" />
-      <span>Route requests via CORS proxy<br /><span class="muted small">Fallback if your browser blocks direct calls to Jira. Note: requests would pass through a public relay.</span></span>
+      <span>Prefer CORS relay for all requests<br /><span class="muted small">Skips the direct browser→Jira call. Jira blocks browser calls (CORS), so the app already falls back to a public relay automatically; this forces relay-first. Requests pass through a public relay.</span></span>
+    </label>
+    <label>corsproxy.io API key <span class="muted small">(optional)</span>
+      <input id="proxyKeyInput" class="input" type="password" placeholder="paste key for higher limits" autocomplete="off" />
+    </label>
+    <label>Custom relay URL <span class="muted small">(optional, used first)</span>
+      <input id="proxyUrlInput" class="input" type="text" placeholder="https://my-relay.example.com/?url={url}" autocomplete="off" />
     </label>
     <div class="modal-actions">
       <button id="clearDataBtn" class="btn btn-danger-ghost">Clear local data</button>
