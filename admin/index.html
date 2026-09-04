@@ -132,6 +132,28 @@
         <span id="proxyBadge" class="badge badge-warn hidden" title="Requests are being routed through JiraPulse's hosted relay (100k requests/day, free).">via relay</span>
         <button id="addChartBtn" class="btn btn-primary" title="Build a custom chart for this board">＋ New chart</button>
         <button id="publishBtn" class="btn btn-ghost" title="Publish this board's stats to your organization">⟳ Publish</button>
+        <button id="compareBtn" class="btn btn-compare" title="Compare this board with another board — overlay every chart &amp; metric">⇄ Compare</button>
+      </div>
+    </div>
+
+    <div id="compareBar" class="compare-bar hidden">
+      <div class="cmp-side cmp-side-a">
+        <span class="cmp-dot"></span>
+        <div class="cmp-meta">
+          <span class="cmp-role">Board A · current</span>
+          <span class="cmp-name" id="cmpNameA">—</span>
+        </div>
+      </div>
+      <span class="cmp-vs">VS</span>
+      <div class="cmp-side cmp-side-b">
+        <span class="cmp-dot"></span>
+        <select id="cmpBoardSelect" class="cmp-select" title="Pick the board to compare against">
+          <option value="">Loading boards…</option>
+        </select>
+      </div>
+      <div class="cmp-actions">
+        <span class="cmp-synced" id="cmpSynced"></span>
+        <button id="cmpExitBtn" class="btn btn-ghost" title="Leave compare mode and go back to the single-board dashboard">✕ Exit compare</button>
       </div>
     </div>
 
@@ -452,6 +474,6 @@
 <div id="toast" class="toast hidden"></div>
 
 <script>window.ADMIN_PANEL = true;</script>
-<script src="../app.js?v=7115915"></script>
+<script src="../app.js?v=8241301"></script>
 </body>
 </html>

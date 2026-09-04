@@ -692,3 +692,89 @@ body.admin-body .admin-only { display: block; }
 .admin-ribbon { display: none; }
 .admin-only { display: none; }
 body:not(.admin-body) .admin-hidden { display: none; }
+
+/* ══════════ COMPARE MODE ══════════ */
+.btn-compare {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.16), rgba(34, 211, 238, 0.14));
+  border-color: rgba(99, 102, 241, 0.55);
+  color: #c7d2fe;
+}
+.btn-compare:hover:not(:disabled) { border-color: #818cf8; transform: translateY(-1px); }
+.btn-compare.active {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.4), rgba(34, 211, 238, 0.32));
+  border-color: #818cf8;
+  color: #fff;
+}
+
+.compare-bar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 12px 16px; margin-bottom: 18px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.10), rgba(34, 211, 238, 0.07));
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: 14px;
+  animation: rise 0.35s ease both;
+}
+.cmp-side { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cmp-side-a .cmp-dot { background: #6366f1; box-shadow: 0 0 12px rgba(99, 102, 241, 0.8); }
+.cmp-side-b .cmp-dot { background: #22d3ee; box-shadow: 0 0 12px rgba(34, 211, 238, 0.8); }
+.cmp-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+.cmp-meta { display: flex; flex-direction: column; min-width: 0; }
+.cmp-role { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.cmp-name { font-size: 0.88rem; font-weight: 700; color: #a5b4fc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.cmp-vs { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.12em; color: var(--muted); padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; }
+.cmp-select {
+  padding: 9px 34px 9px 12px; border-radius: 10px;
+  border: 1px solid rgba(34, 211, 238, 0.45); background: var(--panel-strong); color: var(--text);
+  font-size: 0.86rem; font-weight: 600; cursor: pointer; max-width: 300px;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.cmp-select:focus { outline: none; border-color: #22d3ee; box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.18); }
+.cmp-actions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.cmp-synced { font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
+
+/* KPI cards in compare mode: value pair + who's-winning chip + delta */
+.kpi.compare { padding: 14px 16px; }
+.kpi.compare .kpi-sub { display: none; }
+.cmp-values { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.cmp-val { display: inline-flex; align-items: baseline; gap: 6px; }
+.cmp-val-num { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; }
+.cmp-val-a .cmp-val-num { color: #a5b4fc; }
+.cmp-val-b .cmp-val-num { color: #67e8f9; }
+.cmp-val-tag { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em; }
+.cmp-val-a .cmp-val-tag { color: #6366f1; }
+.cmp-val-b .cmp-val-tag { color: #22d3ee; }
+.cmp-winner { display: inline-flex; align-items: center; gap: 4px; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.02em; padding: 3px 9px; border-radius: 999px; }
+.cmp-winner-a { background: rgba(99, 102, 241, 0.16); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.4); }
+.cmp-winner-b { background: rgba(34, 211, 238, 0.14); color: #67e8f9; border: 1px solid rgba(34, 211, 238, 0.4); }
+.cmp-winner-even { background: rgba(148, 163, 184, 0.12); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
+.cmp-delta { width: 100%; font-size: 0.74rem; font-weight: 600; margin-top: 5px; }
+.cmp-delta.up { color: #6ee7b7; }
+.cmp-delta.down { color: #fca5a5; }
+.cmp-delta.even { color: var(--muted); }
+
+/* compare insights / winners strip */
+.cmp-insights-strip {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
+  gap: 12px; margin-bottom: 18px;
+}
+.cmp-insight {
+  display: flex; align-items: center; gap: 11px; padding: 13px 16px;
+  font-size: 0.84rem; line-height: 1.4; color: #c7cde2;
+  background: var(--panel); border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 14px; animation: rise 0.45s ease both;
+}
+.cmp-insight:hover { border-color: rgba(99, 102, 241, 0.55); }
+.cmp-insight b { color: var(--text); }
+.cmp-insight .ins-icon { font-size: 1.05rem; flex-shrink: 0; }
+.cmp-good { color: #6ee7b7; font-weight: 700; }
+.cmp-bad { color: #fca5a5; font-weight: 700; }
+
+@media (max-width: 1100px) {
+  .cmp-actions { margin-left: 0; width: 100%; }
+}
+@media (max-width: 720px) {
+  .compare-bar { gap: 10px; }
+  .cmp-vs { display: none; }
+  .cmp-select { max-width: 100%; }
+  .cmp-name { max-width: 180px; }
+}

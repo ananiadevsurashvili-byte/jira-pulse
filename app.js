@@ -42,6 +42,7 @@ const state = {
   lastBoard: null,     // last board object, for re-rendering charts after edits
   lastMetrics: null,   // cached computeMetrics() result for the last board
   inShareScreen: false, // true while the public share overlay (#pubScreen) is open
+  compare: null,       // compare mode: { boardId, board, issues, metrics, syncedAt } for board B
 };
 
 function show(el) { el.classList.remove('hidden'); }
@@ -1707,6 +1708,9 @@ async function selectBoard(board) {
   syncHeaderState();
   hide($('#errorBanner'));
 
+  /* switching boards invalidates the comparison — always start clean */
+  if (state.compare) exitCompareMode();
+
   $('#dashBoardName').textContent = board.name;
   $('#syncedAt').textContent = '';
 
@@ -1884,6 +1888,325 @@ function computeMetrics(issues) {
   m.teamAvgMs = tmN ? tmSum / tmN : null;
 
   return m;
+}
+
+/* ══════════════════ compare mode (board A vs board B) ══════════════════ */
+/* Enter compare mode: board A = the dashboard currently open, board B is picked
+   from the dropdown. Every KPI shows both values + a winner chip + delta, every
+   chart overlays both boards as two datasets, and a "who wins what" strip
+   replaces the auto-insights. Leaving compare restores the normal dashboard. */
+async function enterCompareMode() {
+  if (!state.conn) { toast('Connect to Jira first.', 'warn'); return; }
+  if (!state.boards.length) {
+    toast('Board list is still loading — try again in a moment.', 'warn');
+    return;
+  }
+  if (!state.lastBoard || !state.lastMetrics) { toast('Open a board first.', 'warn'); return; }
+
+  const btn = $('#compareBtn');
+  btn.classList.add('active');
+
+  /* populate the board picker (exclude the board we're currently viewing) */
+  const sel = $('#cmpBoardSelect');
+  sel.innerHTML = '<option value="">Choose a board to compare…</option>' +
+    state.boards
+      .filter((b) => b.id !== state.lastBoard.id)
+      .map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`)
+      .join('');
+  if (state.compare?.boardId && state.boards.some((b) => b.id === state.compare.boardId)) {
+    sel.value = String(state.compare.boardId);
+  } else {
+    sel.value = '';
+  }
+
+  show($('#compareBar'));
+  $('#cmpNameA').textContent = state.lastBoard.name;
+  $('#cmpSynced').textContent = state.compare ? 'B synced' : '';
+  renderCompareDashboard();   /* re-render KPIs in compare layout (even before B is chosen) */
+  if (state.compare) renderCharts(effectiveCharts(), state.lastMetrics);
+}
+
+function exitCompareMode() {
+  state.compare = null;
+  hide($('#compareBar'));
+  $('#compareBtn').classList.remove('active');
+  if (state.lastBoard && state.lastMetrics) {
+    renderDashboard(state.lastBoard, state.lastMetrics);
+  }
+}
+
+async function onCompareBoardChange(ev) {
+  const id = parseInt(ev.target.value, 10);
+  if (!id || !state.lastBoard) return;
+  if (state.compare && state.compare.boardId === id) return;
+
+  const board = state.boards.find((b) => b.id === id);
+  if (!board) return;
+
+  const sel = $('#cmpBoardSelect');
+  sel.disabled = true;
+  $('#cmpSynced').innerHTML = '<span class="spinner spinner-sm"></span> syncing board B…';
+
+  try {
+    logDiag('info', 'Compare board load started', { boardId: board.id, name: board.name });
+    const issues = await loadBoardIssues(board);
+    const m = computeMetrics(issues);
+    /* save-then-restore: loadBoardIssues writes hasChangelog/boardLoadMeta into
+       global state for the MAIN board — snapshot it for board B's charts instead */
+    state.compare = {
+      boardId: board.id, board, issues, metrics: m,
+      hasChangelog: state.hasChangelog,
+      syncedAt: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
+    };
+    $('#cmpSynced').textContent = `board B synced · ${state.compare.syncedAt}`;
+    logDiag('info', 'Compare board loaded', { boardId: board.id, issues: issues.length, hasChangelog: state.hasChangelog });
+    renderCompareDashboard();
+    renderCharts(effectiveCharts(), state.lastMetrics);
+  } catch (e) {
+    $('#cmpSynced').textContent = '⚠ board B failed to sync — pick another';
+    toast(`Could not load “${board.name}” for comparison.`, 'warn');
+    logDiag('error', 'Compare board load failed', { boardId: board.id, message: e?.message, status: e?.status });
+    if (!state.compare) { sel.value = ''; }
+  } finally {
+    sel.disabled = false;
+  }
+}
+
+/* KPI metric descriptors for compare mode */
+const CMP_KPIS = [
+  { key: 'total',    label: 'Issues analyzed', icon: '▦', cls: 'ic-indigo',     fmt: (v) => String(v),                          winner: 'more',  sub: 'on the board' },
+  { key: 'created30',label: 'Created · 30 days', icon: '＋', cls: 'ic-cyan',   fmt: (v) => String(v),                          winner: 'more',  sub: 'new issues' },
+  { key: 'done',     label: 'Done overall', icon: '✓', cls: 'ic-green',       fmt: (v) => String(v),                          winner: 'more',  sub: 'completed' },
+  { key: 'resolved30',label: 'Resolved · 30 days', icon: '↻', cls: 'ic-green',  fmt: (v) => String(v),                          winner: 'more',  sub: 'shipped recently' },
+  { key: 'cycleAvg', label: 'Avg cycle time', icon: '⏱', cls: 'ic-violet',     fmt: (v) => (v != null ? fmtDuration(v) : '—'), winner: 'less',  sub: 'create → resolve' },
+  { key: 'wip',      label: 'Work in progress', icon: '◔', cls: 'ic-amber',     fmt: (v) => String(v),                          winner: 'less',  sub: 'not yet done' },
+];
+
+/* re-render the six KPI cards in compare layout (A value vs B value + winner + delta) */
+function renderCompareDashboard() {
+  const A = state.lastMetrics, B = state.compare?.metrics;
+  const nameA = state.lastBoard?.name || 'Board A';
+  const nameB = state.compare?.board?.name || null;
+  const grid = document.querySelector('.kpi-grid');
+  if (!grid) return;
+
+  grid.classList.add('kpi-grid-compare');
+  grid.innerHTML = CMP_KPIS.map((k) => {
+    const a = A ? A[k.key] : null;
+    const b = B ? B[k.key] : null;
+    const valuesHtml = B
+      ? `<div class="cmp-values">
+           <span class="cmp-val cmp-val-a"><span class="cmp-val-num">${k.fmt(a)}</span><span class="cmp-val-tag">A</span></span>
+           <span class="cmp-vs-inline">/</span>
+           <span class="cmp-val cmp-val-b"><span class="cmp-val-num">${k.fmt(b)}</span><span class="cmp-val-tag">B</span></span>
+         </div>`
+      : `<div class="cmp-values"><span class="cmp-val-num" style="color:var(--muted)">—</span></div>`;
+
+    let winnerHtml = '', deltaHtml = '';
+    if (B) {
+      const numA = (a != null && isFinite(a)) ? a : null;
+      const numB = (b != null && isFinite(b)) ? b : null;
+      if (numA != null && numB != null && numA !== numB) {
+        const aWins = k.winner === 'less' ? numA < numB : numA > numB;
+        const d = pctDelta(numB, numA);
+        const label = k.winner === 'less'
+          ? (aWins ? `${nameA} is faster` : `${nameB} is faster`)
+          : (aWins ? `${nameA} higher` : `${nameB} higher`);
+        winnerHtml = `<span class="cmp-winner ${aWins ? 'cmp-winner-a' : 'cmp-winner-b'}">${aWins ? '▲' : '▼'} ${escapeHtml(label)}</span>`;
+        deltaHtml = `<div class="cmp-delta ${d > 0 ? 'up' : 'down'}">A is ${Math.abs(d)}% ${d > 0 ? 'above' : 'below'} B</div>`;
+      } else if (numA != null && numB != null) {
+        winnerHtml = `<span class="cmp-winner cmp-winner-even">— even</span>`;
+        deltaHtml = `<div class="cmp-delta even">identical on both boards</div>`;
+      } else {
+        deltaHtml = `<div class="cmp-delta even">no data to compare</div>`;
+      }
+    } else {
+      deltaHtml = `<div class="cmp-delta even">${escapeHtml(nameA)} vs <b>?</b> — pick board B above</div>`;
+    }
+
+    return `<div class="kpi glass compare">
+      <div class="kpi-top"><span class="kpi-icon ${k.cls}">${k.icon}</span><span class="kpi-label">${escapeHtml(k.label)}</span></div>
+      ${valuesHtml}
+      ${winnerHtml}
+      ${deltaHtml}
+    </div>`;
+  }).join('');
+
+  /* keep the header badge informative */
+  $('#issueCountBadge').textContent = B
+    ? `A: ${A?.total ?? 0} issues · B: ${B.total} issues`
+    : `${A?.total ?? 0} issues analyzed`;
+
+  /* insights strip → compare winners strip */
+  const strip = $('#insightsStrip');
+  if (B) {
+    const ins = buildCompareInsights(A, B, nameA, nameB);
+    strip.innerHTML = ins.map((x, i) =>
+      `<div class="cmp-insight" style="animation-delay:${i * 70}ms"><span class="ins-icon">${x.icon}</span><span>${x.html}</span></div>`
+    ).join('');
+    show(strip);
+  } else {
+    strip.innerHTML = `<div class="cmp-insight"><span class="ins-icon">⇄</span><span><b>Compare mode</b> — pick a second board in the bar above to overlay every chart and metric.</span></div>`;
+    show(strip);
+  }
+}
+
+/* "who wins what" summary for the compare strip */
+function buildCompareInsights(A, B, nameA, nameB) {
+  const out = [];
+  const d = (x, y) => pctDelta(y, x); /* % A vs B */
+  const wA = (html) => `<span class="cmp-good">${escapeHtml(nameA)}</span> ${html}`;
+  const wB = (html) => `<span class="cmp-good">${escapeHtml(nameB)}</span> ${html}`;
+
+  /* throughput winner */
+  if (A.resolved30 !== B.resolved30) {
+    const aWins = A.resolved30 > B.resolved30;
+    out.push({ icon: '⚡', html: `Throughput · ${aWins ? wA(`shipped <b>${A.resolved30}</b> vs <b>${B.resolved30}</b> in 30 days`) : wB(`shipped <b>${B.resolved30}</b> vs <b>${A.resolved30}</b> in 30 days`)}` });
+  }
+  /* cycle time winner (lower is better) */
+  if (A.cycleAvg != null && B.cycleAvg != null && Math.round(A.cycleAvg) !== Math.round(B.cycleAvg)) {
+    const aWins = A.cycleAvg < B.cycleAvg;
+    out.push({ icon: '⏱', html: `Speed · ${aWins ? wA(`closes work in <b>${fmtDuration(A.cycleAvg)}</b> vs <b>${fmtDuration(B.cycleAvg)}</b>`) : wB(`closes work in <b>${fmtDuration(B.cycleAvg)}</b> vs <b>${fmtDuration(A.cycleAvg)}</b>`)}` });
+  }
+  /* WIP (lower is healthier) */
+  if (A.wip !== B.wip) {
+    const aWins = A.wip < B.wip;
+    out.push({ icon: '📋', html: `Open load · ${aWins ? wA(`carries less WIP (<b>${A.wip}</b> vs <b>${B.wip}</b>)`) : wB(`carries less WIP (<b>${B.wip}</b> vs <b>${A.wip}</b>)`)}` });
+  }
+  /* completion rate */
+  if (A.doneRate !== B.doneRate) {
+    const aWins = A.doneRate > B.doneRate;
+    out.push({ icon: '🏁', html: `Completion · ${aWins ? wA(`<b>${A.doneRate}%</b> done vs <b>${B.doneRate}%</b>`) : wB(`<b>${B.doneRate}%</b> done vs <b>${A.doneRate}%</b>`)}` });
+  }
+  /* blocked work */
+  if (A.blockedCount !== B.blockedCount) {
+    const aWins = A.blockedCount < B.blockedCount;
+    out.push({ icon: '⛔', html: `Blocked work · ${aWins ? wA(`has less (<b>${A.blockedCount}</b> vs <b>${B.blockedCount}</b>)`) : wB(`has less (<b>${B.blockedCount}</b> vs <b>${A.blockedCount}</b>)`)}` });
+  }
+  /* biggest divergence */
+  const dd = d(A.created30, B.created30);
+  if (dd !== null && Math.abs(dd) >= 25) {
+    out.push({ icon: '📥', cls: '', html: `Intake gap · ${nameA} created <b>${A.created30}</b> vs <b>${B.created30}</b> (${dd > 0 ? '+' : ''}${dd}%)` });
+  }
+  return out.slice(0, 4);
+}
+
+/* ── compare-mode chart merging: overlay board B's data onto each chart ── */
+function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB) {
+  const dataA = buildChartData(def, mA, issuesA, hcA);
+  const dataB = buildChartData(def, mB, issuesB, hcB);
+  const emptyA = dataA.empty, emptyB = dataB.empty;
+  const nameB = state.compare?.board?.name || 'Board B';
+  const nameA = state.lastBoard?.name || 'Board A';
+  const B_SERIES = { label: nameB, color: '#22d3ee', rgb: ACCENT_RGB.cyan };
+  if (emptyA && emptyB) return { empty: ['No data on either board', 'for this chart'] };
+
+  /* doughnuts render a single ring on one canvas — a second board cannot be
+     overlaid legibly. They stay board-A only; KPI pairs + the insight strip
+     already carry board B's numbers. Everything else gets a true overlay. */
+  if (def.type === 'doughnut') {
+    if (emptyA) return { empty: ['No data on board A for this chart'] };
+    return dataA;
+  }
+
+  /* time-series charts bucket from "now" backwards on both boards, so the
+     label at the same index means the same date — plain index alignment is
+     correct. Pad the shorter series with nulls. Datasets get board-name
+     prefixes so the legend tells the two boards apart. */
+  const isTime = def.metric === 'flow' || def.metric === 'created' || def.metric === 'resolved';
+  if (isTime) {
+    const labels = (dataA.labels || dataB.labels || []);
+    const n = Math.max(labels.length, (dataA.datasets?.[0]?.data || []).length, (dataB.datasets?.[0]?.data || []).length);
+    const pad = (arr) => Array.from({ length: n }, (_, i) => arr[i] ?? null);
+    const relabel = (ds, boardName) => ({
+      ...ds,
+      data: pad(ds.data),
+      label: (dataA.datasets?.length > 1 || dataB.datasets?.length > 1)
+        ? `${boardName} · ${ds.label}`
+        : boardName,
+    });
+    const datasets = [];
+    if (!emptyA) datasets.push(...dataA.datasets.map((ds) => relabel(ds, nameA)));
+    if (!emptyB) datasets.push(...dataB.datasets.map((ds) => relabel({ ...ds, color: '#22d3ee', rgb: ACCENT_RGB.cyan }, nameB)));
+    if (!datasets.length) return { empty: ['No comparable data'] };
+    return {
+      labels: labels,
+      datasets,
+      duration: false,
+      subtitle: dataA.subtitle || dataB.subtitle || def.subtitle,
+      extraSub: `${escapeHtml(nameB)} shown in cyan`,
+    };
+  }
+
+  /* category / statusTime charts: merge on the union of labels, one value per
+     board, then re-sort by the max of the two series so grouped bars stay
+     readable (single-board charts sort by value; two boards need a shared order) */
+  const rawLabels = [];
+  const seen = new Set();
+  const collect = (d) => (d.labels || []).forEach((l) => { if (!seen.has(l)) { seen.add(l); rawLabels.push(l); } });
+  if (!emptyA) collect(dataA);
+  if (!emptyB) collect(dataB);
+
+  const aMap = new Map((dataA.labels || []).map((l, i) => [l, i]));
+  const bMap = new Map((dataB.labels || []).map((l, i) => [l, i]));
+  const aVals = dataA.datasets?.[0]?.data || [];
+  const bVals = dataB.datasets?.[0]?.data || [];
+  const align = (map, vals, l) => {
+    const i = map.get(l);
+    return i != null ? (vals[i] ?? null) : null;
+  };
+
+  const scored = rawLabels.map((l) => {
+    const av = align(aMap, aVals, l);
+    const bv = align(bMap, bVals, l);
+    return { l, av, bv, score: Math.max(av ?? 0, bv ?? 0) };
+  });
+  scored.sort((x, y) => y.score - x.score);
+
+  const topN = def.topN || 0;
+  const picked = topN ? scored.slice(0, topN) : scored;
+
+  const isDuration = !!(dataA.duration || dataB.duration);
+  let labels = picked.map((r) => r.l);
+  let dsA = picked.map((r) => r.av);
+  let dsB = picked.map((r) => r.bv);
+  if (def.type === 'hbar') {
+    labels = labels.slice().reverse();
+    dsA = dsA.slice().reverse();
+    dsB = dsB.slice().reverse();
+  }
+
+  const datasets = [];
+  if (!emptyA) {
+    datasets.push({ label: nameA, data: dsA, color: ACCENT_HEX[def.color] || ACCENT_HEX.indigo, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.indigo });
+  }
+  if (!emptyB) {
+    datasets.push({ ...B_SERIES, data: dsB });
+  }
+
+  const base = emptyA ? dataB : dataA;
+  const extraSub = (emptyA || emptyB)
+    ? `${emptyA ? escapeHtml(nameB) + ' only' : escapeHtml(nameA) + ' only'} · one board has no data here`
+    : `${escapeHtml(nameB)} shown in cyan`;
+
+  return {
+    labels,
+    datasets,
+    colors: undefined,       /* per-bar colors make no sense with two series */
+    duration: isDuration,
+    subtitle: base.subtitle || def.subtitle || '',
+    extraSub,
+    centerValue: isDuration
+      ? fmtDuration(avgOf(dsA.concat(dsB)) * DAY)
+      : Math.round(dsA.concat(dsB).reduce((s, v) => s + (v || 0), 0)),
+    centerLabel: isDuration ? 'avg' : 'issues',
+  };
+}
+
+/* mean of a list that may contain nulls */
+function avgOf(vals) {
+  const v = vals.filter((x) => x != null && isFinite(x));
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0;
 }
 
 /* ══════════════════ chart customization engine ══════════════════ */
@@ -2462,15 +2785,20 @@ function renderCharts(defs, m) {
   }
 
   const theme = chartTheme();
+  /* compare mode: overlay board B onto every non-doughnut chart using the
+     snapshot stored in state.compare (board B issues/metrics/hasChangelog) */
+  const cmp = state.compare && state.compare.metrics ? state.compare : null;
   for (const def of defs) {
     const canvasId = 'chart_' + def.id;
-    const data = buildChartData(def, m);
+    const data = cmp
+      ? buildCompareChartData(def, m, state.issues, state.hasChangelog, cmp.metrics, cmp.issues, cmp.hasChangelog)
+      : buildChartData(def, m);
     const sub = document.getElementById('sub_' + def.id);
     if (sub) {
       const base = data.subtitle || def.subtitle || '';
       sub.innerHTML = escapeHtml(base) + (data.extraSub ? ` <span class="sub-extra">· ${data.extraSub}</span>` : '');
     }
-    
+
     /* add data availability badge */
     const card = document.querySelector(`.chart-card[data-cid="${def.id}"]`);
     if (card) {
@@ -3056,6 +3384,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (b) openBoard(b);
   });
   $('#syncBoardsBtn').addEventListener('click', () => goBoards({ autoOpenLast: false }));
+  /* compare mode wiring: ⇄ toggle, board B picker, exit button */
+  $('#compareBtn').addEventListener('click', enterCompareMode);
+  $('#cmpExitBtn').addEventListener('click', exitCompareMode);
+  $('#cmpBoardSelect').addEventListener('change', onCompareBoardChange);
   $('#brandBtn').addEventListener('click', () => { location.hash = '#/'; showAllBoards(); });
   $('#brandBtn').addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); location.hash = '#/'; showAllBoards(); }
