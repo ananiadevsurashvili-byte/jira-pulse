@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="styles.css?v=8241302" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -37,6 +37,7 @@
   </div>
   <div class="topbar-right">
     <span id="syncedAt" class="muted small"></span>
+    <button id="pickCompareBtn" class="btn btn-compare" title="Compare any two boards side by side — every chart &amp; metric overlaid" style="display:none">⇄ Compare boards</button>
     <button id="openDebugBtn" class="btn btn-ghost" title="Open diagnostics log">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M12 4h9"/><path d="M4 9h16"/><path d="M4 15h16"/><path d="M8 4v16"/></svg>
       Diagnostics
@@ -107,6 +108,17 @@
       <div class="dash-head-right">
         <button id="publishAllBtn" class="btn btn-primary" title="Publish all boards to your organization">⟳ Publish all</button>
       </div>
+    </div>
+    <div id="pickCompareBar" class="pick-bar glass hidden">
+      <span class="pick-title">⇄ Compare boards</span>
+      <span id="pickSlotA" class="pick-slot">Pick board A</span>
+      <span class="pick-vs">vs</span>
+      <span id="pickSlotB" class="pick-slot">Pick board B</span>
+      <span id="pickHint" class="pick-hint"></span>
+      <span class="pick-actions">
+        <button id="pickGoBtn" class="btn btn-primary" disabled>Compare →</button>
+        <button id="pickCancelBtn" class="btn btn-ghost">Cancel</button>
+      </span>
     </div>
     <div id="boardsGrid" class="boards-grid"></div>
     <div id="boardsLoading" class="loading-block hidden">
@@ -472,6 +484,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=8241301"></script>
+<script src="app.js?v=8241302"></script>
 </body>
 </html>

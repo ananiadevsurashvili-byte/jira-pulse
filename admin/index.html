@@ -38,6 +38,7 @@
   <div class="topbar-right">
     <a class="btn btn-ghost" href="../" title="Open the public app (not the admin panel)">Public view</a>
     <span id="syncedAt" class="muted small"></span>
+    <button id="pickCompareBtn" class="btn btn-compare" title="Compare any two boards side by side — every chart &amp; metric overlaid" style="display:none">⇄ Compare boards</button>
     <button id="openDebugBtn" class="btn btn-ghost" title="Open diagnostics log">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M12 4h9"/><path d="M4 9h16"/><path d="M4 15h16"/><path d="M8 4v16"/></svg>
       Diagnostics
@@ -108,6 +109,17 @@
       <div class="dash-head-right">
         <button id="publishAllBtn" class="btn btn-primary" title="Publish all boards to your organization">⟳ Publish all</button>
       </div>
+    </div>
+    <div id="pickCompareBar" class="pick-bar glass hidden">
+      <span class="pick-title">⇄ Compare boards</span>
+      <span id="pickSlotA" class="pick-slot">Pick board A</span>
+      <span class="pick-vs">vs</span>
+      <span id="pickSlotB" class="pick-slot">Pick board B</span>
+      <span id="pickHint" class="pick-hint"></span>
+      <span class="pick-actions">
+        <button id="pickGoBtn" class="btn btn-primary" disabled>Compare →</button>
+        <button id="pickCancelBtn" class="btn btn-ghost">Cancel</button>
+      </span>
     </div>
     <div id="boardsGrid" class="boards-grid"></div>
     <div id="boardsLoading" class="loading-block hidden">
@@ -474,6 +486,6 @@
 <div id="toast" class="toast hidden"></div>
 
 <script>window.ADMIN_PANEL = true;</script>
-<script src="../app.js?v=8241301"></script>
+<script src="../app.js?v=8241302"></script>
 </body>
 </html>

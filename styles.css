@@ -198,6 +198,7 @@ body {
   gap: 16px;
 }
 .board-card {
+  position: relative;   /* anchor for the A/B pick badges (::after) */
   padding: 20px;
   cursor: pointer;
   transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
@@ -777,4 +778,77 @@ body:not(.admin-body) .admin-hidden { display: none; }
   .cmp-vs { display: none; }
   .cmp-select { max-width: 100%; }
   .cmp-name { max-width: 180px; }
+}
+
+/* ══════════ BOARD-CARD STATS (main page) ══════════ */
+.board-stats {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  margin: 2px 0 11px; min-height: 24px;
+}
+.bstat {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.01em;
+  padding: 3px 8px; border-radius: 8px; line-height: 1.2;
+  background: rgba(148, 163, 184, 0.10);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  color: #c3cad9; white-space: nowrap;
+}
+.bstat .b-ic { font-size: 0.74rem; opacity: 0.85; }
+.bstat-pending {
+  color: var(--muted); font-weight: 600; font-style: normal;
+  background: transparent; border-style: dashed;
+}
+.bstat-skip { color: #94a3b8; font-weight: 600; background: transparent; border-style: dashed; }
+
+/* ══════════ PICK-COMPARE MODE (main page) ══════════ */
+.board-card { cursor: pointer; }
+body.pick-mode .board-card .board-open { color: #a5b4fc; }
+.board-card.pick-sel {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35), 0 12px 34px rgba(0, 0, 0, 0.4);
+  transform: translateY(-2px);
+}
+.board-card.pick-sel .board-open { color: #c7d2fe; font-weight: 700; }
+.board-card.pick-a { border-color: rgba(99, 102, 241, 0.85); }
+.board-card.pick-b { border-color: rgba(34, 211, 238, 0.85); }
+.board-card.pick-a::after,
+.board-card.pick-b::after {
+  position: absolute; top: 10px; right: 12px;
+  font-size: 0.64rem; font-weight: 800; letter-spacing: 0.08em;
+  padding: 2px 8px; border-radius: 999px; content: '';
+}
+.board-card.pick-a::after { content: 'A'; background: #6366f1; color: #fff; box-shadow: 0 0 12px rgba(99, 102, 241, 0.8); }
+.board-card.pick-b::after { content: 'B'; background: #22d3ee; color: #04202a; box-shadow: 0 0 12px rgba(34, 211, 238, 0.8); }
+
+/* floating pick bar shown while selecting the two boards */
+.pick-bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 13px 18px; margin-bottom: 18px;
+  position: sticky; top: 74px; z-index: 30;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.16), rgba(34, 211, 238, 0.10)), var(--panel);
+  border: 1px solid rgba(99, 102, 241, 0.5);
+  border-radius: 14px;
+  animation: rise 0.35s ease both;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.35);
+}
+.pick-title { font-size: 0.86rem; font-weight: 800; letter-spacing: 0.02em; color: #c7d2fe; white-space: nowrap; }
+.pick-slot {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-width: 150px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 7px 14px; border-radius: 10px; font-size: 0.8rem; font-weight: 700;
+  border: 1px dashed rgba(148, 163, 184, 0.45); color: var(--muted);
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.pick-slot.filled { border-style: solid; color: #fff; }
+.pick-slot#pickSlotA.filled { border-color: #6366f1; background: rgba(99, 102, 241, 0.18); }
+.pick-slot#pickSlotB.filled { border-color: #22d3ee; background: rgba(34, 211, 238, 0.14); }
+.pick-vs { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; }
+.pick-hint { font-size: 0.74rem; color: var(--muted); flex: 1 1 auto; min-width: 120px; }
+.pick-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+
+@media (max-width: 860px) {
+  .pick-bar { position: static; }
+  .pick-hint { flex-basis: 100%; order: 5; }
+  .pick-actions { margin-left: 0; }
+  .pick-slot { min-width: 110px; }
 }

@@ -43,6 +43,7 @@ const state = {
   lastMetrics: null,   // cached computeMetrics() result for the last board
   inShareScreen: false, // true while the public share overlay (#pubScreen) is open
   compare: null,       // compare mode: { boardId, board, issues, metrics, syncedAt } for board B
+  pickCompare: null,   // boards-page pick mode: { a: boardId|null, b: boardId|null } — null = off
 };
 
 function show(el) { el.classList.remove('hidden'); }
@@ -1273,6 +1274,12 @@ function syncHeaderState() {
     label.style.display = 'none';
     backBtn.style.display = 'none';
   }
+  /* compare entry points are per-screen: ⇄ pick-boards on the main page,
+     ⇄ compare-with-this-board on a board's dashboard */
+  const pickBtn = $('#pickCompareBtn');
+  if (pickBtn) pickBtn.style.display = onBoards ? '' : 'none';
+  const cmpBtn = $('#compareBtn');
+  if (cmpBtn) cmpBtn.style.display = onDash ? '' : 'none';
   syncAdminControls();
 }
 
@@ -1395,16 +1402,127 @@ function boardTypeClass(t) {
   return 'chip';
 }
 
+/* ── board-card stats (main page) ──────────────────────────────────
+   Every card on the "Choose a board" page gets 4 headline stats — issues,
+   done %, WIP and avg cycle time — so the whole org is visible at a glance.
+   Numbers are fetched with a LIGHT search (no changelog expand), cached in
+   localStorage for 30 minutes, and enriched one board at a time in the
+   background so the page never blocks or hammers the relay. */
+const LS_BSTATS = 'jp_bstats_v1';
+const BSTATS_TTL = 30 * 60 * 1000;
+const _bstatsMem = new Map();     // boardId → fresh record this session
+const _bstatsInflight = new Set();// boardIds currently being fetched
+let _bstatsRunning = false;
+
+function loadBstatsStore() {
+  try { return JSON.parse(localStorage.getItem(LS_BSTATS) || '{}'); } catch { return {}; }
+}
+
+function cachedBoardStats(boardId) {
+  const mem = _bstatsMem.get(boardId);
+  if (mem) return mem;
+  try {
+    const rec = loadBstatsStore()[String(boardId)];
+    if (rec && Date.now() - rec.ts < BSTATS_TTL) { _bstatsMem.set(boardId, rec); return rec; }
+  } catch { /* ignore corrupt cache */ }
+  return null;
+}
+
+function saveBoardStats(boardId, rec) {
+  _bstatsMem.set(boardId, rec);
+  try {
+    const store = loadBstatsStore();
+    store[String(boardId)] = rec;
+    localStorage.setItem(LS_BSTATS, JSON.stringify(store));
+  } catch { /* storage full — memory cache still works */ }
+}
+
+/* light fetch of one board's headline numbers (reuses the dashboard's own
+   context resolution + metrics computation, minus the changelog weight) */
+async function fetchBoardStats(board) {
+  const ctx = await resolveBoardContext(board);
+  const jql = ctx.projectKeys.length
+    ? `project in (${ctx.projectKeys.map((k) => `"${k}"`).join(', ')}) ORDER BY created DESC`
+    : (ctx.filterJql || null);
+  let issues = null;
+  if (jql) {
+    try { issues = await searchIssuesByJql(jql, false); } catch (e) {
+      logDiag('warn', 'Board stats search failed', { boardId: board.id, status: e?.status, message: e?.message });
+    }
+  }
+  if (!issues) {
+    try {
+      issues = await fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}`, 600);
+    } catch (e) {
+      logDiag('warn', 'Board stats board-endpoint fallback failed', { boardId: board.id, status: e?.status, message: e?.message });
+      return null;
+    }
+  }
+  const m = computeMetrics(issues);
+  return {
+    ts: Date.now(),
+    total: m.total, done: m.done, wip: m.wip,
+    doneRate: m.doneRate, cycleAvg: m.cycleAvg,
+    created30: m.created30, resolved30: m.resolved30,
+  };
+}
+
+/* background loop: fetch stats for boards that have none/fresh — sequentially,
+   one board at a time, updating cards in place as each result lands */
+async function enrichBoardStats() {
+  if (_bstatsRunning || !state.conn) return;
+  _bstatsRunning = true;
+  try {
+    for (const b of state.boards) {
+      if (cachedBoardStats(b.id) || _bstatsInflight.has(b.id)) continue;
+      _bstatsInflight.add(b.id);
+      try {
+        const rec = await fetchBoardStats(b);
+        if (rec) { saveBoardStats(b.id, rec); updateBoardStatsDom(b.id, rec); }
+        else updateBoardStatsDom(b.id, null);
+      } finally {
+        _bstatsInflight.delete(b.id);
+      }
+    }
+  } finally {
+    _bstatsRunning = false;
+  }
+}
+
+/* chips HTML for a card (cached values, loading pill, or failure mark) */
+function boardStatsChipHtml(rec) {
+  if (!rec) return '<span class="bstat bstat-pending"><span class="spinner spinner-sm"></span> measuring…</span>';
+  return `
+    <span class="bstat" title="Issues analyzed"><span class="b-ic">▦</span>${rec.total}</span>
+    <span class="bstat" title="Done overall"><span class="b-ic">✓</span>${rec.doneRate}%</span>
+    <span class="bstat" title="Work in progress"><span class="b-ic">◔</span>${rec.wip}</span>
+    <span class="bstat" title="Avg cycle time (create → resolve)"><span class="b-ic">⏱</span>${rec.cycleAvg != null ? fmtDuration(rec.cycleAvg) : '—'}</span>`;
+}
+
+/* update one card's stats row in place (cards animate in — never re-render the grid) */
+function updateBoardStatsDom(boardId, rec) {
+  const box = document.getElementById('bstats_' + boardId);
+  if (box) box.innerHTML = rec ? boardStatsChipHtml(rec) : '<span class="bstat bstat-skip">stats unavailable</span>';
+}
+
 /* is this board one of the "[P]" org boards? Its project name (e.g. "[P] Automarket")
    marks it as a shared org-flow Kanban board with the same statuses → shown first. */
 function isPBoard(b) {
   return /^\[P\]/i.test(b.location?.projectName || '') || /^\[P\]/i.test(b.name || '');
 }
 
-/* render a single board card (shared by the grouped list + the sorter) */
+/* render a single board card (shared by the grouped list + the sorter).
+   In pick-compare mode cards switch from "open dashboard" to "select A/B". */
 function boardCardHTML(b, i) {
+  const pick = state.pickCompare;
+  const pickedA = pick && pick.a === b.id;
+  const pickedB = pick && pick.b === b.id;
+  const picked = pickedA || pickedB;
+  const openLabel = pick
+    ? (picked ? `Selected as ${pickedA ? 'A' : 'B'} — click to remove` : (pick.a == null ? 'Click to pick as A' : 'Click to pick as B'))
+    : 'Open dashboard →';
   return `
-    <div class="board-card glass" data-id="${b.id}" style="animation-delay:${Math.min(i * 35, 400)}ms">
+    <div class="board-card glass${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}" data-id="${b.id}" style="animation-delay:${Math.min(i * 35, 400)}ms">
       <div class="board-card-head">
         <h3>${escapeHtml(b.name)}</h3>
         <button class="link-btn board-copy-link" data-copyboard="${b.id}" title="Copy link to this board" aria-label="Copy board link">🔗</button>
@@ -1413,8 +1531,9 @@ function boardCardHTML(b, i) {
         ${b.type ? `<span class="${boardTypeClass(b.type)}">${escapeHtml(b.type)} board</span>` : ''}
         ${b.location?.projectKey ? `<span class="chip">${escapeHtml(b.location.projectKey)}</span>` : ''}
       </div>
-      ${b.location?.projectName ? `<div class="muted small" style="margin-bottom:12px">Project · ${escapeHtml(b.location.projectName)}</div>` : '<div style="height:24px"></div>'}
-      <span class="board-open">Open dashboard →</span>
+      ${b.location?.projectName ? `<div class="muted small" style="margin-bottom:10px">Project · ${escapeHtml(b.location.projectName)}</div>` : '<div style="height:22px"></div>'}
+      <div class="board-stats" id="bstats_${b.id}">${boardStatsChipHtml(cachedBoardStats(b.id))}</div>
+      <span class="board-open">${openLabel}</span>
     </div>`;
 }
 
@@ -1444,9 +1563,14 @@ function renderBoardCards() {
   grid.querySelectorAll('.board-card').forEach((card) => {
     card.addEventListener('click', () => {
       const b = state.boards.find((x) => x.id === parseInt(card.dataset.id, 10));
-      if (b) { $('#boardSelect').value = String(b.id); openBoard(b); }
+      if (!b) return;
+      if (state.pickCompare) { togglePickCompare(b); return; }   // pick mode → cards select instead of open
+      $('#boardSelect').value = String(b.id);
+      openBoard(b);
     });
   });
+  /* kick off the background stats enrichment (cached boards render instantly) */
+  enrichBoardStats().catch((e) => logDiag('warn', 'Board stats enrichment stopped', { message: e?.message }));
 }
 
 /* board-context cache: avoids re-hitting 3–4 Jira endpoints every time you re-open a board.
@@ -1704,6 +1828,8 @@ async function loadBoardIssues(board) {
 async function selectBoard(board) {
   state.boardId = board.id;
   localStorage.setItem(LS_LAST_BOARD, String(board.id));
+  /* leaving the boards page always cancels an in-progress pick-compare selection */
+  if (state.pickCompare) { state.pickCompare = null; updatePickBar(); }
   hide($('#boardsScreen')); show($('#dashScreen'));
   syncHeaderState();
   hide($('#errorBanner'));
@@ -2089,6 +2215,80 @@ function buildCompareInsights(A, B, nameA, nameB) {
     out.push({ icon: '📥', cls: '', html: `Intake gap · ${nameA} created <b>${A.created30}</b> vs <b>${B.created30}</b> (${dd > 0 ? '+' : ''}${dd}%)` });
   }
   return out.slice(0, 4);
+}
+
+/* ══════════════════ compare from the MAIN page (pick 2 boards) ══════════════════
+   "⇄ Compare boards" turns the board grid into a picker: click any card to slot it
+   as A, another as B, then "Compare →" loads both and opens the dashboard with every
+   KPI + chart overlaid. Available on the admin panel AND the public user view. */
+function togglePickCompareMode() {
+  if (state.pickCompare) { state.pickCompare = null; updatePickBar(); renderBoardCards(); return; }
+  if (!state.boards.length) { toast('Board list is still loading — try again in a moment.', 'warn'); return; }
+  state.pickCompare = { a: null, b: null };
+  updatePickBar();
+  renderBoardCards();
+}
+
+/* card click inside pick mode: fill A, then B; click a picked card to un-pick it;
+   click an unpicked card when both slots are full → replace B */
+function togglePickCompare(board) {
+  const pick = state.pickCompare;
+  if (!pick) return;
+  if (pick.a === board.id) { pick.a = pick.b; pick.b = null; }
+  else if (pick.b === board.id) { pick.b = null; }
+  else if (pick.a == null) { pick.a = board.id; }
+  else if (pick.b == null) { pick.b = board.id; }
+  else { pick.b = board.id; }
+  updatePickBar();
+  renderBoardCards();
+}
+
+/* sync the floating pick bar with state.pickCompare. Every pick-mode state
+   change funnels through here, so this is also where the body class lives —
+   it drives the card hover/label styling while picking. */
+function updatePickBar() {
+  document.body.classList.toggle('pick-mode', !!state.pickCompare);
+  const bar = $('#pickCompareBar');
+  if (!bar) return;
+  const pick = state.pickCompare;
+  if (!pick) { hide(bar); return; }
+  const nameA = pick.a != null ? (state.boards.find((x) => x.id === pick.a) || {}).name : null;
+  const nameB = pick.b != null ? (state.boards.find((x) => x.id === pick.b) || {}).name : null;
+  $('#pickSlotA').textContent = nameA || 'Pick board A';
+  $('#pickSlotA').classList.toggle('filled', !!nameA);
+  $('#pickSlotB').textContent = nameB || 'Pick board B';
+  $('#pickSlotB').classList.toggle('filled', !!nameB);
+  $('#pickGoBtn').disabled = !(nameA && nameB);
+  $('#pickHint').textContent = !nameA ? 'click a card to slot it as A'
+    : !nameB ? 'now click a second card as B'
+    : 'ready — open the side-by-side view';
+  show(bar);
+}
+
+/* load BOTH picked boards and open the dashboard in compare mode.
+   Reuses the whole existing pipeline: selectBoard() for A, enterCompareMode() +
+   onCompareBoardChange() for B — identical code path as the in-dashboard picker. */
+async function openPickCompareDashboard() {
+  const pick = state.pickCompare;
+  if (!pick || pick.a == null || pick.b == null) return;
+  const boardA = state.boards.find((x) => x.id === pick.a);
+  const boardB = state.boards.find((x) => x.id === pick.b);
+  if (!boardA || !boardB) return;
+
+  /* leave pick mode first (bar hidden, cards clickable normally again) */
+  state.pickCompare = null;
+  updatePickBar();
+
+  toast(`Loading “${boardA.name}” vs “${boardB.name}”…`);
+  await selectBoard(boardA);
+  if (!state.lastBoard || state.lastBoard.id !== boardA.id) return;   // A failed → error banner already shown
+
+  /* enter compare on A's dashboard and sync B through the standard picker path */
+  await enterCompareMode();
+  const sel = $('#cmpBoardSelect');
+  if (!sel.querySelector(`option[value="${boardB.id}"]`)) { toast('Could not start compare mode.', 'warn'); return; }
+  sel.value = String(boardB.id);
+  await onCompareBoardChange({ target: sel });
 }
 
 /* ── compare-mode chart merging: overlay board B's data onto each chart ── */
@@ -3388,6 +3588,11 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#compareBtn').addEventListener('click', enterCompareMode);
   $('#cmpExitBtn').addEventListener('click', exitCompareMode);
   $('#cmpBoardSelect').addEventListener('change', onCompareBoardChange);
+  /* main-page compare: ⇄ pick mode toggle, floating bar actions */
+  const pickToggle = $('#pickCompareBtn');
+  if (pickToggle) pickToggle.addEventListener('click', togglePickCompareMode);
+  $('#pickCancelBtn').addEventListener('click', togglePickCompareMode);
+  $('#pickGoBtn').addEventListener('click', () => { openPickCompareDashboard().catch((e) => { toast(e?.message || 'Compare failed to load.', 'warn'); logDiag('error', 'Pick-compare failed', { message: e?.message }); }); });
   $('#brandBtn').addEventListener('click', () => { location.hash = '#/'; showAllBoards(); });
   $('#brandBtn').addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); location.hash = '#/'; showAllBoards(); }
