@@ -43,6 +43,7 @@ const state = {
   lastMetrics: null,   // cached computeMetrics() result for the last board
   inShareScreen: false, // true while the public share overlay (#pubScreen) is open
   compare: null,       // compare mode: { boardId, board, issues, metrics, syncedAt } for board B
+  compareGen: 0,       // bumped on every compare exit so stale async loads are discarded
   pickCompare: null,   // boards-page pick mode: { a: boardId|null, b: boardId|null } — null = off
 };
 
@@ -1801,6 +1802,9 @@ async function loadBoardIssues(board) {
         continue;
       }
       attempt.onSuccess(issues);
+      /* learn this board's done-status names (statusCategory=done) so changelog-based
+         completion walks recognise custom-named done statuses (e.g. "Deployed") */
+      rememberDoneStatuses(issues);
       logDiag('info', 'Board load succeeded', {
         boardId: board.id,
         strategy: attempt.name,
@@ -1834,8 +1838,13 @@ async function selectBoard(board) {
   syncHeaderState();
   hide($('#errorBanner'));
 
-  /* switching boards invalidates the comparison — always start clean */
-  if (state.compare) exitCompareMode();
+  /* switching boards invalidates the comparison — always start clean.
+     Bump the generation even if compare was already off, so any in-flight
+     compare-board load is discarded when its await resumes. */
+  state.compare = null;
+  state.compareGen = (state.compareGen || 0) + 1;
+  hide($('#compareBar'));
+  $('#compareBtn').classList.remove('active');
 
   $('#dashBoardName').textContent = board.name;
   $('#syncedAt').textContent = '';
@@ -2054,6 +2063,8 @@ async function enterCompareMode() {
 
 function exitCompareMode() {
   state.compare = null;
+  /* bump the generation so any in-flight compare-board load knows it is stale */
+  state.compareGen = (state.compareGen || 0) + 1;
   hide($('#compareBar'));
   $('#compareBtn').classList.remove('active');
   if (state.lastBoard && state.lastMetrics) {
@@ -2073,9 +2084,21 @@ async function onCompareBoardChange(ev) {
   sel.disabled = true;
   $('#cmpSynced').innerHTML = '<span class="spinner spinner-sm"></span> syncing board B…';
 
+  /* staleness guard: the user may switch boards (or exit compare) while board B is
+     loading. Capture board A's id + a compare generation now and re-verify after the
+     await — a stale load must NEVER resurrect compare mode onto a different board's
+     dashboard, and exiting compare during the load must discard the result. */
+  const boardAId = state.lastBoard?.id;
+  const genAtStart = state.compareGen || 0;
+  const isStale = () => !state.lastBoard || state.lastBoard.id !== boardAId || (state.compareGen || 0) !== genAtStart;
+
   try {
     logDiag('info', 'Compare board load started', { boardId: board.id, name: board.name });
     const issues = await loadBoardIssues(board);
+    if (isStale()) {
+      logDiag('info', 'Compare load discarded — board changed during sync', { boardId: board.id });
+      return;
+    }
     const m = computeMetrics(issues);
     /* save-then-restore: loadBoardIssues writes hasChangelog/boardLoadMeta into
        global state for the MAIN board — snapshot it for board B's charts instead */
@@ -2089,6 +2112,7 @@ async function onCompareBoardChange(ev) {
     renderCompareDashboard();
     renderCharts(effectiveCharts(), state.lastMetrics);
   } catch (e) {
+    if (isStale()) return; /* board switched during a failing load — stay silent */
     $('#cmpSynced').textContent = '⚠ board B failed to sync — pick another';
     toast(`Could not load “${board.name}” for comparison.`, 'warn');
     logDiag('error', 'Compare board load failed', { boardId: board.id, message: e?.message, status: e?.status });
@@ -2519,11 +2543,29 @@ const COMPLETED_RE = /^(done approved|released|babysitting|done|closed|resolved|
 const BLOCKED_STATUSES = ['Blocked', 'Canceled', 'Cancelled', 'Rejected', 'Declined', 'Discarded', 'Stuck', 'On Hold'];
 const BLOCKED_RE = /^(blocked|canceled|cancelled|rejected|declined|discarded|stuck|on hold)$/i;
 
-/* does a status name represent a completed delivery? */
-function isCompletedStatus(f) {
+/* does a status name represent a completed delivery?
+   allowCategory: also accept statuses Jira classifies as statusCategory=done
+   (learned at runtime from the loaded issues) even when the name is custom
+   (e.g. "Deployed", "Shipped") — but never blocked/cancelled statuses. */
+function isCompletedStatus(f, allowCategory) {
   const name = String(f?.status?.name || '');
   if (COMPLETED_STATUSES.includes(name)) return true;
-  return COMPLETED_RE.test(name);
+  if (COMPLETED_RE.test(name)) return true;
+  if (allowCategory && DONE_STATUS_NAMES.has(name.toLowerCase()) && !isBlockedStatus(f)) return true;
+  return false;
+}
+
+/* status names observed on loaded issues whose statusCategory is 'done' (excluding
+   blocked/cancelled). Changelog entries carry only status NAMES, so this set is how
+   we recognise a transition into a custom-named done status during completion walks. */
+const DONE_STATUS_NAMES = new Set();
+function rememberDoneStatuses(issues) {
+  for (const iss of issues || []) {
+    const f = iss.fields || {};
+    if (f.status?.name && statusIsDone(f) && !isBlockedStatus(f)) {
+      DONE_STATUS_NAMES.add(String(f.status.name).toLowerCase());
+    }
+  }
 }
 
 /* does a status name represent blocked/canceled/rejected work? */
@@ -2549,7 +2591,9 @@ function issueCompletedAt(f, changelog) {
   }
   evts.sort((a, b) => a.ts - b.ts);
   for (const ev of evts) {
-    if (isCompletedStatus({ status: { name: ev.to } })) return ev.ts;
+    /* allowCategory=true: also recognise transitions into custom-named done statuses
+       (statusCategory=done) learned from the loaded issue set */
+    if (isCompletedStatus({ status: { name: ev.to } }, true)) return ev.ts;
   }
   return null;
 }
