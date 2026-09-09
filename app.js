@@ -62,10 +62,113 @@ function publicRootPath() {
   return location.pathname.replace(/\/admin\/?$/i, '').replace(/\/+$/, '') + '/';
 }
 
-/* ── public board publishing (snapshot + email-domain auth) ────────── */
-const LS_PUBLISH = 'jp_publish_v1';
+/* ── public board publishing (relay-backed config + LIVE data) ────────
+   The publish CONFIG (which boards are visible) lives on the relay, so
+   viewers on ANY device see it right after sign-in. The DATA is never
+   stored: every view fetches live Jira numbers via ?cmd=board. "Republish"
+   therefore only carries configuration changes (chart types, board show/
+   hide) — numbers are always real-time by design. */
+const PUB_RELAY = 'https://gensweaty--65df49bca6d911f19f231607ee4eb77e.web.val.run/';
+const PUB_ADMIN_TOKEN = 'jp_k9R2vTq7Lm4wXy8Zp3nB6dF1sH5jC';   /* shared admin secret (x-jp-admin) */
+
+/* call a relay publish command. admin=true adds the x-jp-admin header (writes). */
+async function pubCmd(cmd, { method = 'GET', body = null, admin = false, timeoutMs = 25000 } = {}) {
+  const url = PUB_RELAY + '?cmd=' + encodeURIComponent(cmd);
+  const headers = { 'Accept': 'application/json' };
+  if (admin) headers['x-jp-admin'] = PUB_ADMIN_TOKEN;
+  if (body != null) headers['Content-Type'] = 'application/json';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: body != null ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+    let data = null;
+    const text = await res.text();
+    try { data = JSON.parse(text); } catch (_) { /* non-json */ }
+    if (!res.ok) {
+      const err = new Error((data && (data.error || data.detail)) || `Relay command failed (HTTP ${res.status})`);
+      err.status = res.status;
+      logDiag('warn', 'Publish relay command failed', { cmd, status: res.status, data });
+      throw err;
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* fetch the org-wide publish config (null when nothing published yet).
+   Cached in sessionStorage briefly so navigating back/forth doesn't re-hit
+   the relay on every render — but always re-fetched on page load, so an
+   admin republish reaches every viewer on their very next visit. */
+let _pubConfigCache = { cfg: undefined, ts: 0 };
+const PUB_CFG_TTL = 60 * 1000;   /* 60 s in-memory TTL */
+async function pubConfigGet({ force = false } = {}) {
+  if (!force && _pubConfigCache.cfg !== undefined && Date.now() - _pubConfigCache.ts < PUB_CFG_TTL) {
+    return _pubConfigCache.cfg;
+  }
+  try {
+    const r = await pubCmd('config:get');
+    const cfg = r?.config ?? null;
+    _pubConfigCache = { cfg, ts: Date.now() };
+    return cfg;
+  } catch (e) {
+    logDiag('warn', 'config:get failed', { message: e?.message });
+    return null;
+  }
+}
+
+/* store the full publish config on the relay (admin only). Instant — no Jira calls. */
+async function pubConfigSet(config) {
+  const r = await pubCmd('publish:set', { method: 'POST', body: config, admin: true });
+  _pubConfigCache = { cfg: config, ts: Date.now() };
+  return r;
+}
+
+/* store the admin's Jira creds ONCE so viewers without their own connection
+   still get live data through the relay (relay uses them server-side only). */
+async function pubCredsSet(conn) {
+  await pubCmd('creds:set', {
+    method: 'POST',
+    admin: true,
+    body: { domain: conn.domain, email: conn.email, token: conn.token },
+  });
+}
+
+/* ── viewer → relay live board fetch ─────────────────────────────────
+   Asks the relay for one board's issues. When the viewer has their own Jira
+   connection the Authorization header is forwarded (their creds, zero stored
+   secrets); otherwise the relay falls back to the admin's stored creds. */
+async function pubFetchBoardLive(boardId, mode = 'full') {
+  const domain = state.conn?.domain ? String(state.conn.domain).replace(/^https?:\/\//, '') : '';
+  const url = PUB_RELAY + '?cmd=board&bid=' + encodeURIComponent(boardId) + '&mode=' + encodeURIComponent(mode) +
+    (domain ? '&domain=' + encodeURIComponent(domain) : '');
+  const headers = { 'Accept': 'application/json' };
+  if (state.conn) headers['Authorization'] = 'Basic ' + btoa(state.conn.email + ':' + state.conn.token);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 40000);
+  try {
+    const res = await fetch(url, { method: 'GET', headers, signal: controller.signal });
+    let data = null;
+    const text = await res.text();
+    try { data = JSON.parse(text); } catch (_) { /* non-json */ }
+    if (!res.ok) {
+      const err = new Error((data && (data.error || data.detail)) || `Live board fetch failed (HTTP ${res.status})`);
+      err.status = res.status;
+      throw err;
+    }
+    return data;   /* { ok, boardId, source, mode, hasChangelog, count, fetchedAt, issues } */
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* ── org access auth (unchanged) ───────────────────────────────────── */
 const PUBLISH_DOMAIN = 'caucasusauto.com';   /* allowed email domain */
-const PUBLISH_TOKEN_LEN = 16;
 const ADMIN_EMAIL = 'anania.devsurashvili@caucasusauto.com';  /* the JiraPulse admin */
 
 /* is this email the admin? */
@@ -82,15 +185,10 @@ function orgIsAdmin(email) {
   return isAdminEmail(email);
 }
 
-function loadPublishStore() {
-  try { return JSON.parse(localStorage.getItem(LS_PUBLISH) || '{}'); } catch { return {}; }
-}
-function savePublishStore(s) { localStorage.setItem(LS_PUBLISH, JSON.stringify(s)); }
-
-/* deterministic 6-digit code from token + email */
-function publishCode(token, email) {
+/* deterministic 6-digit code from seed + email */
+function publishCode(seed, email) {
   let h = 0;
-  const s = token + '|' + email.toLowerCase().trim();
+  const s = seed + '|' + email.toLowerCase().trim();
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   return String(Math.abs(h) % 1000000).padStart(6, '0');
 }
@@ -99,247 +197,6 @@ function publishCode(token, email) {
 function publishEmailOk(email) {
   const e = (email || '').toLowerCase().trim();
   return e.endsWith('@' + PUBLISH_DOMAIN) && e.split('@')[1] === PUBLISH_DOMAIN;
-}
-
-/* generate a fresh random token (used only for legacy/one-off links) */
-function newPublishToken() {
-  const a = new Uint32Array(PUBLISH_TOKEN_LEN);
-  crypto.getRandomValues(a);
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return Array.from(a, (x) => chars[x % chars.length]).join('');
-}
-
-/* STABLE publish identity so the same share link is reused across republishes.
-   Republishing overwrites the SAME store entry → the link a viewer already has
-   keeps working and shows the latest data, without minting a new URL each time. */
-function publishId(scope, boardId) {
-  if (scope === 'all') return 'ALL_BOARDS';
-  return 'BOARD_' + boardId;
-}
-
-/* create a publish snapshot for a board, or for every board (scope='all') */
-async function createPublishSnapshot(boardId, scope) {
-  if (scope === 'all') return await createAllBoardsSnapshot();
-  const board = state.boards.find((b) => b.id === boardId);
-  if (!board) return null;
-  const defs = effectiveCharts();
-  const payload = buildBoardRenderPayload(state.issues, state.lastMetrics, defs, state.hasChangelog);
-  const snapshot = {
-    token: publishId('board', boardId),   // stable: republishing updates this same snapshot
-    pubId: publishId('board', boardId),
-    boardId,
-    boardName: board.name,
-    scope: 'board',
-    createdAt: Date.now(),
-    issuesCount: state.issues.length,
-    hasChangelog: state.hasChangelog,
-    charts: payload.charts,       // [{ def, data }] — self-contained render data
-  };
-  const store = loadPublishStore();
-  store[snapshot.token] = snapshot;
-  savePublishStore(store);
-  return snapshot;
-}
-
-/* build a snapshot that bundles every board with its own portable render payload.
-   Reports progress via onProgress(done, total) so the UI can show "Publishing… 3/12". */
-async function createAllBoardsSnapshot(onProgress) {
-  const now = Date.now();
-  const records = [];
-  let anyChangelog = false;
-  const defs = effectiveCharts();
-  const total = state.boards.length;
-  let done = 0;
-  for (const board of state.boards) {
-    try {
-      logDiag('info', 'Publish: loading board for all-boards snapshot', { boardId: board.id, name: board.name });
-      const issues = await loadBoardIssues(board);
-      const m = computeMetrics(issues);
-      anyChangelog = anyChangelog || state.hasChangelog;
-      const prevBoardId = state.boardId, prevBoard = state.lastBoard;
-      /* temporarily point board context at this board so render payload carries its name */
-      state.boardId = board.id; state.lastBoard = board;
-      const payload = buildBoardRenderPayload(issues, m, defs, state.hasChangelog);
-      state.boardId = prevBoardId; state.lastBoard = prevBoard;
-      records.push({
-        boardId: board.id,
-        name: board.name,
-        issuesCount: issues.length,
-        hasChangelog: state.hasChangelog,
-        charts: payload.charts,
-      });
-    } catch (e) {
-      logDiag('warn', 'Publish: board skipped in all-boards snapshot', { boardId: board.id, name: board.name, message: e?.message });
-    }
-    done++;
-    if (typeof onProgress === 'function') onProgress(done, total);
-  }
-  if (!records.length) { toast('Could not load any boards to publish.', 'warn'); return null; }
-  const snapshot = {
-    token: publishId('all', null),   // stable: republishing updates this same snapshot
-    pubId: publishId('all', null),
-    boardId: null,
-    boardName: 'All boards',
-    scope: 'all',
-    createdAt: now,
-    issuesCount: records.reduce((a, r) => a + r.issuesCount, 0),
-    hasChangelog: anyChangelog,
-    charts: [],
-    boards: records,
-  };
-  const store = loadPublishStore();
-  store[snapshot.token] = snapshot;
-  savePublishStore(store);
-  return snapshot;
-}
-
-/* list all snapshots — deduped by pubId so only the NEWEST version of each stable
-   snapshot is returned. This is what makes "republish → same link shows latest" work:
-   old copies of a board/all snapshot never shadow the fresh one. */
-function listPublishSnapshots() {
-  const store = loadPublishStore();
-  const all = Object.values(store);
-  const latest = new Map();
-  for (const s of all) {
-    const key = s.pubId || s.token || (s.scope + ':' + (s.boardId || 'all'));
-    const cur = latest.get(key);
-    if (!cur || (s.createdAt || 0) > (cur.createdAt || 0)) latest.set(key, s);
-  }
-  return [...latest.values()].sort((a, b) => b.createdAt - a.createdAt);
-}
-
-/* the newest single snapshot (board or all) — used to boot the public org view */
-function latestPublishSnapshot() {
-  const snaps = listPublishSnapshots();
-  return snaps.length ? snaps[0] : null;
-}
-
-/* delete a snapshot */
-function deletePublishSnapshot(token) {
-  const store = loadPublishStore();
-  delete store[token];
-  savePublishStore(store);
-}
-
-/* turn issues + metrics + chart defs into a portable, precomputed render payload.
-   This collapses raw issues (and non-serializable Maps inside metrics) into the
-   exact arrays Chart.js needs, so a snapshot can be embedded in a URL and drawn
-   on any device WITHOUT a Jira connection or the full issue list. */
-function buildBoardRenderPayload(issues, m, defs, hasChangelog) {
-  const charts = (defs || []).map((def) => {
-    const data = buildChartData(def, m, issues, hasChangelog);
-    return { def, data };
-  });
-  return {
-    boardId: state.boardId,
-    boardName: state.lastBoard ? state.lastBoard.name : '',
-    issuesCount: issues.length,
-    hasChangelog,
-    charts,
-  };
-}
-
-/* encode a snapshot into a compact, self-contained share hash (#p=<compressed>) */
-function encodeSharePayload(snap) {
-  const obj = {
-    v: 2,
-    scope: snap.scope,
-    boardName: snap.scope === 'all' ? 'All boards' : snap.boardName,
-    boardId: snap.boardId,
-    createdAt: snap.createdAt,
-    hasChangelog: snap.hasChangelog,
-    charts: snap.charts,   // array of { def, data }
-    boards: snap.boards,   // array of portable board records (for scope 'all')
-  };
-  const json = JSON.stringify(obj);
-  const compressed = typeof LZString !== 'undefined' ? LZString.compressToEncodedURIComponent(json) : encodeURIComponent(json);
-  return compressed;
-}
-
-function decodeSharePayload(compressed) {
-  if (compressed == null) return null;
-  try {
-    const json = typeof LZString !== 'undefined' ? LZString.decompressFromEncodedURIComponent(compressed) : decodeURIComponent(compressed);
-    if (!json) return null;
-    return JSON.parse(json);
-  } catch (e) {
-    logDiag('warn', 'Failed to decode share payload', { message: e?.message });
-    return null;
-  }
-}
-
-/* build a share URL from a snapshot. Always points at the public app root (never /admin/).
-   When the snapshot exists in this browser's publish store (it has a stable token), we return
-   a small `?share=<token>` link — this AUTO-UPDATES on republish because the store entry is
-   overwritten in place, so viewers keep the same link and always see the latest data.
-   For manufactured sub-payloads (e.g. a board drilled out of an "all" snapshot) that have no
-   store entry, we embed the data as a self-contained `#p=` payload so it still works anywhere. */
-function buildShareUrl(snap) {
-  const store = loadPublishStore();
-  const tid = snap.pubId || snap.token;
-  if (tid && store[tid]) {
-    return location.origin + publicRootPath() + '?share=' + encodeURIComponent(tid);
-  }
-  const payload = encodeSharePayload(snap);
-  return location.origin + publicRootPath() + '#p=' + payload;
-}
-
-/* check if current URL is a self-contained share link */
-function parseSharePayload() {
-  const u = new URL(location.href);
-  const p = u.hash.match(/^#p=(.+)$/);
-  if (!p) return null;
-  return decodeSharePayload(p[1]);
-}
-
-/* check if current URL has a share token */
-function parseShareToken() {
-  const u = new URL(location.href);
-  return u.searchParams.get('share');
-}
-
-/* normalize both share formats into a snapshot object for rendering.
-   Priority: self-contained #p= payload, then legacy ?share= localStorage token. */
-function loadShareSnapshot() {
-  const payload = parseSharePayload();
-  if (payload) {
-    /* self-contained link — works on any device. Build a snapshot view-model. */
-    const snap = {
-      token: null,
-      boardId: payload.boardId,
-      boardName: payload.boardName,
-      scope: payload.scope,
-      createdAt: payload.createdAt,
-      issuesCount: payload.scope === 'all' ? (payload.boards || []).reduce((a, b) => a + (b.issuesCount || 0), 0) : 0,
-      hasChangelog: payload.hasChangelog,
-      charts: payload.charts || [],
-      boards: payload.boards || [],
-    };
-    /* for single-board payloads, issuesCount lives on the payload too */
-    if (payload.scope === 'board') snap.issuesCount = payload.issuesCount || 0;
-    return snap;
-  }
-  const shareToken = parseShareToken();
-  if (shareToken) {
-    const store = loadPublishStore();
-    const snap = store[shareToken];
-    if (snap) {
-      /* migrate any old v1 snapshot (which stored raw issues/metrics) to portable render */
-      if (snap.issues && !snap.charts?.length) {
-        const charts = effectiveCharts().map((def) => ({ def, data: buildChartData(def, snap.metrics, snap.issues, snap.hasChangelog) }));
-        snap.charts = charts;
-        snap.issuesCount = snap.issues.length;
-        delete snap.issues;
-        delete snap.metrics;
-        savePublishStore(store);
-      }
-      return snap;
-    }
-    toast('This published link is no longer available.', 'warn');
-    location.href = location.pathname;
-    return null;
-  }
-  return null;
 }
 
 /* ── public share screen logic ─────────────────────────────────────── */
@@ -477,10 +334,11 @@ function showPubScreen(snapshot) {
   show($( '#pubScreen'));
 }
 
-/* stable seed for the access code — self-contained links have no token, so
-   derive a deterministic seed from boardId + scope + createdAt */
+/* stable seed for the access code — the relay config's shareSeed is a
+   constant, so a viewer's personal code NEVER changes when the admin
+   republishes (republish only changes boards/chart config, not access) */
 function pubCodeSeed(snap) {
-  return snap.token || (snap.scope + '|' + (snap.boardId || 'all') + '|' + (snap.createdAt || 'jp'));
+  return (snap && snap.shareSeed) || 'org';
 }
 
 /* Send the access code to the user's email using FormSubmit (free, no backend).
@@ -584,8 +442,62 @@ function pubVerifyCode() {
   }
 }
 
-function renderPubContent() {
+/* ── LIVE render engine ─────────────────────────────────────────────
+   The publish snapshot only carries the config (which boards, chart defs).
+   Every render fetches fresh Jira data through the relay and computes the
+   charts on the spot, so viewers always see real-time numbers. */
+const _pubBoardCache = new Map();   /* boardId → { rec, ts } per-session memo (30 s) */
+const PUB_LIVE_TTL = 30 * 1000;
+
+/* fetch live issues for a board + compute the full chart set */
+async function pubLoadBoardLive(boardId) {
+  const memo = _pubBoardCache.get(boardId);
+  if (memo && Date.now() - memo.ts < PUB_LIVE_TTL) return memo.rec;
+  logDiag('info', 'Publish view: fetching live board data', { boardId, mode: 'full' });
+  const rec = await pubFetchBoardLive(boardId, 'full');
+  const issues = Array.isArray(rec.issues) ? rec.issues : [];
+  const m = computeMetrics(issues);
+  rememberDoneStatuses(issues);                       /* learn custom done-status names */
+  const defs = pubState.chartDefs;                    /* snapshot-configured chart defs */
+  const charts = defs.map((def) => ({ def, data: buildChartData(def, m, issues, rec.hasChangelog) }));
+  const out = {
+    boardId,
+    issues,
+    metrics: m,
+    issuesCount: rec.count ?? issues.length,
+    hasChangelog: !!rec.hasChangelog,
+    fetchedAt: rec.fetchedAt || Date.now(),
+    source: rec.source || '',
+    charts,
+  };
+  _pubBoardCache.set(boardId, { rec: out, ts: Date.now() });
+  return out;
+}
+
+/* destroy any live Chart.js instances before re-rendering a grid */
+function destroyPubCharts() {
+  if (pubState._liveCharts && pubState._liveCharts.length) {
+    for (const c of pubState._liveCharts) { try { c.destroy(); } catch (_) { /* noop */ } }
+  }
+  pubState._liveCharts = [];
+}
+
+/* track charts created inside the publish view so they can be torn down */
+function mkPubChart(canvasId, cfg) {
+  const ch = mkChart(canvasId, cfg);
+  if (ch) pubState._liveCharts.push(ch);
+  return ch;
+}
+
+/* the chart defs the admin published (with this viewer's local overrides applied
+   when the viewer is also connected) — falls back to the built-in set */
+function pubChartDefs() {
+  return (pubState.snapshot?.chartDefs || []).map((d) => ({ ...d }));
+}
+
+async function renderPubContent() {
   const snap = pubState.snapshot;
+  if (!snap) return;
   /* admin powers on the public share view are granted ONLY when inside the /admin/
      panel. On the public app the admin account is treated like any org member, so it
      can test the exact user experience (no admin bar, no manage/publish button). */
@@ -604,87 +516,121 @@ function renderPubContent() {
   /* admin share-link box — only visible to admin once they're inside a board view */
   const linkBox = $('#pubLinkBox');
   if (admin && snap.scope === 'board') {
-    const link = buildShareUrl(snap);
-    $('#pubLinkInput').value = link;
+    $('#pubLinkInput').value = location.origin + publicRootPath() + '?share=' + encodeURIComponent(snap.shareSeed || 'org');
     linkBox.classList.remove('hidden');
   } else {
     linkBox.classList.add('hidden');
   }
 
-  /* title/subtitle */
+  /* title/subtitle — data is LIVE now, so the subtitle reflects freshness, not a date */
   if (snap.scope === 'all') {
     $('#pubTitle').textContent = 'Organization board stats';
-    $('#pubSubtitle').textContent = 'All published boards · snapshot ' +
-      new Date(snap.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    $('#pubSubtitle').textContent = 'All published boards · live data';
   } else {
-    $('#pubTitle').textContent = snap.boardName;
-    $('#pubSubtitle').textContent = 'Snapshot taken ' + new Date(snap.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) +
-      ' · ' + (snap.issuesCount ?? 0) + ' issues';
+    $('#pubTitle').textContent = snap.boardName || 'Board';
+    $('#pubSubtitle').textContent = 'Live data · real-time from Jira';
   }
 
-  $('#pubIssueCount').textContent = snap.scope === 'all'
-    ? snap.boards.length + ' boards'
-    : (snap.issuesCount ?? 0) + ' issues';
-  $('#pubChangelogBadge').textContent = snap.hasChangelog ? '✓ changelog' : '⚠ no changelog';
-  $('#pubChangelogBadge').className = 'data-badge ' + (snap.hasChangelog ? 'ok' : 'missing');
+  $('#pubChangelogBadge').textContent = '⟳ live';
+  $('#pubChangelogBadge').className = 'data-badge ok';
 
   const boardsList = $('#pubBoardsList');
   const chartsGrid = $('#pubChartsGrid');
+  destroyPubCharts();
+
+  pubState.chartDefs = pubChartDefs();
 
   if (snap.scope === 'all') {
-    /* ── all-boards view: show the boards list ── */
+    /* ── all-boards view: one LIVE stats summary per board ── */
     chartsGrid.classList.add('hidden');
     boardsList.classList.remove('hidden');
     const boards = snap.boards || [];
     if (!boards.length) {
-      boardsList.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No boards published.</div>';
-    } else {
-      /* split [P] org boards from the rest so they always appear first */
-      const pubRow = (b) => `
-        <div class="pub-board-row" data-bid="${b.boardId}">
-          <span class="board-open" style="color:var(--muted)">▸</span>
-          <div>
-            <div class="bname">${escapeHtml(b.name)}</div>
-            <div class="bmeta">${b.issuesCount} issues · ${b.hasChangelog ? 'changelog ✓' : 'no changelog'}</div>
-          </div>
-          ${admin ? `<button class="link-btn" data-copyboard="${b.boardId}" style="margin-left:auto;font-size:0.72rem">🔗 copy link</button>` : ''}
-        </div>`;
-      const P = boards.filter((b) => isPBoard(b));
-      const others = boards.filter((b) => !isPBoard(b));
-      let html = '';
-      if (P.length) html += `<div class="board-group-title">[P] Org boards</div>${P.map(pubRow).join('')}<div style="height:14px"></div>`;
-      if (others.length) html += `<div class="board-group-title">All other boards</div>${others.map(pubRow).join('')}`;
-      boardsList.innerHTML = html;
-      boardsList.querySelectorAll('.pub-board-row').forEach((row) => {
-        const bid = row.dataset.bid;
-        const copyBtn = row.querySelector('[data-copyboard]');
-        if (copyBtn) {
-          copyBtn.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            const b = boards.find((x) => String(x.boardId) === bid);
-            if (b) {
-              const link = buildShareUrl({ scope: 'board', boardId: b.boardId, boardName: b.name, createdAt: snap.createdAt, hasChangelog: b.hasChangelog, charts: b.charts || [], issuesCount: b.issuesCount });
-              navigator.clipboard.writeText(link).then(() => toast('Board link copied.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
-            }
-          });
-        }
-        row.addEventListener('click', () => {
-          const b = boards.find((x) => String(x.boardId) === bid);
-          if (b) openBoardSnapshot(b);
+      boardsList.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No boards published yet — the admin can publish the board list from the admin panel.</div>';
+      $('#pubIssueCount').textContent = '0 boards';
+      return;
+    }
+    $('#pubIssueCount').textContent = boards.length + ' boards';
+    const pubRow = (b) => `
+      <div class="pub-board-row" data-bid="${b.boardId}">
+        <span class="board-open" style="color:var(--muted)">▸</span>
+        <div>
+          <div class="bname">${escapeHtml(b.name)}</div>
+          <div class="bmeta" id="pubmeta_${b.boardId}"><span class="spinner spinner-sm"></span> loading live data…</div>
+        </div>
+        ${admin ? `<button class="link-btn" data-copyboard="${b.boardId}" style="margin-left:auto;font-size:0.72rem">🔗 copy link</button>` : ''}
+      </div>`;
+    const P = boards.filter((b) => /^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || ''));
+    const others = boards.filter((b) => !(/^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || '')));
+    let html = '';
+    if (P.length) html += `<div class="board-group-title">[P] Org boards</div>${P.map(pubRow).join('')}<div style="height:14px"></div>`;
+    if (others.length) html += `<div class="board-group-title">All other boards</div>${others.map(pubRow).join('')}`;
+    boardsList.innerHTML = html;
+
+    boardsList.querySelectorAll('.pub-board-row').forEach((row) => {
+      const bid = parseInt(row.dataset.bid, 10);
+      const copyBtn = row.querySelector('[data-copyboard]');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const link = location.origin + publicRootPath() + '?share=' + encodeURIComponent(snap.shareSeed || 'org');
+          navigator.clipboard.writeText(link).then(() => toast('Board link copied.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
         });
+      }
+      row.addEventListener('click', () => {
+        const b = boards.find((x) => x.boardId === bid);
+        if (b) openBoardSnapshot(b);
       });
+    });
+
+    /* fetch every board's live stats sequentially (light mode = fast, no changelog)
+       and update the rows in place as each result lands */
+    for (const b of boards) {
+      try {
+        const rec = await pubLoadBoardLive(b.boardId);
+        const m = rec.metrics;
+        const net = (m.resolved30 || 0) - (m.created30 || 0);
+        const meta = document.getElementById('pubmeta_' + b.boardId);
+        if (meta) {
+          meta.innerHTML =
+            `${rec.issuesCount} issues · ${m.doneRate != null ? m.doneRate + '% done' : '—'} · ${m.wip} in progress` +
+            (net !== 0 ? ` · <span style="color:${net > 0 ? '#34d399' : '#f87171'}">${net > 0 ? '+' : ''}${net} net 30d</span>` : '') +
+            ` · <span style="color:var(--muted)">updated ${new Date(rec.fetchedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>`;
+        }
+      } catch (e) {
+        logDiag('warn', 'Publish all-boards: live stats failed', { boardId: b.boardId, message: e?.message });
+        const meta = document.getElementById('pubmeta_' + b.boardId);
+        if (meta) meta.innerHTML = '<span style="color:#f87171">live data unavailable</span>';
+      }
     }
   } else {
-    /* ── single-board view: render the charts ── */
+    /* ── single-board view: fetch LIVE issues, then render the charts ── */
     boardsList.classList.add('hidden');
     chartsGrid.classList.remove('hidden');
     const grid = chartsGrid;
-    const charts = snap.charts || [];
-    if (!charts.length) {
-      grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No charts in this snapshot.</div>';
-    } else {
-      grid.innerHTML = charts.map((c) => chartCardHTML(c.def, false)).join('');
+    const defs = pubState.chartDefs;
+    if (!snap.boardId) {
+      grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No board selected.</div>';
+      return;
     }
+    grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)"><span class="spinner spinner-sm"></span> loading live data from Jira…</div>';
+    let rec;
+    try {
+      rec = await pubLoadBoardLive(snap.boardId);
+    } catch (e) {
+      logDiag('warn', 'Publish board view: live fetch failed', { boardId: snap.boardId, message: e?.message });
+      grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">⚠ Could not load live data (' + escapeHtml(e?.message || 'unknown error') + ').</div>';
+      return;
+    }
+    const charts = rec.charts;
+    $('#pubIssueCount').textContent = rec.issuesCount + ' issues';
+    $('#pubChangelogBadge').textContent = rec.hasChangelog ? '✓ changelog' : '⚠ no changelog';
+    $('#pubChangelogBadge').className = 'data-badge ' + (rec.hasChangelog ? 'ok' : 'missing');
+    if (!charts.length) {
+      grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No charts configured for this board.</div>';
+      return;
+    }
+    grid.innerHTML = charts.map((c) => chartCardHTML(c.def, false)).join('');
     const theme = chartTheme();
     for (const c of charts) {
       const def = c.def;
@@ -694,32 +640,28 @@ function renderPubContent() {
         drawCanvasMessage(canvasId, Array.isArray(data?.empty) ? data.empty : [data ? data.empty : 'No data']);
         continue;
       }
-      mkChart(canvasId, chartConfigFor(def, data, theme, canvasId));
+      mkPubChart(canvasId, chartConfigFor(def, data, theme, canvasId));
     }
   }
 }
 
-/* helper: when viewing an 'all' snapshot and a viewer clicks a board, show that board's snapshot */
+/* helper: when viewing an 'all' snapshot and a viewer clicks a board, show that board's LIVE charts */
 function openBoardSnapshot(boardRec) {
   const snap = pubState.snapshot;
-  if (boardRec.charts) {
-    pubState.currentBoard = boardRec;
-    pubState.allSnapshot = snap;   /* remember parent for Back */
-    const sub = {
-      token: snap.token,
-      boardId: boardRec.boardId,
-      boardName: boardRec.name,
-      scope: 'board',
-      createdAt: snap.createdAt,
-      issuesCount: boardRec.issuesCount,
-      charts: boardRec.charts,
-      hasChangelog: boardRec.hasChangelog,
-    };
-    pubState.snapshot = sub;
-    renderPubContent();
-    $('#pubBackBtn').dataset.fromAll = '1';
-    $('#pubBackBtn').textContent = '← All boards';
-  }
+  pubState.currentBoard = boardRec;
+  pubState.allSnapshot = snap;   /* remember parent for Back */
+  const sub = {
+    shareSeed: snap.shareSeed || 'org',
+    boardId: boardRec.boardId,
+    boardName: boardRec.name,
+    scope: 'board',
+    createdAt: snap.createdAt,
+    chartDefs: snap.chartDefs || pubState.chartDefs || [],
+  };
+  pubState.snapshot = sub;
+  renderPubContent();
+  $('#pubBackBtn').dataset.fromAll = '1';
+  $('#pubBackBtn').textContent = '← All boards';
 }
 
 function hidePubScreen() {
@@ -733,122 +675,128 @@ function hidePubScreen() {
 }
 
 /* Public landing for the root URL "/" — org members should never see the Jira
-   API-token form. Build an "all boards" snapshot from the published snapshots stored
-   on this device and show the org sign-in gate (Google 1-click / email code). */
-function showPublicLanding() {
-  const snaps = listPublishSnapshots();
-  const allSnap = snaps.find((s) => s.scope === 'all') || null;
-  const boardSnaps = snaps.filter((s) => s.scope === 'board');
-
-  if (allSnap) {
-    /* reuse the newest published all-boards snapshot directly */
-    showPubScreen(allSnap);
-    return;
-  }
-  if (boardSnaps.length) {
-    /* no "all" snapshot yet — synthesize one from every published single board */
-    const synthetic = {
-      token: null,
-      boardId: null,
-      boardName: 'All boards',
-      scope: 'all',
-      createdAt: Math.max(...boardSnaps.map((b) => b.createdAt)),
-      issuesCount: boardSnaps.reduce((a, b) => a + (b.issuesCount || 0), 0),
-      hasChangelog: boardSnaps.some((b) => b.hasChangelog),
-      charts: [],
-      boards: boardSnaps.map((b) => ({
-        boardId: b.boardId, name: b.boardName, issuesCount: b.issuesCount || 0, hasChangelog: !!b.hasChangelog, charts: b.charts || [],
-      })),
-    };
-    showPubScreen(synthetic);
-    return;
-  }
-  /* nothing published yet — show an empty published state through the gate */
-  const empty = {
-    token: null, boardId: null, boardName: 'All boards', scope: 'all', createdAt: Date.now(),
-    issuesCount: 0, hasChangelog: false, charts: [], boards: [],
+   API-token form. Fetch the published board CONFIG from the relay (shared by
+   every device) and show the org sign-in gate (Google 1-click / email code).
+   Data itself is fetched live at render time. */
+async function showPublicLanding() {
+  const cfg = await pubConfigGet();
+  const boards = (cfg && Array.isArray(cfg.boards)) ? cfg.boards : [];
+  const snapshot = {
+    shareSeed: (cfg && cfg.shareSeed) || 'org',
+    boardId: null,
+    boardName: 'All boards',
+    scope: 'all',
+    createdAt: (cfg && cfg.savedAt) || Date.now(),
+    chartDefs: (cfg && cfg.chartDefs) || [],
+    boards,
   };
-  showPubScreen(empty);
+  showPubScreen(snapshot);
 }
 
-/* ── publish modal (admin only) ─────────────────────────────────────── */
+/* ── publish modal (admin only) ───────────────────────────────────────
+   Publishing saves the CONFIG to the relay (which boards + chart defs) —
+   instant, zero Jira calls. Data is ALWAYS live for viewers, so there is
+   no "data refresh" step to repeat; republish only when the layout changes. */
 let pubModalState = { mode: 'all' /* 'all' | 'board' */, boardId: null };
 
-function openPublishModal() {
-  const connected = state.conn && state.boards.length;
-  if (!connected) {
-    toast(state.conn ? 'No boards loaded yet.' : 'Connect to Jira first to create new snapshots — you can still manage existing ones.', 'warn');
-  }
+function shareLink() {
+  return location.origin + publicRootPath() + '?share=org';
+}
 
-  /* hide the "create" area when not connected (admins can still copy/delete existing links) */
-  const createWrap = $( '#pubCreateWrap');
+async function openPublishModal() {
+  const connected = !!(state.conn && state.boards.length);
+
+  /* hide the "create" area when not connected (admins can still copy the link) */
+  const createWrap = $('#pubCreateWrap');
   if (createWrap) createWrap.style.display = connected ? '' : 'none';
+
   if (connected) {
     $('#pubBoardSelect').innerHTML = state.boards.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
   }
 
-  const allSnapshots = listPublishSnapshots();
-  $('#pubListBody').innerHTML = allSnapshots.length
-    ? allSnapshots.map((s) => `<tr>
-        <td>${escapeHtml(s.boardName)}</td>
-        <td>${s.scope === 'all' ? 'all boards' : 'this board'}</td>
-        <td>${new Date(s.createdAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</td>
-        <td><span class="mono">${escapeHtml(s.token)}</span></td>
-        <td>
-          <button class="link-btn" data-copy="${escapeHtml(s.token)}">copy link</button>
-          <button class="link-btn" data-open="${s.token}" style="display:${connected ? '' : 'none'}">open</button>
-          <button class="link-btn" data-del="${s.token}" style="color:#f87171">delete</button>
-        </td>
-      </tr>`).join('')
-    : '<tr><td colspan="5" class="muted" style="text-align:center;padding:14px">No published snapshots yet.</td></tr>';
+  $('#pubModalTitle').textContent = connected ? 'Publish boards (configuration only)' : 'Publish configuration';
+  const cfg = await pubConfigGet();
+  const cfgBoardCount = cfg && Array.isArray(cfg.boards) ? cfg.boards.length : 0;
+  const savedAt = cfg && cfg.savedAt ? new Date(cfg.savedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : null;
+  $('#pubListBody').innerHTML =
+    `<tr>
+      <td colspan="4" style="padding:10px 6px">
+        ${cfg
+          ? `<div>Currently published: <b>${cfgBoardCount} board${cfgBoardCount === 1 ? '' : 's'}</b>${savedAt ? ` · saved ${escapeHtml(savedAt)}` : ''}</div>
+             <div class="muted" style="margin-top:4px">Viewers always see <b>live Jira data</b> — republish only needed when charts or the board list change.</div>`
+          : '<div class="muted">Nothing published yet. Publish the board list so org members see it after sign-in.</div>'}
+      </td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="link-btn" data-copyorg="">copy viewer link</button>
+        ${cfg ? '<button class="link-btn" data-unpub="" style="color:#f87171">unpublish</button>' : ''}
+      </td>
+    </tr>`;
 
-  $('#pubListBody').querySelectorAll('[data-copy]').forEach((b) => {
+  $('#pubListBody').querySelectorAll('[data-copyorg]').forEach((b) => {
     b.addEventListener('click', () => {
-      const token = b.dataset.copy;
-      const snap = allSnapshots.find((s) => s.token === token);
-      const link = snap ? buildShareUrl(snap) : (location.origin + publicRootPath() + '?share=' + token);
-      navigator.clipboard.writeText(link).then(() => toast('Link copied to clipboard.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
+      navigator.clipboard.writeText(shareLink()).then(() => toast('Viewer link copied — works on every device.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
     });
   });
-  $('#pubListBody').querySelectorAll('[data-open]').forEach((b) => {
-    b.addEventListener('click', () => {
-      const token = b.dataset.open;
-      const snap = allSnapshots.find((s) => s.token === token);
-      const link = snap ? buildShareUrl(snap) : (location.origin + publicRootPath() + '?share=' + token);
-      window.open(link, '_blank');
-    });
-  });
-  $('#pubListBody').querySelectorAll('[data-del]').forEach((b) => {
-    b.addEventListener('click', () => {
-      deletePublishSnapshot(b.dataset.del);
+  $('#pubListBody').querySelectorAll('[data-unpub]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      if (!confirm('Unpublish? Viewers will no longer see the boards after sign-in.')) return;
+      try { await pubCmd('publish:clear', { method: 'POST', admin: true }); toast('Unpublished.', 'ok'); }
+      catch (e) { toast('Unpublish failed: ' + (e?.message || 'unknown'), 'warn'); }
       openPublishModal();
-      toast('Snapshot deleted.', 'ok');
     });
   });
 
-    $('#pubCreateBtn').textContent = 'Create snapshot';
-    $('#pubModalTitle').textContent = connected ? 'Publish board stats' : 'Manage published snapshots';
-    show($( '#pubModal'));
+  $('#pubCreateBtn').textContent = connected ? 'Publish to organization' : 'Publish to organization';
+  show($('#pubModal'));
 }
 
+/* publish (or republish) the config: which boards + which chart defs.
+   Also stores the admin's Jira creds once, so viewers WITHOUT their own
+   connection still get live data through the relay. Instant — no per-board
+   Jira fetching, nothing to wait for. */
 async function createSnapshotFromModal() {
-  const scope = $( '#pubScope').querySelector('button.active').dataset.v;
-  const boardId = scope === 'all' ? state.boardId : parseInt($( '#pubBoardSelect').value, 10);
-  /* for 'all' scope the boardId is not required */
+  const scope = $('#pubScope').querySelector('button.active').dataset.v;
+  const boardId = scope === 'all' ? null : parseInt($('#pubBoardSelect').value, 10);
   if (scope === 'board' && !boardId) { toast('Select a board first.', 'warn'); return; }
-  const btn = $( '#pubCreateBtn');
+
+  /* pick the board set: every board for 'all', or just one board */
+  const boards = scope === 'all' ? state.boards : state.boards.filter((b) => b.id === boardId);
+  if (!boards.length) { toast('No boards to publish.', 'warn'); return; }
+
+  /* chart config = the current admin layout (built-ins incl. overrides + customs).
+     Uses the board context of the FIRST published board so board-scoped custom
+     charts survive; the defs are shared across all boards in this version. */
+  const prevBoardId = state.boardId;
+  state.boardId = boards[0].id;
+  const defs = effectiveCharts().map((d) => ({ ...d }));
+  state.boardId = prevBoardId;
+
+  const config = {
+    version: 2,
+    shareSeed: 'org',
+    savedAt: Date.now(),
+    chartDefs: defs,
+    boards: boards.map((b) => ({ boardId: b.id, name: b.name, projectName: b.location?.projectName || '' })),
+  };
+
+  const btn = $('#pubCreateBtn');
   btn.disabled = true;
-  btn.textContent = 'Creating…';
+  btn.textContent = 'Publishing…';
   try {
-    const snap = await createPublishSnapshot(boardId, scope);
-    if (!snap) { toast('Could not create snapshot.', 'warn'); return; }
-    const link = buildShareUrl(snap);
-    navigator.clipboard.writeText(link).then(() => toast('Snapshot created — link copied.', 'ok')).catch(() => toast('Snapshot created. Token: ' + snap.token, 'ok'));
-    hide($( '#pubModal'));
+    await pubConfigSet(config);
+    /* store admin creds once (best-effort — viewers with their own Jira sign-in
+       never need them, but this keeps the viewer-only path working too) */
+    try { await pubCredsSet(state.conn); } catch (e) { logDiag('warn', 'creds:set failed', { message: e?.message }); }
+    navigator.clipboard.writeText(shareLink()).then(() =>
+      toast('Published — viewer link copied. Data is always live; republish only when charts/boards change.', 'ok')
+    ).catch(() => toast('Published. Viewers will see it on next sign-in.', 'ok'));
+    hide($('#pubModal'));
     openPublishModal();
+  } catch (e) {
+    toast('Publish failed: ' + (e?.message || 'unknown error'), 'warn');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Create snapshot';
+    btn.textContent = 'Publish to organization';
   }
 }
 
@@ -3818,23 +3766,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /* publish modal wiring */
   $('#publishBtn').addEventListener('click', openPublishModal);
+  /* "Publish all" opens the same config-only publish modal pre-set to "all boards" —
+     publishing is instant (config POST), data is always live for viewers. */
   $('#publishAllBtn').addEventListener('click', async () => {
     if (!state.conn) { toast('Connect to Jira first.', 'warn'); return; }
     if (!state.boards.length) { toast('No boards loaded yet.', 'warn'); return; }
-    const btn = $('#publishAllBtn');
-    btn.disabled = true;
-    btn.textContent = 'Publishing… 0/' + state.boards.length;
-    try {
-      const snap = await createAllBoardsSnapshot((done, total) => {
-        btn.textContent = 'Publishing… ' + done + '/' + total;
-      });
-      if (!snap) return;
-      const link = buildShareUrl(snap);
-      navigator.clipboard.writeText(link).then(() => toast('All ' + snap.boards.length + ' boards published — link copied.', 'ok')).catch(() => toast('All boards published. Token: ' + snap.token, 'ok'));
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '⟳ Publish all';
-    }
+    await openPublishModal();
+    /* pre-select the "All boards" scope so one click on "Publish to organization" finishes */
+    const allBtn = $('#pubScope')?.querySelector('button[data-v="all"]');
+    if (allBtn) allBtn.click();
   });
   $('#closePubBtn').addEventListener('click', () => hide($( '#pubModal')));
   $('#pubModal').addEventListener('click', (ev) => {
@@ -3890,42 +3830,41 @@ document.addEventListener('DOMContentLoaded', () => {
   /* initialize Google sign-in button (only on the share screen) */
   initGoogleButton();
 
-  /* load a shared snapshot — self-contained (#p=) or legacy token (?share=) */
-  const loadedSnap = loadShareSnapshot();
-  if (loadedSnap) {
-    showPubScreen(loadedSnap);
-    /* if this browser also has a previously saved Jira session, keep it ready in the background */
-    const bg = loadConn();
-    if (bg) { state.conn = bg; }
-  } else {
-    // no share link — restore previous session silently
-    const saved = loadConn();
-    if (saved) {
-      /* merge relay prefs from the dedicated store (covers sessions saved
-         before the relay fields existed, without overriding newer values) */
-      const rp = loadRelayPrefs();
-      if (rp) {
-        if (saved.useProxy == null) saved.useProxy = rp.useProxy;
-        if (!saved.proxyApiKey) saved.proxyApiKey = rp.proxyApiKey || '';
-        if (!saved.proxyUrl) saved.proxyUrl = rp.proxyUrl || '';
-      }
-      state.conn = saved;
+  /* ── boot routing ─────────────────────────────────────────────────────
+     Share links (?share=org, or legacy #share / #p=) always open the org
+     publish gate: the board/chart CONFIG comes from the relay (shared by
+     every device) and the DATA is fetched live from Jira after sign-in.
+     Anywhere else, restore the saved Jira session and enter the app. */
+  const saved = loadConn();
+  if (saved) {
+    /* merge relay prefs from the dedicated store (covers sessions saved
+       before the relay fields existed, without overriding newer values) */
+    const rp = loadRelayPrefs();
+    if (rp) {
+      if (saved.useProxy == null) saved.useProxy = rp.useProxy;
+      if (!saved.proxyApiKey) saved.proxyApiKey = rp.proxyApiKey || '';
+      if (!saved.proxyUrl) saved.proxyUrl = rp.proxyUrl || '';
     }
+    state.conn = saved;
+  }
 
-    if (ADMIN_PANEL) {
-      /* ADMIN PANEL: show the live, synced dashboard. If a session exists, enter the
-         app; otherwise show the API-token connect flow (the only place it belongs). */
-      if (saved) enterApp();
-      else showSetup();
-    } else {
-      /* PUBLIC APP (root URL): org members land here. If a Jira session exists on this
-         device, open the LIVE read-only dashboard so users see the same charts & design
-         as the admin panel — but without any admin functions/buttons (no publish, no new
-         chart, no settings, no diagnostics). Without a session, fall back to the secure
-         published-snapshot gate. */
-      if (saved) enterApp();
-      else showPublicLanding();
-    }
+  const isShareLink = new URLSearchParams(location.search).has('share') ||
+    location.hash.startsWith('#share') || location.hash.startsWith('#p=');
+  if (isShareLink) {
+    showPublicLanding();   /* async: fetches the relay config, then shows the gate */
+  } else if (ADMIN_PANEL) {
+    /* ADMIN PANEL: show the live, synced dashboard. If a session exists, enter the
+       app; otherwise show the API-token connect flow (the only place it belongs). */
+    if (saved) enterApp();
+    else showSetup();
+  } else {
+    /* PUBLIC APP (root URL): org members land here. If a Jira session exists on this
+       device, open the LIVE read-only dashboard so users see the same charts & design
+       as the admin panel — but without any admin functions/buttons (no publish, no new
+       chart, no settings, no diagnostics). Without a session, fall back to the secure
+       published-boards gate (config from the relay, data live after sign-in). */
+    if (saved) enterApp();
+    else showPublicLanding();
   }
 
   window.addEventListener('error', (ev) => {
