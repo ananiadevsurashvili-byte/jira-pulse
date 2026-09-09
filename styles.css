@@ -199,21 +199,55 @@ body {
 }
 .board-card {
   position: relative;   /* anchor for the A/B pick badges (::after) */
-  padding: 20px;
+  display: flex; flex-direction: column;
+  padding: 18px;
   cursor: pointer;
   transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
   animation: rise 0.45s ease both;
+  overflow: hidden;
 }
+.board-card::before {
+  content: '';
+  position: absolute; inset: 0 0 auto 0; height: 2px;
+  background: linear-gradient(90deg, rgba(99,102,241,.7), rgba(34,211,238,.5), transparent 70%);
+  opacity: 0; transition: opacity .18s ease;
+}
+.board-card:hover::before { opacity: 1; }
 .board-card:hover {
   transform: translateY(-4px);
   border-color: rgba(99, 102, 241, 0.55);
   box-shadow: 0 16px 40px rgba(67, 56, 202, 0.35);
 }
-.board-card h3 { font-size: 1.02rem; font-weight: 700; margin-bottom: 8px; word-break: break-word; }
-.board-card-head { display: flex; align-items: flex-start; gap: 10px; justify-content: space-between; }
-.board-copy-link { font-size: 0.9rem; opacity: 0.7; padding: 4px 6px; border-radius: 8px; }
+.board-card h3 { font-size: 0.98rem; font-weight: 700; margin: 0; word-break: break-word; }
+.board-card-head { display: flex; align-items: flex-start; gap: 11px; justify-content: space-between; }
+/* gradient avatar with the board's initial */
+.board-avatar {
+  flex: 0 0 auto;
+  width: 40px; height: 40px; border-radius: 12px;
+  display: grid; place-items: center;
+  font-size: 1.05rem; font-weight: 800; color: #fff;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #22d3ee 130%);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.board-card.p-board .board-avatar { background: linear-gradient(135deg, #0ea5e9 0%, #22d3ee 60%, #34d399 130%); box-shadow: 0 4px 14px rgba(14, 165, 233, 0.3), inset 0 0 0 1px rgba(255,255,255,.14); }
+.board-id-block { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.board-id-block h3 {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.board-copy-link { font-size: 0.9rem; opacity: 0.7; padding: 4px 6px; border-radius: 8px; flex: 0 0 auto; }
 .board-copy-link:hover { opacity: 1; background: rgba(99,102,241,.12); }
-.board-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.board-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+.board-card-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: auto; padding-top: 10px;
+}
+.board-open { font-size: 0.8rem; font-weight: 600; color: #a5b4fc; white-space: nowrap; }
+.board-proj {
+  font-size: 0.68rem; max-width: 45%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: right;
+}
 .chip {
   font-size: 0.68rem;
   font-weight: 700;
@@ -783,7 +817,7 @@ body:not(.admin-body) .admin-hidden { display: none; }
 /* ══════════ BOARD-CARD STATS (main page) ══════════ */
 .board-stats {
   display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
-  margin: 2px 0 11px; min-height: 24px;
+  margin: 12px 0 2px; min-height: 58px;
 }
 .bstat {
   display: inline-flex; align-items: center; gap: 4px;
@@ -799,6 +833,36 @@ body:not(.admin-body) .admin-hidden { display: none; }
   background: transparent; border-style: dashed;
 }
 .bstat-skip { color: #94a3b8; font-weight: 600; background: transparent; border-style: dashed; }
+
+/* redesigned stats body: ring + 2×2 stat grid + health pill */
+.bc-main { display: flex; align-items: center; gap: 14px; width: 100%; }
+.ring { flex: 0 0 auto; }
+.ring-txt { font-size: 12.5px; font-weight: 800; font-family: Inter, system-ui, sans-serif; }
+.bc-stats {
+  flex: 1 1 auto; min-width: 0;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px;
+}
+.bc-stat {
+  display: flex; align-items: baseline; gap: 5px;
+  background: none; border: none; padding: 0;
+}
+.bc-v { font-size: 0.86rem; font-weight: 800; color: #e9edf8; line-height: 1.15; }
+.bc-l { font-size: 0.62rem; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
+.bc-stat.bc-pos .bc-v { color: #34d399; }
+.bc-stat.bc-neg .bc-v { color: #fb923c; }
+.bc-health {
+  margin-top: 8px; width: 100%;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em;
+  padding: 4px 10px; border-radius: 999px;
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  color: #b9c2d4;
+}
+.bc-hi { font-size: 0.78rem; line-height: 1; }
+.bc-health.hl-good { background: rgba(52, 211, 153, 0.1); border-color: rgba(52, 211, 153, 0.3); color: #6ee7b7; }
+.bc-health.hl-warn { background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.3); color: #fcd34d; }
+.bc-health.hl-bad { background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.32); color: #fca5a5; }
 
 /* ══════════ PICK-COMPARE MODE (main page) ══════════ */
 .board-card { cursor: pointer; }

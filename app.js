@@ -1465,6 +1465,7 @@ async function fetchBoardStats(board) {
     total: m.total, done: m.done, wip: m.wip,
     doneRate: m.doneRate, cycleAvg: m.cycleAvg,
     created30: m.created30, resolved30: m.resolved30,
+    blocked: m.blockedCount,
   };
 }
 
@@ -1490,14 +1491,53 @@ async function enrichBoardStats() {
   }
 }
 
-/* chips HTML for a card (cached values, loading pill, or failure mark) */
+/* inline SVG progress ring for the card's done% (color-coded by health) */
+function ringSvg(pct, size, stroke) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const p = Math.max(0, Math.min(100, pct || 0));
+  const off = c * (1 - p / 100);
+  const col = p >= 80 ? '#34d399' : p >= 40 ? '#818cf8' : '#fbbf24';
+  return `<svg class="ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="rgba(148,163,184,.16)" stroke-width="${stroke}"/>
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${col}" stroke-width="${stroke}"
+      stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"
+      transform="rotate(-90 ${size / 2} ${size / 2})"/>
+    <text x="50%" y="52%" dominant-baseline="central" text-anchor="middle" class="ring-txt" fill="${col}">${pct != null ? p + '%' : '—'}</text>
+  </svg>`;
+}
+
+/* one-line health verdict derived from the board's own numbers */
+function boardHealth(rec) {
+  if (!rec) return null;
+  const blocked = rec.blocked || 0;
+  const net = (rec.resolved30 || 0) - (rec.created30 || 0);
+  if (blocked > 0) return { cls: 'hl-bad', icon: '⛔', label: `${blocked} blocked/canceled` };
+  if ((rec.total || 0) > 0 && (rec.wip || 0) === 0) return { cls: 'hl-good', icon: '🎉', label: 'Nothing in progress' };
+  if (net <= -3) return { cls: 'hl-warn', icon: '📥', label: 'Backlog growing' };
+  if (net >= 3) return { cls: 'hl-good', icon: '🚀', label: 'Strong outflow' };
+  return { cls: 'hl-neutral', icon: '◈', label: 'Steady flow' };
+}
+
+/* card stats body: completion ring + 4 headline numbers + health pill.
+   (loading pill keeps the `bstat` class so placeholder state is testable) */
 function boardStatsChipHtml(rec) {
   if (!rec) return '<span class="bstat bstat-pending"><span class="spinner spinner-sm"></span> measuring…</span>';
+  const net = (rec.resolved30 || 0) - (rec.created30 || 0);
+  const netCls = net > 0 ? 'bc-pos' : net < 0 ? 'bc-neg' : '';
+  const netTxt = net > 0 ? `+${net}` : String(net);
+  const h = boardHealth(rec);
   return `
-    <span class="bstat" title="Issues analyzed"><span class="b-ic">▦</span>${rec.total}</span>
-    <span class="bstat" title="Done overall"><span class="b-ic">✓</span>${rec.doneRate}%</span>
-    <span class="bstat" title="Work in progress"><span class="b-ic">◔</span>${rec.wip}</span>
-    <span class="bstat" title="Avg cycle time (create → resolve)"><span class="b-ic">⏱</span>${rec.cycleAvg != null ? fmtDuration(rec.cycleAvg) : '—'}</span>`;
+    <div class="bc-main">
+      ${ringSvg(rec.doneRate, 54, 6)}
+      <div class="bc-stats">
+        <div class="bc-stat bstat" title="Issues analyzed"><span class="bc-v">${rec.total}</span><span class="bc-l">issues</span></div>
+        <div class="bc-stat bstat" title="Work in progress"><span class="bc-v">${rec.wip}</span><span class="bc-l">in progress</span></div>
+        <div class="bc-stat bstat" title="Avg cycle time (create → resolve)"><span class="bc-v">${rec.cycleAvg != null ? fmtDuration(rec.cycleAvg) : '—'}</span><span class="bc-l">avg cycle</span></div>
+        <div class="bc-stat bstat ${netCls}" title="Net flow · last 30 days (resolved − created)"><span class="bc-v">${netTxt}</span><span class="bc-l">net 30d</span></div>
+      </div>
+    </div>
+    ${h ? `<div class="bc-health ${h.cls}"><span class="bc-hi">${h.icon}</span>${h.label}</div>` : ''}`;
 }
 
 /* update one card's stats row in place (cards animate in — never re-render the grid) */
@@ -1522,19 +1562,26 @@ function boardCardHTML(b, i) {
   const openLabel = pick
     ? (picked ? `Selected as ${pickedA ? 'A' : 'B'} — click to remove` : (pick.a == null ? 'Click to pick as A' : 'Click to pick as B'))
     : 'Open dashboard →';
+  const initial = escapeHtml((b.name || '?').trim().charAt(0).toUpperCase());
+  const pBoard = isPBoard(b);
   return `
-    <div class="board-card glass${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}" data-id="${b.id}" style="animation-delay:${Math.min(i * 35, 400)}ms">
+    <div class="board-card glass${pBoard ? ' p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}" data-id="${b.id}" style="animation-delay:${Math.min(i * 35, 400)}ms">
       <div class="board-card-head">
-        <h3>${escapeHtml(b.name)}</h3>
+        <div class="board-avatar" aria-hidden="true">${initial}</div>
+        <div class="board-id-block">
+          <h3 title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</h3>
+          <div class="board-meta">
+            ${b.type ? `<span class="${boardTypeClass(b.type)}">${escapeHtml(b.type)}</span>` : ''}
+            ${b.location?.projectKey ? `<span class="chip">${escapeHtml(b.location.projectKey)}</span>` : ''}
+          </div>
+        </div>
         <button class="link-btn board-copy-link" data-copyboard="${b.id}" title="Copy link to this board" aria-label="Copy board link">🔗</button>
       </div>
-      <div class="board-meta">
-        ${b.type ? `<span class="${boardTypeClass(b.type)}">${escapeHtml(b.type)} board</span>` : ''}
-        ${b.location?.projectKey ? `<span class="chip">${escapeHtml(b.location.projectKey)}</span>` : ''}
-      </div>
-      ${b.location?.projectName ? `<div class="muted small" style="margin-bottom:10px">Project · ${escapeHtml(b.location.projectName)}</div>` : '<div style="height:22px"></div>'}
       <div class="board-stats" id="bstats_${b.id}">${boardStatsChipHtml(cachedBoardStats(b.id))}</div>
-      <span class="board-open">${openLabel}</span>
+      <div class="board-card-foot">
+        <span class="board-open">${openLabel}</span>
+        ${b.location?.projectName ? `<span class="board-proj muted" title="${escapeHtml(b.location.projectName)}">${escapeHtml(b.location.projectName)}</span>` : ''}
+      </div>
     </div>`;
 }
 
@@ -2337,7 +2384,7 @@ function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB) {
      label at the same index means the same date — plain index alignment is
      correct. Pad the shorter series with nulls. Datasets get board-name
      prefixes so the legend tells the two boards apart. */
-  const isTime = def.metric === 'flow' || def.metric === 'created' || def.metric === 'resolved';
+  const isTime = def.metric === 'flow' || def.metric === 'created' || def.metric === 'resolved' || def.metric === 'netflow';
   if (isTime) {
     const labels = (dataA.labels || dataB.labels || []);
     const n = Math.max(labels.length, (dataA.datasets?.[0]?.data || []).length, (dataB.datasets?.[0]?.data || []).length);
@@ -2385,7 +2432,10 @@ function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB) {
     const bv = align(bMap, bVals, l);
     return { l, av, bv, score: Math.max(av ?? 0, bv ?? 0) };
   });
-  scored.sort((x, y) => y.score - x.score);
+  /* ordered-ladder groupings (age buckets) keep their intrinsic order in compare
+     mode too — sorting by value would scramble the ≤2d → 6mo+ narrative */
+  if (def.groupBy === 'ageBucket') scored.sort((x, y) => AGE_BUCKETS.findIndex(([b]) => b === x.l) - AGE_BUCKETS.findIndex(([b]) => b === y.l));
+  else scored.sort((x, y) => y.score - x.score);
 
   const topN = def.topN || 0;
   const picked = topN ? scored.slice(0, topN) : scored;
@@ -2441,6 +2491,7 @@ const METRIC_DEFS = {
   flow:          { label: 'Created vs resolved over time', kind: 'time' },
   created:       { label: 'Issues created over time',      kind: 'time' },
   resolved:      { label: 'Issues resolved over time',     kind: 'time' },
+  netflow:       { label: 'Cumulative net flow (backlog size)', kind: 'time' },
   count:         { label: 'Issue count by group',          kind: 'category' },
   blockedCount:  { label: 'Blocked / canceled by status',  kind: 'category', blockedOnly: true },
   avgCycle:      { label: 'Avg cycle time by group',       kind: 'category', duration: true, resolvedOnly: true },
@@ -2451,7 +2502,7 @@ const METRIC_DEFS = {
 const GROUP_LABELS = {
   time: 'Time', status: 'Status', assignee: 'Assignee', type: 'Issue type',
   priority: 'Priority', label: 'First label', bottleneck: 'Bottleneck stage',
-  stage: 'Stakeholder vs team',
+  stage: 'Stakeholder vs team', ageBucket: 'Age bucket', assigneeState: 'Assigned vs unassigned',
 };
 
 /* which groupings each metric kind supports */
@@ -2460,6 +2511,7 @@ const GROUPS_FOR_KIND = {
   category: [
     ['status', 'Status'], ['assignee', 'Assignee'], ['type', 'Issue type'],
     ['priority', 'Priority'], ['label', 'First label'], ['bottleneck', 'Bottleneck stage'],
+    ['ageBucket', 'Age bucket'], ['assigneeState', 'Assigned vs unassigned'],
   ],
   statusTime: [['status', 'Each status'], ['stage', 'Stakeholder vs team']],
 };
@@ -2484,6 +2536,7 @@ const BUILTIN_DEFS = [
   { id: 'throughput', title: 'Monthly Throughput', subtitle: 'Completed issues per month (Done/Approved/Babysitting/Released)', type: 'bar', metric: 'resolved', groupBy: 'time', bucket: 'month', range: 182, filter: 'all', topN: 0, split: 'none', color: 'green', wide: true, centerTotal: false },
   { id: 'createdTrend', title: 'Issues Created', subtitle: 'Weekly creation trend', type: 'line', metric: 'created', groupBy: 'time', bucket: 'week', range: 182, filter: 'all', topN: 0, split: 'none', color: 'cyan', wide: false, centerTotal: false },
   { id: 'resolvedTrend', title: 'Issues Resolved', subtitle: 'Monthly completion trend', type: 'line', metric: 'resolved', groupBy: 'time', bucket: 'month', range: 182, filter: 'all', topN: 0, split: 'none', color: 'green', wide: false, centerTotal: false },
+  { id: 'backlogGrowth', title: 'Backlog Trend', subtitle: 'Cumulative open work (created − resolved)', type: 'line', metric: 'netflow', groupBy: 'time', bucket: 'month', range: 182, filter: 'all', topN: 0, split: 'none', color: 'violet', wide: false, centerTotal: true },
   { id: 'blockedDist', title: 'Blocked & Canceled', subtitle: 'Work sitting on blocked/canceled/rejected statuses', type: 'hbar', metric: 'blockedCount', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 10, split: 'none', color: 'pink', wide: false, centerTotal: false },
   { id: 'bottlenecks', title: 'Active Bottlenecks', subtitle: 'Where open work is parked', type: 'doughnut', metric: 'count', groupBy: 'bottleneck', bucket: 'week', range: 0, filter: 'open', topN: 0, split: 'none', color: 'indigo', wide: false, centerTotal: true },
   { id: 'statusDist', title: 'Status Distribution', subtitle: 'All issues by current status', type: 'doughnut', metric: 'count', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 8, split: 'none', color: 'violet', wide: false, centerTotal: true },
@@ -2493,6 +2546,9 @@ const BUILTIN_DEFS = [
   { id: 'assigneeLoad', title: 'Assignee Workload', subtitle: 'Open issues per assignee', type: 'hbar', metric: 'count', groupBy: 'assignee', bucket: 'week', range: 0, filter: 'open', topN: 12, split: 'none', color: 'pink', wide: false, centerTotal: false },
   { id: 'priorityDist', title: 'Priority Distribution', subtitle: 'Open issues by priority', type: 'doughnut', metric: 'count', groupBy: 'priority', bucket: 'week', range: 0, filter: 'open', topN: 8, split: 'none', color: 'amber', wide: false, centerTotal: true },
   { id: 'ageDist', title: 'Open Issue Age', subtitle: 'How long issues have been open', type: 'hbar', metric: 'openAge', groupBy: 'assignee', bucket: 'week', range: 0, filter: 'open', topN: 10, split: 'none', color: 'green', wide: false, centerTotal: false },
+  { id: 'ageBuckets', title: 'Age vs Demand', subtitle: 'How long the open backlog has been waiting', type: 'hbar', metric: 'count', groupBy: 'ageBucket', bucket: 'week', range: 0, filter: 'open', topN: 0, split: 'none', color: 'amber', wide: false, centerTotal: false },
+  { id: 'unassigned', title: 'Assignment Gaps', subtitle: 'Who owns the open work — spot the load imbalance', type: 'doughnut', metric: 'count', groupBy: 'assigneeState', bucket: 'week', range: 0, filter: 'open', topN: 0, split: 'none', color: 'pink', wide: false, centerTotal: true },
+  { id: 'assigneeCycle', title: 'Cycle Time Leaderboard', subtitle: 'Avg create → resolve per assignee · resolved issues only', type: 'hbar', metric: 'avgCycle', groupBy: 'assignee', bucket: 'week', range: 182, filter: 'done', topN: 10, split: 'none', color: 'cyan', wide: false, centerTotal: false },
 ];
 
 function chartStoreKey() { return CHART_STORE_PREFIX + (state.conn?.domain || 'default'); }
@@ -2604,9 +2660,24 @@ function isExcludedStatus(f) {
   return isCompletedStatus(f) || isBlockedStatus(f);
 }
 
+/* open-age bucket: how long has this issue been waiting? (fixed, ordered ladder) */
+const AGE_BUCKETS = [
+  ['≤ 2d', 0, 2], ['3–7d', 2, 7], ['1–2w', 7, 14], ['2–4w', 14, 28],
+  ['1–3mo', 28, 91], ['3–6mo', 91, 182], ['6mo+', 182, Infinity],
+];
+function ageBucketOf(f) {
+  const created = f.created ? Date.parse(f.created) : null;
+  if (created == null || !isFinite(created)) return AGE_BUCKETS[AGE_BUCKETS.length - 1][0];
+  const days = (Date.now() - created) / DAY;
+  for (const [label, lo, hi] of AGE_BUCKETS) if (days >= lo && days < hi) return label;
+  return AGE_BUCKETS[AGE_BUCKETS.length - 1][0];
+}
+
 function groupKeyOf(def, f) {
   switch (def.groupBy) {
     case 'assignee': return f.assignee?.displayName || 'Unassigned';
+    case 'assigneeState': return f.assignee ? 'Assigned' : 'Unassigned';
+    case 'ageBucket': return ageBucketOf(f);
     case 'type': return f.issuetype?.name || 'Task';
     case 'priority': return f.priority?.name || 'None';
     case 'label': return Array.isArray(f.labels) && f.labels.length ? f.labels[0] : 'No label';
@@ -2632,8 +2703,9 @@ function rangeLabel(days) {
 /* build time-bucketed series for created / resolved / flow */
 function buildTimeSeries(def, issues) {
   const NOW = Date.now();
-  const wantCreated = def.metric !== 'resolved';
-  const wantResolved = def.metric !== 'created';
+  const isNet = def.metric === 'netflow';
+  const wantCreated = def.metric !== 'resolved' || isNet;
+  const wantResolved = def.metric !== 'created' || isNet;
   let rangeDays = def.range || 0;
 
   let oldest = Infinity;
@@ -2702,20 +2774,31 @@ function buildTimeSeries(def, issues) {
   }
 
   const datasets = [];
-  if (wantCreated) datasets.push({ label: 'Registered', data: createdCounts, color: '#6366f1', rgb: ACCENT_RGB.indigo });
-  if (wantResolved) datasets.push({ label: 'Completed', data: resolvedCounts, color: '#34d399', rgb: ACCENT_RGB.green });
+  let net = null;
+  if (isNet) {
+    /* cumulative net flow: created − resolved, running total → open-backlog shape */
+    let acc = 0;
+    net = createdCounts.map((c, i) => (acc += c - resolvedCounts[i]));
+    datasets.push({ label: 'Open backlog', data: net, color: '#8b5cf6', rgb: ACCENT_RGB.violet });
+  } else {
+    if (wantCreated) datasets.push({ label: 'Registered', data: createdCounts, color: '#6366f1', rgb: ACCENT_RGB.indigo });
+    if (wantResolved) datasets.push({ label: 'Completed', data: resolvedCounts, color: '#34d399', rgb: ACCENT_RGB.green });
+  }
 
   const parts = [];
-  if (wantCreated && wantResolved) parts.push('registered vs completed');
+  if (isNet) parts.push('cumulative open backlog (created − resolved)');
+  else if (wantCreated && wantResolved) parts.push('registered vs completed');
   else if (wantCreated) parts.push('created');
   else parts.push('resolved');
   const subtitle = `${parts.join(' · ')} · per ${bucket} · ${rangeLabel(def.range)}`;
 
-  const total = (wantCreated ? createdCounts : resolvedCounts).reduce((a, b) => a + b, 0);
+  const total = isNet
+    ? (net && net.length ? net[net.length - 1] : 0)
+    : (wantCreated ? createdCounts : resolvedCounts).reduce((a, b) => a + b, 0);
   return {
     labels, datasets, duration: false,
     subtitle,
-    centerValue: total, centerLabel: 'issues',
+    centerValue: total, centerLabel: isNet ? 'open now' : 'issues',
   };
 }
 
@@ -2752,12 +2835,19 @@ function buildCategoryData(def, issues) {
     k, v: metric.duration ? r.sum / r.n : r.sum, n: r.n,
   }));
   if (def.groupBy === 'bottleneck') rows.sort((a, b) => BOTTLENECK_ORDER.indexOf(a.k) - BOTTLENECK_ORDER.indexOf(b.k));
+  else if (def.groupBy === 'ageBucket') rows.sort((a, b) => AGE_BUCKETS.findIndex(([l]) => l === a.k) - AGE_BUCKETS.findIndex(([l]) => l === b.k));
   else rows.sort((a, b) => b.v - a.v);
 
   let labels = rows.map((r) => r.k);
   let values = rows.map((r) => metric.duration ? +(r.v / DAY).toFixed(2) : r.v);
   let colors;
   if (def.groupBy === 'bottleneck') colors = labels.map(bottleneckColor);
+  else if (def.groupBy === 'ageBucket') {
+    /* heat ramp: fresh = green → ancient = red */
+    const ramp = ['#34d399', '#a3e635', '#fbbf24', '#fb923c', '#f87171', '#ef4444', '#b91c1c'];
+    colors = labels.map((l) => ramp[AGE_BUCKETS.findIndex(([b]) => b === l)] || '#64748b');
+  }
+  else if (def.groupBy === 'assigneeState') colors = labels.map((k) => (k === 'Unassigned' ? '#f87171' : '#34d399'));
   else if (def.groupBy === 'stage') colors = labels.map((k) => (k === 'Stakeholder gates' ? '#fbbf24' : '#22d3ee'));
   else colors = labels.map((_, i) => PALETTE[i % PALETTE.length]);
 
@@ -2904,6 +2994,7 @@ function chartCardHTML(def, overridden) {
 function chartConfigFor(def, data, theme, canvasId) {
   const dur = data.duration;
   const fmtV = dur ? (v) => fmtDuration(v * DAY) : (v) => String(Math.round(v));
+  const fmtNum = (v) => (v == null || !isFinite(v) ? '—' : String(Math.round(v)));
 
   if (def.type === 'doughnut') {
     return {
@@ -2914,8 +3005,9 @@ function chartConfigFor(def, data, theme, canvasId) {
           data: data.datasets[0].data,
           backgroundColor: data.colors,
           borderColor: 'rgba(10,15,34,.9)',
-          borderWidth: 3,
-          hoverOffset: 8,
+          borderWidth: 2,
+          hoverOffset: 10,
+          hoverBorderColor: '#fff',
         }],
       },
       options: {
@@ -2945,7 +3037,7 @@ function chartConfigFor(def, data, theme, canvasId) {
     const grad = (rgb) => {
       if (!ctx) return `rgba(${rgb},.15)`;
       const g = ctx.createLinearGradient(0, 0, 0, 280);
-      g.addColorStop(0, `rgba(${rgb},.28)`);
+      g.addColorStop(0, `rgba(${rgb},.30)`);
       g.addColorStop(1, `rgba(${rgb},0)`);
       return g;
     };
@@ -2956,13 +3048,29 @@ function chartConfigFor(def, data, theme, canvasId) {
         datasets: data.datasets.map((ds) => ({
           label: ds.label, data: ds.data,
           borderColor: ds.color, backgroundColor: grad(ds.rgb),
-          fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2.5,
+          fill: true, tension: 0.35,
+          pointRadius: 2, pointHoverRadius: 5,
+          pointBackgroundColor: ds.color, pointBorderColor: 'rgba(10,15,34,.9)', pointBorderWidth: 1.5,
+          borderWidth: 2.5,
         })),
       },
       options: {
         ...theme,
         interaction: { mode: 'index', intersect: false },
-        plugins: { ...theme.plugins, legend: data.datasets.length > 1 ? LEGEND_ON : { display: false } },
+        plugins: {
+          ...theme.plugins,
+          legend: data.datasets.length > 1 ? LEGEND_ON : { display: false },
+          tooltip: {
+            ...theme.plugins.tooltip,
+            callbacks: {
+              label: (c) => {
+                const tot = c.dataset.data.reduce((a, b) => a + (b || 0), 0);
+                return ` ${c.dataset.label}: ${fmtNum(c.parsed.y)}${tot ? ` (${Math.round((c.parsed.y || 0) / tot * 100)}%)` : ''}`;
+              },
+            },
+          },
+        },
+        elements: { line: { capBezierPoints: true } },
       },
     };
   }
@@ -2970,14 +3078,16 @@ function chartConfigFor(def, data, theme, canvasId) {
   /* bar / hbar */
   const isH = def.type === 'hbar';
   const multi = data.datasets.length > 1;
+  const hasPerBarColors = !multi && data.colors && data.colors.length === data.labels.length;
+  const totSeries = data.datasets[0].data.reduce((a, b) => a + (b || 0), 0);
   return {
     type: 'bar',
     data: {
       labels: data.labels,
       datasets: data.datasets.map((ds) => ({
         label: ds.label, data: ds.data,
-        backgroundColor: multi ? ds.color + 'cc' : (data.colors && data.colors.length === data.labels.length ? data.colors : ds.color + 'cc'),
-        hoverBackgroundColor: multi ? ds.color : (data.colors && data.colors.length === data.labels.length ? data.colors : ds.color),
+        backgroundColor: multi ? ds.color + 'cc' : (hasPerBarColors ? data.colors : ds.color + 'cc'),
+        hoverBackgroundColor: multi ? ds.color : (hasPerBarColors ? data.colors : ds.color),
         borderRadius: 7, borderSkipped: false,
         barPercentage: multi ? 0.58 : 0.68, categoryPercentage: 0.72,
         maxBarThickness: 46,
@@ -2988,12 +3098,25 @@ function chartConfigFor(def, data, theme, canvasId) {
       indexAxis: isH ? 'y' : 'x',
       plugins: {
         legend: multi ? LEGEND_ON : { display: false },
-        tooltip: { ...theme.plugins.tooltip, callbacks: { label: (c) => c.parsed[isH ? 'x' : 'y'] != null ? fmtV(c.parsed[isH ? 'x' : 'y']) : '' } },
+        tooltip: {
+          ...theme.plugins.tooltip,
+          callbacks: {
+            label: (c) => {
+              const v = c.parsed[isH ? 'x' : 'y'];
+              if (v == null) return '';
+              /* single-series count charts get a share-of-total hint */
+              if (!multi && !dur && totSeries > 0) {
+                return ` ${fmtV(v)} · ${Math.round(v / totSeries * 100)}%`;
+              }
+              return ` ${fmtV(v)}`;
+            },
+          },
+        },
       },
       scales: isH
         ? {
-            x: { ...theme.scales.x, ...(dur ? { ticks: { callback: (v) => v + 'd' } } : {}), grid: { display: false } },
-            y: { grid: { color: 'rgba(255,255,255,.05)' }, ticks: { precision: 0 } },
+            x: { ...theme.scales.x, ...(dur ? { ticks: { callback: (v) => v + 'd' } } : {}), grid: { color: 'rgba(255,255,255,.05)' } },
+            y: { grid: { display: false }, ticks: { precision: 0 } },
           }
         : {
             ...theme.scales,
