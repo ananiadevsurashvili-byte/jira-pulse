@@ -449,12 +449,14 @@ function pubVerifyCode() {
 const _pubBoardCache = new Map();   /* boardId → { rec, ts } per-session memo (30 s) */
 const PUB_LIVE_TTL = 30 * 1000;
 
-/* fetch live issues for a board + compute the full chart set */
-async function pubLoadBoardLive(boardId) {
-  const memo = _pubBoardCache.get(boardId);
+/* fetch live issues for a board + compute the full chart set.
+   mode: 'full' (changelog, for chart views) | 'light' (metrics-only, fast). */
+async function pubLoadBoardLive(boardId, mode = 'full') {
+  const memoKey = boardId + ':' + mode;
+  const memo = _pubBoardCache.get(memoKey);
   if (memo && Date.now() - memo.ts < PUB_LIVE_TTL) return memo.rec;
-  logDiag('info', 'Publish view: fetching live board data', { boardId, mode: 'full' });
-  const rec = await pubFetchBoardLive(boardId, 'full');
+  logDiag('info', 'Publish view: fetching live board data', { boardId, mode });
+  const rec = await pubFetchBoardLive(boardId, mode);
   const issues = Array.isArray(rec.issues) ? rec.issues : [];
   const m = computeMetrics(issues);
   rememberDoneStatuses(issues);                       /* learn custom done-status names */
@@ -470,7 +472,7 @@ async function pubLoadBoardLive(boardId) {
     source: rec.source || '',
     charts,
   };
-  _pubBoardCache.set(boardId, { rec: out, ts: Date.now() });
+  _pubBoardCache.set(memoKey, { rec: out, ts: Date.now() });
   return out;
 }
 
@@ -583,26 +585,32 @@ async function renderPubContent() {
       });
     });
 
-    /* fetch every board's live stats sequentially (light mode = fast, no changelog)
-       and update the rows in place as each result lands */
-    for (const b of boards) {
-      try {
-        const rec = await pubLoadBoardLive(b.boardId);
-        const m = rec.metrics;
-        const net = (m.resolved30 || 0) - (m.created30 || 0);
-        const meta = document.getElementById('pubmeta_' + b.boardId);
-        if (meta) {
-          meta.innerHTML =
-            `${rec.issuesCount} issues · ${m.doneRate != null ? m.doneRate + '% done' : '—'} · ${m.wip} in progress` +
-            (net !== 0 ? ` · <span style="color:${net > 0 ? '#34d399' : '#f87171'}">${net > 0 ? '+' : ''}${net} net 30d</span>` : '') +
-            ` · <span style="color:var(--muted)">updated ${new Date(rec.fetchedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>`;
+    /* fetch every board's live stats in parallel (4 at a time; light mode =
+       fast, no changelog) and update the rows in place as each result lands */
+    const PUB_CONCURRENCY = 4;
+    let pubCursor = 0;
+    const pubWorker = async () => {
+      while (pubCursor < boards.length) {
+        const b = boards[pubCursor++];
+        try {
+          const rec = await pubLoadBoardLive(b.boardId, 'light');
+          const m = rec.metrics;
+          const net = (m.resolved30 || 0) - (m.created30 || 0);
+          const meta = document.getElementById('pubmeta_' + b.boardId);
+          if (meta) {
+            meta.innerHTML =
+              `${rec.issuesCount} issues · ${m.doneRate != null ? m.doneRate + '% done' : '—'} · ${m.wip} in progress` +
+              (net !== 0 ? ` · <span style="color:${net > 0 ? '#34d399' : '#f87171'}">${net > 0 ? '+' : ''}${net} net 30d</span>` : '') +
+              ` · <span style="color:var(--muted)">updated ${new Date(rec.fetchedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>`;
+          }
+        } catch (e) {
+          logDiag('warn', 'Publish all-boards: live stats failed', { boardId: b.boardId, message: e?.message });
+          const meta = document.getElementById('pubmeta_' + b.boardId);
+          if (meta) meta.innerHTML = '<span style="color:#f87171">live data unavailable</span>';
         }
-      } catch (e) {
-        logDiag('warn', 'Publish all-boards: live stats failed', { boardId: b.boardId, message: e?.message });
-        const meta = document.getElementById('pubmeta_' + b.boardId);
-        if (meta) meta.innerHTML = '<span style="color:#f87171">live data unavailable</span>';
       }
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(PUB_CONCURRENCY, boards.length) }, pubWorker));
   } else {
     /* ── single-board view: fetch LIVE issues, then render the charts ── */
     boardsList.classList.add('hidden');
@@ -1355,7 +1363,7 @@ function boardTypeClass(t) {
    Every card on the "Choose a board" page gets 4 headline stats — issues,
    done %, WIP and avg cycle time — so the whole org is visible at a glance.
    Numbers are fetched with a LIGHT search (no changelog expand), cached in
-   localStorage for 30 minutes, and enriched one board at a time in the
+   localStorage for 30 minutes, and enriched 4 boards at a time in the
    background so the page never blocks or hammers the relay. */
 const LS_BSTATS = 'jp_bstats_v1';
 const BSTATS_TTL = 30 * 60 * 1000;
@@ -1389,6 +1397,30 @@ function saveBoardStats(boardId, rec) {
 /* light fetch of one board's headline numbers (reuses the dashboard's own
    context resolution + metrics computation, minus the changelog weight) */
 async function fetchBoardStats(board) {
+  /* FAST PATH: the publish relay computes the identical metric set server-side
+     in ONE call (same fields incl. resolutiondate → same cycle-time quality;
+     only the unused changelog weight is skipped for light mode). This collapses
+     ~10-15 client round-trips per board into 1. Falls back to the original
+     direct-Jira path when the relay is unreachable or returns no data. */
+  try {
+    const rec = await pubFetchBoardLive(board.id, 'light');
+    if (rec && Array.isArray(rec.issues) && rec.issues.length) {
+      const m = computeMetrics(rec.issues);
+      rememberDoneStatuses(rec.issues);
+      return {
+        ts: Date.now(),
+        total: m.total, done: m.done, wip: m.wip,
+        doneRate: m.doneRate, cycleAvg: m.cycleAvg,
+        created30: m.created30, resolved30: m.resolved30,
+        blocked: m.blockedCount,
+      };
+    }
+  } catch (e) {
+    logDiag('warn', 'Board stats relay fast path failed — falling back to direct Jira', { boardId: board.id, status: e?.status, message: e?.message });
+  }
+
+  /* SLOW PATH (fallback): resolve the board's projects/filter directly and page
+     the issues through the user's own Jira connection. */
   const ctx = await resolveBoardContext(board);
   const jql = ctx.projectKeys.length
     ? `project in (${ctx.projectKeys.map((k) => `"${k}"`).join(', ')}) ORDER BY created DESC`
@@ -1417,14 +1449,19 @@ async function fetchBoardStats(board) {
   };
 }
 
-/* background loop: fetch stats for boards that have none/fresh — sequentially,
-   one board at a time, updating cards in place as each result lands */
+/* background loop: fetch stats for boards that have none/fresh — 4 boards in
+   parallel, updating cards in place as each result lands. Concurrency is capped
+   so the relay/Jira are not hammered and rate limits stay far away. */
+const BSTATS_CONCURRENCY = 4;
+
 async function enrichBoardStats() {
   if (_bstatsRunning || !state.conn) return;
   _bstatsRunning = true;
-  try {
-    for (const b of state.boards) {
-      if (cachedBoardStats(b.id) || _bstatsInflight.has(b.id)) continue;
+  const pending = state.boards.filter((b) => !cachedBoardStats(b.id) && !_bstatsInflight.has(b.id));
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < pending.length) {
+      const b = pending[cursor++];
       _bstatsInflight.add(b.id);
       try {
         const rec = await fetchBoardStats(b);
@@ -1434,56 +1471,46 @@ async function enrichBoardStats() {
         _bstatsInflight.delete(b.id);
       }
     }
+  };
+  try {
+    await Promise.all(Array.from({ length: Math.min(BSTATS_CONCURRENCY, pending.length) }, worker));
   } finally {
     _bstatsRunning = false;
   }
 }
 
-/* inline SVG progress ring for the card's done% (color-coded by health) */
-function ringSvg(pct, size, stroke) {
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const p = Math.max(0, Math.min(100, pct || 0));
-  const off = c * (1 - p / 100);
-  const col = p >= 80 ? '#34d399' : p >= 40 ? '#818cf8' : '#fbbf24';
-  return `<svg class="ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">
-    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="rgba(148,163,184,.16)" stroke-width="${stroke}"/>
-    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${col}" stroke-width="${stroke}"
-      stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"
-      transform="rotate(-90 ${size / 2} ${size / 2})"/>
-    <text x="50%" y="52%" dominant-baseline="central" text-anchor="middle" class="ring-txt" fill="${col}">${pct != null ? p + '%' : '—'}</text>
-  </svg>`;
-}
-
-/* one-line health verdict derived from the board's own numbers */
+/* one-line health verdict derived from the board's own numbers.
+   Blocked/canceled work is informational (amber, quiet) — not an alarm. */
 function boardHealth(rec) {
   if (!rec) return null;
   const blocked = rec.blocked || 0;
   const net = (rec.resolved30 || 0) - (rec.created30 || 0);
-  if (blocked > 0) return { cls: 'hl-bad', icon: '⛔', label: `${blocked} blocked/canceled` };
-  if ((rec.total || 0) > 0 && (rec.wip || 0) === 0) return { cls: 'hl-good', icon: '🎉', label: 'Nothing in progress' };
-  if (net <= -3) return { cls: 'hl-warn', icon: '📥', label: 'Backlog growing' };
-  if (net >= 3) return { cls: 'hl-good', icon: '🚀', label: 'Strong outflow' };
+  if (blocked > 0) return { cls: 'hl-info', icon: '⏸', label: `${blocked} blocked · ${rec.wip} active` };
+  if ((rec.total || 0) > 0 && (rec.wip || 0) === 0) return { cls: 'hl-good', icon: '✓', label: 'All clear — nothing in progress' };
+  if (net <= -3) return { cls: 'hl-warn', icon: '↓', label: 'Backlog growing' };
+  if (net >= 3) return { cls: 'hl-good', icon: '↑', label: 'Strong outflow' };
   return { cls: 'hl-neutral', icon: '◈', label: 'Steady flow' };
 }
 
-/* card stats body: completion ring + 4 headline numbers + health pill.
+/* card stats body: compact 4-stat grid + slim progress bar + one quiet info line.
    (loading pill keeps the `bstat` class so placeholder state is testable) */
 function boardStatsChipHtml(rec) {
   if (!rec) return '<span class="bstat bstat-pending"><span class="spinner spinner-sm"></span> measuring…</span>';
   const net = (rec.resolved30 || 0) - (rec.created30 || 0);
   const netCls = net > 0 ? 'bc-pos' : net < 0 ? 'bc-neg' : '';
   const netTxt = net > 0 ? `+${net}` : String(net);
+  const pct = Math.max(0, Math.min(100, rec.doneRate || 0));
   const h = boardHealth(rec);
   return `
-    <div class="bc-main">
-      ${ringSvg(rec.doneRate, 54, 6)}
-      <div class="bc-stats">
-        <div class="bc-stat bstat" title="Issues analyzed"><span class="bc-v">${rec.total}</span><span class="bc-l">issues</span></div>
-        <div class="bc-stat bstat" title="Work in progress"><span class="bc-v">${rec.wip}</span><span class="bc-l">in progress</span></div>
-        <div class="bc-stat bstat" title="Avg cycle time (create → resolve)"><span class="bc-v">${rec.cycleAvg != null ? fmtDuration(rec.cycleAvg) : '—'}</span><span class="bc-l">avg cycle</span></div>
-        <div class="bc-stat bstat ${netCls}" title="Net flow · last 30 days (resolved − created)"><span class="bc-v">${netTxt}</span><span class="bc-l">net 30d</span></div>
-      </div>
+    <div class="bc-grid">
+      <div class="bc-stat bstat" title="Issues analyzed"><span class="bc-v">${rec.total}</span><span class="bc-l">issues</span></div>
+      <div class="bc-stat bstat" title="Work in progress"><span class="bc-v">${rec.wip}</span><span class="bc-l">active</span></div>
+      <div class="bc-stat bstat" title="Avg cycle time (create → resolve)"><span class="bc-v">${rec.cycleAvg != null ? fmtDuration(rec.cycleAvg) : '—'}</span><span class="bc-l">cycle</span></div>
+      <div class="bc-stat bstat ${netCls}" title="Net flow · last 30 days (resolved − created)"><span class="bc-v">${netTxt}</span><span class="bc-l">net 30d</span></div>
+    </div>
+    <div class="bc-bar" title="${pct}% done">
+      <i style="width:${pct}%"></i>
+      <span class="bc-bar-txt">${pct}% done</span>
     </div>
     ${h ? `<div class="bc-health ${h.cls}"><span class="bc-hi">${h.icon}</span>${h.label}</div>` : ''}`;
 }
@@ -1512,6 +1539,8 @@ function boardCardHTML(b, i) {
     : 'Open dashboard →';
   const initial = escapeHtml((b.name || '?').trim().charAt(0).toUpperCase());
   const pBoard = isPBoard(b);
+  const cached = cachedBoardStats(b.id);
+  const headPct = cached ? Math.max(0, Math.min(100, cached.doneRate || 0)) : null;
   return `
     <div class="board-card glass${pBoard ? ' p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}" data-id="${b.id}" style="animation-delay:${Math.min(i * 35, 400)}ms">
       <div class="board-card-head">
@@ -1523,9 +1552,10 @@ function boardCardHTML(b, i) {
             ${b.location?.projectKey ? `<span class="chip">${escapeHtml(b.location.projectKey)}</span>` : ''}
           </div>
         </div>
+        ${headPct != null ? `<span class="board-head-pct" title="${headPct}% done">${headPct}%</span>` : ''}
         <button class="link-btn board-copy-link" data-copyboard="${b.id}" title="Copy link to this board" aria-label="Copy board link">🔗</button>
       </div>
-      <div class="board-stats" id="bstats_${b.id}">${boardStatsChipHtml(cachedBoardStats(b.id))}</div>
+      <div class="board-stats" id="bstats_${b.id}">${boardStatsChipHtml(cached)}</div>
       <div class="board-card-foot">
         <span class="board-open">${openLabel}</span>
         ${b.location?.projectName ? `<span class="board-proj muted" title="${escapeHtml(b.location.projectName)}">${escapeHtml(b.location.projectName)}</span>` : ''}

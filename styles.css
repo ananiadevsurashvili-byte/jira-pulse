@@ -816,8 +816,8 @@ body:not(.admin-body) .admin-hidden { display: none; }
 
 /* ══════════ BOARD-CARD STATS (main page) ══════════ */
 .board-stats {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
-  margin: 12px 0 2px; min-height: 58px;
+  display: flex; flex-direction: column; gap: 8px;
+  margin: 12px 0 2px; min-height: 86px;
 }
 .bstat {
   display: inline-flex; align-items: center; gap: 4px;
@@ -834,35 +834,66 @@ body:not(.admin-body) .admin-hidden { display: none; }
 }
 .bstat-skip { color: #94a3b8; font-weight: 600; background: transparent; border-style: dashed; }
 
-/* redesigned stats body: ring + 2×2 stat grid + health pill */
-.bc-main { display: flex; align-items: center; gap: 14px; width: 100%; }
-.ring { flex: 0 0 auto; }
-.ring-txt { font-size: 12.5px; font-weight: 800; font-family: Inter, system-ui, sans-serif; }
-.bc-stats {
-  flex: 1 1 auto; min-width: 0;
-  display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px;
+/* compact stats body: 4-up metric grid + slim done bar + quiet info line */
+.bc-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+  width: 100%;
 }
 .bc-stat {
-  display: flex; align-items: baseline; gap: 5px;
-  background: none; border: none; padding: 0;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  background: rgba(148, 163, 184, 0.07);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 10px;
+  padding: 7px 9px 6px;
+  min-width: 0;
 }
-.bc-v { font-size: 0.86rem; font-weight: 800; color: #e9edf8; line-height: 1.15; }
-.bc-l { font-size: 0.62rem; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
-.bc-stat.bc-pos .bc-v { color: #34d399; }
-.bc-stat.bc-neg .bc-v { color: #fb923c; }
+.bc-v { font-size: 0.95rem; font-weight: 800; color: #e9edf8; line-height: 1.1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bc-l { font-size: 0.58rem; font-weight: 700; color: var(--muted); letter-spacing: 0.07em; text-transform: uppercase; white-space: nowrap; }
+.bc-stat.bc-pos .bc-v { color: #4ade80; }
+.bc-stat.bc-neg .bc-v { color: #fbbf24; }
+
+/* slim done-progress bar with % label overlaid */
+.bc-bar {
+  position: relative; width: 100%; height: 16px;
+  background: rgba(148, 163, 184, 0.12);
+  border-radius: 999px; overflow: hidden;
+}
+.bc-bar i {
+  position: absolute; inset: 0 auto 0 0; display: block;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.85), rgba(34, 211, 238, 0.85));
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+.bc-bar-txt {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 0.6rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  color: #e2e8f0; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
 .bc-health {
-  margin-top: 8px; width: 100%;
+  width: 100%;
   display: inline-flex; align-items: center; gap: 6px;
-  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em;
-  padding: 4px 10px; border-radius: 999px;
-  background: rgba(148, 163, 184, 0.08);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  color: #b9c2d4;
+  font-size: 0.68rem; font-weight: 600; letter-spacing: 0.02em;
+  padding: 3px 10px; border-radius: 999px;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  color: #9aa6bb;
 }
-.bc-hi { font-size: 0.78rem; line-height: 1; }
-.bc-health.hl-good { background: rgba(52, 211, 153, 0.1); border-color: rgba(52, 211, 153, 0.3); color: #6ee7b7; }
-.bc-health.hl-warn { background: rgba(251, 191, 36, 0.1); border-color: rgba(251, 191, 36, 0.3); color: #fcd34d; }
-.bc-health.hl-bad { background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.32); color: #fca5a5; }
+.bc-hi { font-size: 0.74rem; line-height: 1; opacity: 0.9; }
+.bc-health.hl-good { color: #86efca; border-color: rgba(52, 211, 153, 0.25); background: rgba(52, 211, 153, 0.06); }
+.bc-health.hl-warn { color: #d3b874; border-color: rgba(251, 191, 36, 0.22); background: rgba(251, 191, 36, 0.05); }
+/* blocked/canceled: quiet informational blue-grey — no red alarm */
+.bc-health.hl-info { color: #a5b4fc; border-color: rgba(129, 140, 248, 0.22); background: rgba(99, 102, 241, 0.06); }
+
+/* done% badge in the card header (inline with title) */
+.board-head-pct {
+  flex: 0 0 auto;
+  font-size: 0.72rem; font-weight: 800;
+  color: #67e8f9;
+  background: rgba(34, 211, 238, 0.09);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  padding: 3px 8px; border-radius: 999px;
+  align-self: center;
+}
 
 /* ══════════ PICK-COMPARE MODE (main page) ══════════ */
 .board-card { cursor: pointer; }
