@@ -643,28 +643,55 @@ body {
 #pubScreen #pubStatus.warn { color: #fbbf24; }
 #pubScreen .data-badge { font-size: 0.68rem; padding: 4px 10px; }
 #pubScreen #pubChartsGrid { margin-top: 4px; }
-#pubScreen .pub-board-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); margin-bottom: 10px; cursor: pointer; transition: background 0.12s ease, border-color 0.12s ease; }
-#pubScreen .pub-board-row:hover { background: var(--panel-strong); border-color: var(--border-strong); }
-#pubScreen .pub-board-row .bname { font-weight: 700; font-size: 0.95rem; }
-#pubScreen .pub-board-row .bmeta { font-size: 0.75rem; color: var(--muted); }
+
+/* ── share-view topbar: same chrome as the admin dashboard ──
+   The brand block, center title and layout are identical; the only difference
+   is the right side, which shows the signed-in user's profile instead of the
+   admin action buttons. */
+#pubScreen .pub-topbar {
+  position: sticky; top: 0; z-index: 40;
+  background: rgba(6, 9, 20, 0.72);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+#pubScreen .pub-topbar .topbar-center { pointer-events: none; }
+#pubScreen .pub-topbar .brand { cursor: default; }
+#pubScreen .pub-topbar .brand:hover { opacity: 1; }
+.pub-user-chip {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 5px 12px 5px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  max-width: 260px;
+}
+.pub-avatar {
+  flex: 0 0 auto;
+  width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 0.78rem; font-weight: 800; color: #fff;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #22d3ee 130%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.pub-user-name {
+  font-size: 0.78rem; font-weight: 600; color: var(--text);
+  max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* board cards on the share view reuse the admin card styles (board-card,
+   boards-grid, bc-grid, bc-bar …) directly — no separate look. Only the
+   group titles get a slightly tighter rhythm to match the dashboard. */
+#pubScreen .board-group { margin-bottom: 26px; }
+#pubScreen .board-card { cursor: pointer; }
 #pubScreen .pub-charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px; }
 #pubScreen .pub-charts-grid .chart-card { min-height: 280px; height: 100%; }
 #pubScreen .pub-charts-grid .chart-card.wide { grid-column: span 2; }
 #pubScreen .pub-charts-grid .canvas-wrap { height: 280px; }
-/* boards list reuses the same responsive layout as the chart grid.
-   The section titles span BOTH columns so "[P] Org boards" and "All other boards"
-   are two clearly separated full-width blocks, not cramped grid cells. */
-#pubBoardsList { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-#pubBoardsList .pub-board-row { margin-bottom: 0; }
-#pubBoardsList .pub-board-row.wide { grid-column: span 2; }
-#pubBoardsList .board-group-title { grid-column: span 2; }
-#pubBoardsList .board-group-title:not(:first-child) { margin-top: 16px; }
 /* public share screen responsive · matches the admin dashboard */
 @media (max-width: 920px) {
-  #pubScreen .pub-charts-grid,
-  #pubBoardsList { grid-template-columns: 1fr; }
-  #pubScreen .pub-charts-grid .chart-card.wide,
-  #pubBoardsList .pub-board-row.wide { grid-column: span 1; }
+  #pubScreen .pub-charts-grid { grid-template-columns: 1fr; }
+  #pubScreen .pub-charts-grid .chart-card.wide { grid-column: span 1; }
   #pubScreen .pub-charts-grid .canvas-wrap { height: 260px; }
 }
 @media (max-width: 480px) {

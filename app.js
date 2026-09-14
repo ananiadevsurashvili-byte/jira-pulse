@@ -233,6 +233,7 @@ function handleGoogleCredential(resp) {
   $('#pubStatus').className = 'ok';
   $('#pubContent').classList.remove('hidden');
   $('#pubAuthBox').classList.add('hidden');
+  updatePubUserChip();
   renderPubContent();
 }
 
@@ -292,6 +293,25 @@ function decodeJwt(token) {
   } catch { return null; }
 }
 
+/* topbar identity chip on the share view: shows the signed-in org member's
+   profile (initial avatar + email) — the same spot where the admin panel shows
+   its Admin badge. Everyone here is a viewer, so no admin wording. */
+function updatePubUserChip() {
+  const chip = $('#pubUserChip');
+  if (!chip) return;
+  const email = pubState.email || '';
+  if (!pubState.verified || !email) {
+    chip.classList.add('hidden');
+    return;
+  }
+  const name = String(email).split('@')[0] || '?';
+  const avatar = $('#pubUserAvatar');
+  avatar.textContent = name.charAt(0).toUpperCase();
+  $('#pubUserName').textContent = email;
+  chip.title = email;
+  chip.classList.remove('hidden');
+}
+
 function showPubScreen(snapshot) {
   pubState.snapshot = snapshot;
   pubState.email = '';
@@ -299,14 +319,17 @@ function showPubScreen(snapshot) {
   pubState.codeSent = false;
   pubState.isAdmin = false;
   pubState.currentBoard = null;
+  updatePubUserChip();   /* reset the topbar profile chip for a fresh sign-in */
 
   /* title depends on scope */
   if (snapshot.scope === 'all') {
     $('#pubTitle').textContent = 'Organization board stats';
     $('#pubSubtitle').textContent = 'Sign in with your ' + PUBLISH_DOMAIN + ' email to view the published board stats.';
+    $('#pubHeadTitle').textContent = 'All boards';
   } else {
     $('#pubTitle').textContent = snapshot.boardName + ' — published stats';
     $('#pubSubtitle').textContent = 'Sign in with your ' + PUBLISH_DOMAIN + ' email to view this board snapshot.';
+    $('#pubHeadTitle').textContent = snapshot.boardName || 'Board';
   }
   $('#pubEmail').value = '';
   $('#pubEmail').disabled = false;
@@ -435,6 +458,7 @@ function pubVerifyCode() {
     $('#pubStatus').className = 'ok';
     $('#pubContent').classList.remove('hidden');
     $('#pubAuthBox').classList.add('hidden');
+    updatePubUserChip();
     renderPubContent();
   } else {
     $('#pubStatus').textContent = 'Wrong code. Please try again.';
@@ -500,6 +524,10 @@ function pubChartDefs() {
 async function renderPubContent() {
   const snap = pubState.snapshot;
   if (!snap) return;
+  /* keep the topbar identity chip + org badge in sync on every render */
+  updatePubUserChip();
+  const orgBadge = $('#pubOrgBadge');
+  if (orgBadge) orgBadge.textContent = String(state.conn?.domain || PUBLISH_DOMAIN).replace(/^https?:\/\//, '').split('.')[0] || 'Org';
   /* admin powers on the public share view are granted ONLY when inside the /admin/
      panel. On the public app the admin account is treated like any org member, so it
      can test the exact user experience (no admin bar, no manage/publish button). */
@@ -524,13 +552,16 @@ async function renderPubContent() {
     linkBox.classList.add('hidden');
   }
 
-  /* title/subtitle — data is LIVE now, so the subtitle reflects freshness, not a date */
+  /* title/subtitle — data is LIVE now, so the subtitle reflects freshness, not a date.
+     The topbar center title mirrors the admin app's "All boards" header. */
   if (snap.scope === 'all') {
     $('#pubTitle').textContent = 'Organization board stats';
     $('#pubSubtitle').textContent = 'All published boards · live data';
+    $('#pubHeadTitle').textContent = 'All boards';
   } else {
     $('#pubTitle').textContent = snap.boardName || 'Board';
     $('#pubSubtitle').textContent = 'Live data · real-time from Jira';
+    $('#pubHeadTitle').textContent = snap.boardName || 'Board';
   }
 
   $('#pubChangelogBadge').textContent = '⟳ live';
@@ -553,40 +584,58 @@ async function renderPubContent() {
       return;
     }
     $('#pubIssueCount').textContent = boards.length + ' boards';
-    const pubRow = (b) => `
-      <div class="pub-board-row" data-bid="${b.boardId}">
-        <span class="board-open" style="color:var(--muted)">▸</span>
-        <div>
-          <div class="bname">${escapeHtml(b.name)}</div>
-          <div class="bmeta" id="pubmeta_${b.boardId}"><span class="spinner spinner-sm"></span> loading live data…</div>
-        </div>
-        ${admin ? `<button class="link-btn" data-copyboard="${b.boardId}" style="margin-left:auto;font-size:0.72rem">🔗 copy link</button>` : ''}
-      </div>`;
+    /* SAME card design as the admin all-boards view: gradient avatar + type chips,
+       4-up metric grid, done% bar, health pill — the share view is the admin view
+       minus admin-only chrome. Stats arrive live (4 in parallel) and each card
+       updates in place, exactly like the admin page. */
+    const pubCard = (b, i) => {
+      const initial = escapeHtml((b.name || '?').trim().charAt(0).toUpperCase());
+      const pBoard = /^\[P\]/i.test(b.projectName || '') || /^\[P\]/i.test(b.name || '');
+      return `
+        <div class="board-card glass${pBoard ? ' p-board' : ''}" data-bid="${b.boardId}" style="animation-delay:${Math.min(i * 35, 400)}ms">
+          <div class="board-card-head">
+            <div class="board-avatar" aria-hidden="true">${initial}</div>
+            <div class="board-id-block">
+              <h3 title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</h3>
+              <div class="board-meta">
+                ${b.projectName ? `<span class="chip">${escapeHtml(b.projectName)}</span>` : ''}
+              </div>
+            </div>
+            <span class="board-head-pct pub-head-pct" id="pubpct_${b.boardId}" hidden></span>
+            ${admin ? `<button class="link-btn board-copy-link" data-copyboard="${b.boardId}" title="Copy link to this board" aria-label="Copy board link">🔗</button>` : ''}
+          </div>
+          <div class="board-stats" id="pubbstats_${b.boardId}">${boardStatsChipHtml(null)}</div>
+          <div class="board-card-foot">
+            <span class="board-open">Open dashboard →</span>
+            ${b.projectName ? `<span class="board-proj muted" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : ''}
+          </div>
+        </div>`;
+    };
     const P = boards.filter((b) => /^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || ''));
     const others = boards.filter((b) => !(/^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || '')));
     let html = '';
-    if (P.length) html += `<div class="board-group-title">[P] Org boards</div>${P.map(pubRow).join('')}<div style="height:14px"></div>`;
-    if (others.length) html += `<div class="board-group-title">All other boards</div>${others.map(pubRow).join('')}`;
+    if (P.length) html += `<div class="board-group"><span class="board-group-title">[P] Org boards</span><div class="boards-grid">${P.map(pubCard).join('')}</div></div>`;
+    if (others.length) html += `<div class="board-group"><span class="board-group-title">All other boards</span><div class="boards-grid">${others.map(pubCard).join('')}</div></div>`;
+    boardsList.className = '';
     boardsList.innerHTML = html;
 
-    boardsList.querySelectorAll('.pub-board-row').forEach((row) => {
-      const bid = parseInt(row.dataset.bid, 10);
-      const copyBtn = row.querySelector('[data-copyboard]');
-      if (copyBtn) {
-        copyBtn.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          const link = location.origin + publicRootPath() + '?share=' + encodeURIComponent(snap.shareSeed || 'org');
-          navigator.clipboard.writeText(link).then(() => toast('Board link copied.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
-        });
-      }
-      row.addEventListener('click', () => {
+    boardsList.querySelectorAll('.board-card .board-copy-link').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const link = location.origin + publicRootPath() + '?share=' + encodeURIComponent(snap.shareSeed || 'org');
+        navigator.clipboard.writeText(link).then(() => toast('Board link copied.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
+      });
+    });
+    boardsList.querySelectorAll('.board-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const bid = parseInt(card.dataset.bid, 10);
         const b = boards.find((x) => x.boardId === bid);
         if (b) openBoardSnapshot(b);
       });
     });
 
     /* fetch every board's live stats in parallel (4 at a time; light mode =
-       fast, no changelog) and update the rows in place as each result lands */
+       fast, no changelog) and update the cards in place as each result lands */
     const PUB_CONCURRENCY = 4;
     let pubCursor = 0;
     const pubWorker = async () => {
@@ -595,18 +644,24 @@ async function renderPubContent() {
         try {
           const rec = await pubLoadBoardLive(b.boardId, 'light');
           const m = rec.metrics;
-          const net = (m.resolved30 || 0) - (m.created30 || 0);
-          const meta = document.getElementById('pubmeta_' + b.boardId);
-          if (meta) {
-            meta.innerHTML =
-              `${rec.issuesCount} issues · ${m.doneRate != null ? m.doneRate + '% done' : '—'} · ${m.wip} in progress` +
-              (net !== 0 ? ` · <span style="color:${net > 0 ? '#34d399' : '#f87171'}">${net > 0 ? '+' : ''}${net} net 30d</span>` : '') +
-              ` · <span style="color:var(--muted)">updated ${new Date(rec.fetchedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>`;
+          const box = document.getElementById('pubbstats_' + b.boardId);
+          if (box) box.innerHTML = boardStatsChipHtml({
+            ts: Date.now(),
+            total: m.total, done: m.done, wip: m.wip,
+            doneRate: m.doneRate, cycleAvg: m.cycleAvg,
+            created30: m.created30, resolved30: m.resolved30,
+            blocked: m.blockedCount,
+          });
+          const pctEl = document.getElementById('pubpct_' + b.boardId);
+          if (pctEl) {
+            pctEl.hidden = false;
+            pctEl.textContent = Math.max(0, Math.min(100, m.doneRate || 0)) + '%';
+            pctEl.title = (m.doneRate || 0) + '% done';
           }
         } catch (e) {
           logDiag('warn', 'Publish all-boards: live stats failed', { boardId: b.boardId, message: e?.message });
-          const meta = document.getElementById('pubmeta_' + b.boardId);
-          if (meta) meta.innerHTML = '<span style="color:#f87171">live data unavailable</span>';
+          const box = document.getElementById('pubbstats_' + b.boardId);
+          if (box) box.innerHTML = '<span class="bstat bstat-skip">live data unavailable</span>';
         }
       }
     };

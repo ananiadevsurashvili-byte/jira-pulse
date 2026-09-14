@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-<link rel="stylesheet" href="styles.css?v=8241307" />
+<link rel="stylesheet" href="styles.css?v=8241308" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -417,18 +417,34 @@
 </div>
 
 <div id="pubScreen" class="hidden" style="position:fixed;inset:0;z-index:9000;overflow:auto">
+  <!-- share view uses the SAME topbar chrome as the admin dashboard —
+       only the identity chip differs (user profile instead of Admin badge) -->
+  <header class="topbar pub-topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="8" fill="url(#lgp)"/><defs><linearGradient id="lgp" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M6 21l4-7 4 5 5-10 7 12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Jira<b>Pulse</b></span>
+      <span id="pubOrgBadge" class="admin-badge org-badge">Org</span>
+    </div>
+    <div class="topbar-center">
+      <span id="pubHeadTitle" class="header-title">All boards</span>
+    </div>
+    <div class="topbar-right">
+      <span id="pubUserChip" class="pub-user-chip hidden">
+        <span id="pubUserAvatar" class="pub-avatar" aria-hidden="true"></span>
+        <span id="pubUserName" class="pub-user-name"></span>
+      </span>
+    </div>
+  </header>
   <div class="dash-wrap">
-    <div class="glass" style="padding:28px;margin-bottom:20px">
-      <div style="display:flex;align-items:flex-start;gap:14px;justify-content:space-between;flex-wrap:wrap">
-        <div style="min-width:0;flex:1">
-          <h2 id="pubTitle" style="font-size:1.7rem;font-weight:800;margin-bottom:6px">Published stats</h2>
-          <p id="pubSubtitle" class="muted">Sign in with your @caucasusauto.com email to view this board snapshot.</p>
-          <p id="pubStatus" class="muted" style="margin-top:8px"></p>
-        </div>
-        <div id="pubAdminBar" class="hidden" style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
-          <span id="pubAdminText" style="font-size:0.75rem;padding:5px 12px;border-radius:999px;background:rgba(99,102,241,.15);color:#818cf8;font-weight:700"></span>
-          <button id="pubManageBtn" class="btn btn-ghost" style="font-size:0.8rem">⚙ Publish / manage boards</button>
-        </div>
+    <div class="screen-head dash-head">
+      <div>
+        <h2 id="pubTitle" style="font-size:1.7rem;font-weight:800;margin-bottom:6px">Published stats</h2>
+        <p id="pubSubtitle" class="muted">Sign in with your @caucasusauto.com email to view this board snapshot.</p>
+        <p id="pubStatus" class="muted" style="margin-top:8px"></p>
+      </div>
+      <div id="pubAdminBar" class="hidden dash-head-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+        <span id="pubAdminText" style="font-size:0.75rem;padding:5px 12px;border-radius:999px;background:rgba(99,102,241,.15);color:#818cf8;font-weight:700"></span>
+        <button id="pubManageBtn" class="btn btn-ghost" style="font-size:0.8rem">⚙ Publish / manage boards</button>
       </div>
     </div>
 
@@ -484,6 +500,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=8241307"></script>
+<script src="app.js?v=8241308"></script>
 </body>
 </html>
