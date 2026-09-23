@@ -27,7 +27,7 @@ const RELAYS = [
   { key: 'corsproxy', build: (url, conn) =>
       'https://corsproxy.io/?' + (conn?.proxyApiKey ? 'key=' + encodeURIComponent(conn.proxyApiKey) + '&' : '') + 'url=' + encodeURIComponent(url), keyless: false },
 ];
-const ISSUE_FIELDS = ['summary', 'status', 'resolutiondate', 'created', 'issuetype', 'assignee', 'priority', 'labels'];
+const ISSUE_FIELDS = ['summary', 'status', 'resolutiondate', 'created', 'updated', 'issuetype', 'assignee', 'priority', 'labels'];
 
 const state = {
   conn: null,          // { domain, email, token, useProxy, proxyApiKey, proxyUrl }
@@ -157,6 +157,10 @@ const I18N = {
     'table.titleSub': '· open work',
     'th.key': 'Key', 'th.summary': 'Summary', 'th.status': 'Status',
     'th.timeInStatus': 'Time in status', 'th.type': 'Type', 'th.assignee': 'Assignee', 'th.created': 'Created',
+    'th.updated': 'Updated',
+    'ilist.empty': 'No issue data available for this selection.',
+    'ilist.openJira': 'open in Jira',
+    'ilist.noLink': 'connect to Jira to open issues',
     'footer': 'JiraPulse · client-side delivery analytics — your credentials never leave this browser',
     'footerAdmin': 'JiraPulse · admin panel — your credentials never leave this browser',
     'proxyBadge': 'via relay',
@@ -674,6 +678,10 @@ const I18N = {
     'table.titleSub': '· ღია სამუშაო',
     'th.key': 'გასაღები', 'th.summary': 'შინაარსი', 'th.status': 'სტატუსი',
     'th.timeInStatus': 'დრო სტატუსში', 'th.type': 'ტიპი', 'th.assignee': 'შემსრულებელი', 'th.created': 'შექმნის თარიღი',
+    'th.updated': 'განახლების თარიღი',
+    'ilist.empty': 'ამ შერჩევისთვის დავალების მონაცემები არ არის.',
+    'ilist.openJira': 'Jira-ში გახსნა',
+    'ilist.noLink': 'დაუკავშირდით Jira-ს დავალებების გასახსნელად',
     'footer': 'JiraPulse · კლიენტის მხარეს მოქმედი ანალიტიკა — თქვენი მონაცემები ბრაუზერს არ ტოვებს',
     'footerAdmin': 'JiraPulse · ადმინისტრატორის პანელი — თქვენი მონაცემები ბრაუზერს არ ტოვებს',
     'proxyBadge': 'relay-ით',
@@ -1616,6 +1624,89 @@ function pubChartDefs() {
   return (pubState.snapshot?.chartDefs || []).map((d) => ({ ...d }));
 }
 
+/* ---------- chart click → issue list modal ---------- */
+
+/* the Jira base URL for issue links: the signed-in connection first, then the
+   domain the admin baked into the published snapshot (viewer-only path) */
+function jiraIssueBase() {
+  return state.conn?.domain || pubState.snapshot?.domain || '';
+}
+
+/* resolve issue keys (or issue objects) into display rows, preferring the live
+   pool (admin: state.issues · pub: per-board cache) for freshest field data */
+function resolveIssueRows(keys) {
+  const arr = Array.isArray(keys) ? keys : [];
+  const pools = [];
+  if (state.issues?.length) pools.push(state.issues);
+  if (_pubBoardCache) {
+    for (const c of _pubBoardCache.values()) if (c?.rec?.issues?.length) pools.push(c.rec.issues);
+  }
+  const byKey = new Map();
+  for (const pool of pools) {
+    for (const iss of pool) if (iss?.key && !byKey.has(iss.key)) byKey.set(iss.key, iss);
+  }
+  return arr.map((k) => {
+    if (k && typeof k === 'object') return normIssueRow(k);   // raw or flat issue
+    const iss = byKey.get(k);
+    if (iss) return normIssueRow(iss);
+    return { key: k, summary: '', status: '', assignee: '', created: null, updated: null };
+  });
+}
+
+/* flatten a raw Jira issue ({ key, fields: {...} }) into display fields */
+function normIssueRow(iss) {
+  if (!iss) return { key: '', summary: '', status: '', assignee: '', created: null, updated: null };
+  if (iss.fields) {
+    return {
+      key: iss.key,
+      summary: iss.fields.summary || '',
+      status: iss.fields.status?.name || '',
+      assignee: iss.fields.assignee?.displayName || '',
+      created: iss.fields.created ? Date.parse(iss.fields.created) : null,
+      updated: iss.fields.updated ? Date.parse(iss.fields.updated) : null,
+    };
+  }
+  return { ...iss };   // already flat
+}
+
+function fmtDateLong(v) {
+  if (!v) return '—';
+  const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function openIssueListModal(chartTitle, pointLabel, keys, seriesLabel) {
+  const rows = resolveIssueRows(keys);
+  const base = jiraIssueBase();
+  $('#issueListTitle').textContent = `${chartTitle}${seriesLabel ? ' — ' + seriesLabel : ''} · ${pointLabel || ''}`;
+  $('#issueListSub').textContent = rows.length
+    ? `${rows.length} issue${rows.length === 1 ? '' : 's'}${base ? '' : ' · ' + t('ilist.noLink')}`
+    : t('ilist.empty');
+  const body = $('#issueListBody');
+  body.innerHTML = rows.length
+    ? rows.map((r) => {
+        const link = base
+          ? `<a href="${escapeHtml(base)}/browse/${encodeURIComponent(r.key)}" target="_blank" rel="noopener" title="${t('ilist.openJira')}">${escapeHtml(r.key)}</a>`
+          : `<span class="muted">${escapeHtml(r.key)}</span>`;
+        return `<tr>
+          <td>${link}</td>
+          <td>${escapeHtml(r.summary || '—')}</td>
+          <td>${escapeHtml(r.status || '—')}</td>
+          <td>${escapeHtml(r.assignee || '—')}</td>
+          <td>${fmtDateLong(r.created)}</td>
+          <td>${fmtDateLong(r.updated)}</td>
+        </tr>`;
+      }).join('')
+    : `<tr><td colspan="6" class="muted">${t('ilist.empty')}</td></tr>`;
+  show($('#issueListModal'));
+}
+
+/* close wiring for the issue list modal (called from the DOMContentLoaded init) */
+function wireIssueListModal() {
+  $('#closeIssueListBtn').addEventListener('click', () => hide($('#issueListModal')));
+  $('#issueListModal').addEventListener('click', (ev) => { if (ev.target === ev.currentTarget) hide($('#issueListModal')); });
+}
+
 async function renderPubContent() {
   const snap = pubState.snapshot;
   if (!snap) return;
@@ -1711,11 +1802,13 @@ async function renderPubContent() {
             <div class="board-id-block">
               <h3 title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</h3>
               <div class="board-meta">
-                ${b.projectName ? `<span class="chip">${escapeHtml(b.projectName)}</span>` : ''}
+                ${pBoard ? '<span class="chip chip-p" title="[P]">[P]</span>' : (b.projectName ? `<span class="chip" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : '')}
               </div>
             </div>
-            <span class="board-head-pct pub-head-pct" id="pubpct_${b.boardId}" hidden></span>
-            ${admin ? `<button class="link-btn board-copy-link" data-copyboard="${b.boardId}" data-i18n-title="pub.copyBoardLink" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>` : ''}
+            <div class="board-head-side">
+              <span class="board-head-pct pub-head-pct" id="pubpct_${b.boardId}" hidden>&nbsp;</span>
+              ${admin ? `<button class="link-btn board-copy-link" data-copyboard="${b.boardId}" data-i18n-title="pub.copyBoardLink" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>` : ''}
+            </div>
           </div>
           <div class="board-stats" id="pubbstats_${b.boardId}">${boardStatsChipHtml(null)}</div>
           <div class="board-card-foot">
@@ -1954,6 +2047,7 @@ async function createSnapshotFromModal() {
     version: 2,
     shareSeed: 'org',
     savedAt: Date.now(),
+    domain: state.conn?.domain || '',
     chartDefs: defs,
     boards: boards.map((b) => ({ boardId: b.id, name: b.name, projectName: b.location?.projectName || '' })),
   };
@@ -2729,12 +2823,15 @@ function boardCardHTML(b, i) {
         <div class="board-id-block">
           <h3 title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</h3>
           <div class="board-meta">
+            ${pBoard ? '<span class="chip chip-p" title="[P]">[P]</span>' : ''}
             ${b.type ? `<span class="${boardTypeClass(b.type)}">${escapeHtml(b.type)}</span>` : ''}
             ${b.location?.projectKey ? `<span class="chip">${escapeHtml(b.location.projectKey)}</span>` : ''}
           </div>
         </div>
-        ${headPct != null ? `<span class="board-head-pct" title="${headPct}% ${escapeHtml(t('bc.done'))}">${headPct}%</span>` : ''}
-        <button class="link-btn board-copy-link" data-copyboard="${b.id}" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>
+        <div class="board-head-side">
+          ${headPct != null ? `<span class="board-head-pct" title="${headPct}% ${escapeHtml(t('bc.done'))}">${headPct}%</span>` : ''}
+          <button class="link-btn board-copy-link" data-copyboard="${b.id}" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>
+        </div>
       </div>
       <div class="board-stats" id="bstats_${b.id}">${boardStatsChipHtml(cached)}</div>
       <div class="board-card-foot">
@@ -3093,6 +3190,15 @@ function addTime(map, name, ms) {
   map.set(name, rec);
 }
 
+/* per-status issue-key tracker for the statusTime charts (click → issue list).
+   Also feeds the statusTime stage-split charts (stakeholder / team phases). */
+function addStatusKey(map, name, key) {
+  if (!name || !key) return;
+  const arr = map.get(name) || [];
+  arr.push(key);
+  map.set(name, arr);
+}
+
 function computeMetrics(issues) {
   const NOW = Date.now();
   const WEEKS = 26; // 6 months of weekly pipeline buckets
@@ -3104,6 +3210,7 @@ function computeMetrics(issues) {
     cycleRecent: [], cyclePrev: [],
     statusDist: new Map(),
     statusTime: new Map(),
+    statusKeys: new Map(),
     blockedDist: new Map(),     // blocked/canceled/rejected work by status
     blockedCount: 0,
     bottlenecks: new Map(),
@@ -3184,6 +3291,7 @@ function computeMetrics(issues) {
     for (const ev of evts) {
       if (ev.ts > prevTs && !isExcludedStatus({ status: { name: prevName } })) {
         addTime(m.statusTime, prevName, ev.ts - prevTs);
+        addStatusKey(m.statusKeys, prevName, iss.key);
       }
       prevTs = ev.ts;
       if (ev.to) prevName = ev.to;
@@ -3191,6 +3299,7 @@ function computeMetrics(issues) {
     const curAge = Math.max(0, NOW - prevTs);
     if (!excludedNow && !isExcludedStatus({ status: { name: prevName } })) {
       addTime(m.statusTime, prevName, curAge);
+      addStatusKey(m.statusKeys, prevName, iss.key);
     }
 
     if (!doneCat && !isExcludedStatus(f)) {
@@ -3750,8 +3859,8 @@ function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB, nameAPar
         : boardName,
     });
     const datasets = [];
-    if (!emptyA) datasets.push(...dataA.datasets.map((ds) => relabel(ds, nameA)));
-    if (!emptyB) datasets.push(...dataB.datasets.map((ds) => relabel({ ...ds, color: '#22d3ee', rgb: ACCENT_RGB.cyan }, nameB)));
+    if (!emptyA) datasets.push(...dataA.datasets.map((ds) => relabel({ ...ds, __src: issuesA }, nameA)));
+    if (!emptyB) datasets.push(...dataB.datasets.map((ds) => relabel({ ...ds, color: '#22d3ee', rgb: ACCENT_RGB.cyan, __src: issuesB }, nameB)));
     if (!datasets.length) return { empty: [t('cmp.noComparable')] };
     return {
       labels: labels,
@@ -3785,6 +3894,10 @@ function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB, nameAPar
     const bv = align(bMap, bVals, l);
     return { l, av, bv, score: Math.max(av ?? 0, bv ?? 0) };
   });
+  /* per-label issue keys for both boards (click a data point → issue list) */
+  const keysAraw = dataA.datasets?.[0]?.__keys || [];
+  const keysBraw = dataB.datasets?.[0]?.__keys || [];
+  const alignKeys = (map, keys, l) => { const i = map.get(l); return i != null ? (keys[i] || []) : []; };
   /* ordered-ladder groupings (age buckets) keep their intrinsic order in compare
      mode too — sorting by value would scramble the ≤2d → 6mo+ narrative */
   if (def.groupBy === 'ageBucket') scored.sort((x, y) => AGE_BUCKETS.findIndex(([b]) => b === x.l) - AGE_BUCKETS.findIndex(([b]) => b === y.l));
@@ -3797,18 +3910,20 @@ function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB, nameAPar
   let labels = picked.map((r) => r.l);
   let dsA = picked.map((r) => r.av);
   let dsB = picked.map((r) => r.bv);
+  let keyIdx = picked.map((r) => r.l);           /* raw-label order for key alignment */
   if (def.type === 'hbar') {
     labels = labels.slice().reverse();
     dsA = dsA.slice().reverse();
     dsB = dsB.slice().reverse();
+    keyIdx = keyIdx.slice().reverse();
   }
 
   const datasets = [];
   if (!emptyA) {
-    datasets.push({ label: nameA, data: dsA, color: ACCENT_HEX[def.color] || ACCENT_HEX.indigo, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.indigo });
+    datasets.push({ label: nameA, data: dsA, color: ACCENT_HEX[def.color] || ACCENT_HEX.indigo, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.indigo, __keys: keyIdx.map((l) => alignKeys(aMap, keysAraw, l)), __src: issuesA });
   }
   if (!emptyB) {
-    datasets.push({ ...B_SERIES, data: dsB });
+    datasets.push({ ...B_SERIES, data: dsB, __keys: keyIdx.map((l) => alignKeys(bMap, keysBraw, l)), __src: issuesB });
   }
 
   const base = emptyA ? dataB : dataA;
@@ -4138,6 +4253,9 @@ function buildTimeSeries(def, issues) {
 
   const createdCounts = Array(nBuckets).fill(0);
   const resolvedCounts = Array(nBuckets).fill(0);
+  /* per-bucket issue keys — power the click-a-data-point → issue-list modal */
+  const createdKeys = Array.from({ length: nBuckets }, () => []);
+  const resolvedKeys = Array.from({ length: nBuckets }, () => []);
   const nowMonthIdx = new Date(NOW).getFullYear() * 12 + new Date(NOW).getMonth();
 
   for (const iss of issues) {
@@ -4151,7 +4269,7 @@ function buildTimeSeries(def, issues) {
       } else {
         idx = nBuckets - 1 - Math.floor((NOW - ts) / bucketMs);
       }
-      if (idx >= 0 && idx < nBuckets) createdCounts[idx]++;
+      if (idx >= 0 && idx < nBuckets) { createdCounts[idx]++; createdKeys[idx].push(iss.key); }
     }
     if (wantResolved) {
       const ts = issueCompletedAt(f, iss.changelog);
@@ -4163,7 +4281,7 @@ function buildTimeSeries(def, issues) {
         } else {
           idx = nBuckets - 1 - Math.floor((NOW - ts) / bucketMs);
         }
-        if (idx >= 0 && idx < nBuckets) resolvedCounts[idx]++;
+        if (idx >= 0 && idx < nBuckets) { resolvedCounts[idx]++; resolvedKeys[idx].push(iss.key); }
       }
     }
   }
@@ -4186,10 +4304,10 @@ function buildTimeSeries(def, issues) {
     /* cumulative net flow: created − resolved, running total → open-backlog shape */
     let acc = 0;
     net = createdCounts.map((c, i) => (acc += c - resolvedCounts[i]));
-    datasets.push({ label: t('series.openBacklog'), data: net, color: '#8b5cf6', rgb: ACCENT_RGB.violet });
+    datasets.push({ label: t('series.openBacklog'), data: net, color: '#8b5cf6', rgb: ACCENT_RGB.violet, __keys: createdKeys, __src: issues });
   } else {
-    if (wantCreated) datasets.push({ label: t('series.registered'), data: createdCounts, color: '#6366f1', rgb: ACCENT_RGB.indigo });
-    if (wantResolved) datasets.push({ label: t('series.completed'), data: resolvedCounts, color: '#34d399', rgb: ACCENT_RGB.green });
+    if (wantCreated) datasets.push({ label: t('series.registered'), data: createdCounts, color: '#6366f1', rgb: ACCENT_RGB.indigo, __keys: createdKeys, __src: issues });
+    if (wantResolved) datasets.push({ label: t('series.completed'), data: resolvedCounts, color: '#34d399', rgb: ACCENT_RGB.green, __keys: resolvedKeys, __src: issues });
   }
 
   const parts = [];
@@ -4215,6 +4333,7 @@ function buildCategoryData(def, issues) {
   const NOW = Date.now();
   const pool = filterPool(def, issues);
   const map = new Map();
+  const keysByGroup = new Map();     /* group → issue keys (click → issue list) */
   for (const iss of pool) {
     const f = iss.fields || {};
     let val;
@@ -4235,6 +4354,9 @@ function buildCategoryData(def, issues) {
     const rec = map.get(key) || { sum: 0, n: 0 };
     rec.sum += val; rec.n++;
     map.set(key, rec);
+    const kArr = keysByGroup.get(key) || [];
+    kArr.push(iss.key);
+    keysByGroup.set(key, kArr);
   }
   if (!map.size) return { empty: def.metric === 'avgCycle' ? t('cat.noResolved') : t('cat.noIssues') };
 
@@ -4247,6 +4369,7 @@ function buildCategoryData(def, issues) {
 
   let labels = rows.map((r) => r.k);
   let values = rows.map((r) => metric.duration ? +(r.v / DAY).toFixed(2) : r.v);
+  let keys = rows.map((r) => keysByGroup.get(r.k) || []);   /* parallel to labels — click → issue list */
   let colors;
   if (def.groupBy === 'bottleneck') colors = labels.map(bottleneckColor);
   else if (def.groupBy === 'ageBucket') {
@@ -4269,11 +4392,13 @@ function buildCategoryData(def, issues) {
       labels = headL.concat([t('group.other')]);
       values = headV.concat([rest]);
       colors = colors.slice(0, topN - 1).concat(['#64748b']);
+      keys = keys.slice(0, topN - 1).concat([keys.slice(topN - 1).flat()]);
     } else {
       labels = labels.slice(0, topN); values = values.slice(0, topN); colors = colors.slice(0, topN);
+      keys = keys.slice(0, topN);
     }
   }
-  if (def.type === 'hbar') { labels = labels.slice().reverse(); values = values.slice().reverse(); colors = colors.slice().reverse(); }
+  if (def.type === 'hbar') { labels = labels.slice().reverse(); values = values.slice().reverse(); colors = colors.slice().reverse(); keys = keys.slice().reverse(); }
 
   const totalVal = metric.duration
     ? [...map.values()].reduce((a, r) => a + r.sum, 0) / [...map.values()].reduce((a, r) => a + r.n, 0)
@@ -4283,7 +4408,7 @@ function buildCategoryData(def, issues) {
   const subtitle = `${metric.duration ? t('series.avg') : t('series.count')} ${tReplace('series.byGroup', { g: groupLabel(def.groupBy) || GROUP_LABELS[def.groupBy] || def.groupBy })}${metric.duration ? '' : filterTxt}`;
   return {
     labels,
-    datasets: [{ label: def.title, data: values, color: ACCENT_HEX[def.color] || ACCENT_HEX.indigo, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.indigo }],
+    datasets: [{ label: def.title, data: values, color: ACCENT_HEX[def.color] || ACCENT_HEX.indigo, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.indigo, __keys: keys, __src: issues }],
     colors,
     duration: metric.duration,
     subtitle,
@@ -4293,23 +4418,27 @@ function buildCategoryData(def, issues) {
 }
 
 /* status-time aggregation from changelog (avgStatusTime metric) */
-function buildStatusTimeData(def, m, hasChangelog) {
+function buildStatusTimeData(def, m, hasChangelog, issues) {
   const hc = hasChangelog != null ? hasChangelog : state.hasChangelog;
   if (!hc || !m || !m.statusTime) return { empty: [t('statusTime.noChangelog1'), t('statusTime.noChangelog2')] };
 
+  const keyMap = m.statusKeys || new Map();
   let rows = [...m.statusTime.entries()]
-    .map(([k, v]) => ({ k, avg: v.sum / v.n, side: classifySide(k), sum: v.sum, n: v.n }));
+    .map(([k, v]) => ({ k, avg: v.sum / v.n, side: classifySide(k), sum: v.sum, n: v.n, keys: keyMap.get(k) || [] }));
   if (!rows.length) return { empty: [t('statusTime.noTransitions')] };
 
   let extraSub = '';
   let labels, values, colors;
+  let keys = [];                     /* per-bar/per-point issue keys (click → issue list) */
 
   if (def.groupBy === 'stage') {
     const agg = { 'Stakeholder gates': { sum: 0, n: 0 }, 'Team phases': { sum: 0, n: 0 } };
+    const aggKeys = { 'Stakeholder gates': [], 'Team phases': [] };
     for (const r of rows) {
       if (!r.side) continue;
       const t = r.side === 'stakeholder' ? 'Stakeholder gates' : 'Team phases';
       agg[t].sum += r.sum; agg[t].n += r.n;
+      aggKeys[t].push(...r.keys);
     }
     rows = Object.entries(agg).filter(([, r]) => r.n).map(([k, r]) => ({ k, avg: r.sum / r.n }));
     if (!rows.length) return { empty: [t('statusTime.noStages')] };
@@ -4317,6 +4446,7 @@ function buildStatusTimeData(def, m, hasChangelog) {
     labels = rows.map((r) => stageLabel(r.k));
     values = rows.map((r) => +(r.avg / DAY).toFixed(2));
     colors = rows.map((r) => (r.k === 'Stakeholder gates' ? '#fbbf24cc' : '#22d3eecc'));
+    keys = rows.map((r) => aggKeys[r.k] || []);
   } else if (def.split === 'stage') {
     const picked = rows.filter((r) => r.side).sort((a, b) => b.avg - a.avg).slice(0, def.topN || 8);
     if (!picked.length) return { empty: [t('statusTime.noStages')] };
@@ -4337,8 +4467,8 @@ function buildStatusTimeData(def, m, hasChangelog) {
     return {
       labels,
       datasets: [
-        { label: t('stage.stakeholder'), data: sh.reverse(), color: '#fbbf24', rgb: ACCENT_RGB.amber },
-        { label: t('stage.team'), data: tm.reverse(), color: '#22d3ee', rgb: ACCENT_RGB.cyan },
+        { label: t('stage.stakeholder'), data: sh.reverse(), color: '#fbbf24', rgb: ACCENT_RGB.amber, __keys: picked.map((r) => r.keys).reverse(), __src: issues },
+        { label: t('stage.team'), data: tm.reverse(), color: '#22d3ee', rgb: ACCENT_RGB.cyan, __keys: picked.map((r) => r.keys).reverse(), __src: issues },
       ],
       duration: true,
       subtitle: t('statusTime.subSplit'),
@@ -4350,11 +4480,12 @@ function buildStatusTimeData(def, m, hasChangelog) {
     labels = rows.map((r) => r.k).reverse();
     values = rows.map((r) => +(r.avg / DAY).toFixed(2)).reverse();
     colors = labels.map(() => (ACCENT_HEX[def.color] || '#8b5cf6') + 'cc');
+    keys = rows.map((r) => r.keys).reverse();
   }
 
   return {
     labels,
-    datasets: [{ label: def.title, data: values, color: ACCENT_HEX[def.color] || ACCENT_HEX.violet, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.violet }],
+    datasets: [{ label: def.title, data: values, color: ACCENT_HEX[def.color] || ACCENT_HEX.violet, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.violet, __keys: keys, __src: issues }],
     colors,
     duration: true,
     subtitle: def.groupBy === 'stage' ? t('statusTime.subStage') : t('statusTime.subStatus'),
@@ -4368,7 +4499,7 @@ function buildChartData(def, m, issues, hasChangelog) {
   const hc = hasChangelog != null ? hasChangelog : state.hasChangelog;
   if (!metric) return { empty: [t('err.unknownMetric')] };
   if (metric.kind === 'time') return buildTimeSeries(def, iss);
-  if (metric.kind === 'statusTime') return buildStatusTimeData(def, m, hc);
+  if (metric.kind === 'statusTime') return buildStatusTimeData(def, m, hc, iss);
   return buildCategoryData(def, iss);
 }
 
@@ -4405,6 +4536,24 @@ function chartConfigFor(def, data, theme, canvasId) {
   const fmtV = dur ? (v) => fmtDuration(v * DAY) : (v) => String(Math.round(v));
   const fmtNum = (v) => (v == null || !isFinite(v) ? '—' : String(Math.round(v)));
 
+  /* click a data point → open the issue-list modal for that slice/point.
+     Doughnut: index → group label. Line/bar: index → bucket/group, dataset
+     carries the per-point key list + the source issue pool (__keys/__src). */
+  const chartOnClick = (evt, elements, chart) => {
+    if (!elements || !elements.length) return;
+    const el = elements[0];
+    const dsIndex = el.datasetIndex ?? 0;
+    const idx = el.index;
+    const ds = data.datasets[dsIndex];
+    if (!ds) return;
+    const label = data.labels?.[idx];
+    let issues = ds.__src || [];
+    if (Array.isArray(ds.__keys) && ds.__keys[idx]) issues = ds.__keys[idx];
+    const series = data.datasets.length > 1 ? (ds.label || '') : '';
+    openIssueListModal(defTitle(def), label, issues, series);
+  };
+  const chartOnHover = (evt, els) => { if (evt.native) evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; };
+
   if (def.type === 'doughnut') {
     return {
       type: 'doughnut',
@@ -4417,11 +4566,15 @@ function chartConfigFor(def, data, theme, canvasId) {
           borderWidth: 2,
           hoverOffset: 10,
           hoverBorderColor: '#fff',
+          __keys: data.datasets[0].__keys,
+          __src: data.datasets[0].__src,
         }],
       },
       options: {
         responsive: true, maintainAspectRatio: false, cutout: def.centerTotal ? '68%' : '62%',
         layout: { padding: 4 },
+        onClick: chartOnClick,
+        onHover: chartOnHover,
         plugins: {
           legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, padding: 12, font: { size: 11 } } },
           tooltip: {
@@ -4461,11 +4614,14 @@ function chartConfigFor(def, data, theme, canvasId) {
           pointRadius: 2, pointHoverRadius: 5,
           pointBackgroundColor: ds.color, pointBorderColor: 'rgba(10,15,34,.9)', pointBorderWidth: 1.5,
           borderWidth: 2.5,
+          __keys: ds.__keys, __src: ds.__src,
         })),
       },
       options: {
         ...theme,
         interaction: { mode: 'index', intersect: false },
+        onClick: chartOnClick,
+        onHover: chartOnHover,
         plugins: {
           ...theme.plugins,
           legend: data.datasets.length > 1 ? LEGEND_ON : { display: false },
@@ -4505,6 +4661,8 @@ function chartConfigFor(def, data, theme, canvasId) {
     options: {
       responsive: true, maintainAspectRatio: false,
       indexAxis: isH ? 'y' : 'x',
+      onClick: chartOnClick,
+      onHover: chartOnHover,
       plugins: {
         legend: multi ? LEGEND_ON : { display: false },
         tooltip: {
@@ -5228,6 +5386,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#resetChartBtn').addEventListener('click', resetChartFromModal);
   $('#deleteChartBtn').addEventListener('click', deleteChartFromModal);
   $('#closeChartBtn').addEventListener('click', () => { hide($('#chartModal')); state.chartEditing = null; });
+  wireIssueListModal();
   $('#chartModal').addEventListener('click', (ev) => {
     if (ev.target === $('#chartModal')) { hide($('#chartModal')); state.chartEditing = null; }
   });
