@@ -199,7 +199,7 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
 
   /* ── 2. search: project-wide JQL first (full fields incl. resolutiondate),
         then filter JQL, then the board issue endpoint ── */
-  const FIELDS = 'summary,status,resolutiondate,created,issuetype,assignee,priority,labels';
+  const FIELDS = 'summary,status,resolutiondate,created,updated,issuetype,assignee,priority,labels';
   const MAX_TOTAL = 600;
   const withChangelog = mode === 'full';
 

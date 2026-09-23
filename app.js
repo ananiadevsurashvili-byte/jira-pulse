@@ -161,6 +161,7 @@ const I18N = {
     'ilist.empty': 'No issue data available for this selection.',
     'ilist.openJira': 'open in Jira',
     'ilist.noLink': 'connect to Jira to open issues',
+    'ilist.unassigned': 'Unassigned',
     'footer': 'JiraPulse · client-side delivery analytics — your credentials never leave this browser',
     'footerAdmin': 'JiraPulse · admin panel — your credentials never leave this browser',
     'proxyBadge': 'via relay',
@@ -685,6 +686,7 @@ const I18N = {
     'ilist.empty': 'ამ შერჩევისთვის დავალების მონაცემები არ არის.',
     'ilist.openJira': 'Jira-ში გახსნა',
     'ilist.noLink': 'დაუკავშირდით Jira-ს დავალებების გასახსნელად',
+    'ilist.unassigned': 'დაუნიშნავი',
     'footer': 'JiraPulse · კლიენტის მხარეს მოქმედი ანალიტიკა — თქვენი მონაცემები ბრაუზერს არ ტოვებს',
     'footerAdmin': 'JiraPulse · ადმინისტრატორის პანელი — თქვენი მონაცემები ბრაუზერს არ ტოვებს',
     'proxyBadge': 'relay-ით',
@@ -1681,13 +1683,28 @@ function pubChartDefs() {
 /* ---------- chart click → issue list modal ---------- */
 
 /* the Jira base URL for issue links: the signed-in connection first, then the
-   domain the admin baked into the published snapshot (viewer-only path) */
+   domain the admin baked into the published snapshot (viewer-only path).
+   Last resort: derive the origin from an issue's own `self` API URL
+   (covers snapshots published before the domain field existed). */
 function jiraIssueBase() {
   /* Jira site origin used to build /browse/KEY links from the issue list modal.
      Chain: the viewer's own connection → the published config's stored domain
      (v2+ snapshots) → a parent 'all' snapshot (board drill-down keeps it). */
   let d = state.conn?.domain || pubState.snapshot?.domain || pubState.allSnapshot?.domain || '';
   d = String(d).trim();
+  if (!d) {
+    /* derive from any cached issue's self URL: …/rest/api/3/search/... */
+    const pools = [state.issues || []];
+    if (_pubBoardCache) for (const c of _pubBoardCache.values()) if (c?.rec?.issues?.length) pools.push(c.rec.issues);
+    for (const pool of pools) {
+      for (const iss of pool) {
+        const self = iss?.self || iss?.fields?.self || '';
+        const m = String(self).match(/^https:\/\/([a-z0-9.-]+\.atlassian\.net)/i);
+        if (m) { d = m[1]; break; }
+      }
+      if (d) break;
+    }
+  }
   if (!d) return '';
   return d.startsWith('http') ? d.replace(/\/+$/, '') : 'https://' + d.replace(/^\/+|\/+$/g, '');
 }
@@ -1752,7 +1769,7 @@ function openIssueListModal(chartTitle, pointLabel, keys, seriesLabel) {
           <td>${link}</td>
           <td>${escapeHtml(r.summary || '—')}</td>
           <td>${escapeHtml(r.status || '—')}</td>
-          <td>${escapeHtml(r.assignee || '—')}</td>
+          <td>${r.assignee ? escapeHtml(r.assignee) : `<span class="muted">${escapeHtml(t('ilist.unassigned'))}</span>`}</td>
           <td>${fmtDateLong(r.created)}</td>
           <td>${fmtDateLong(r.updated)}</td>
         </tr>`;
@@ -1857,16 +1874,16 @@ async function renderPubContent() {
         : t('card.openDash');
       return `
         <div class="board-card glass${pBoard ? ' p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}" data-bid="${b.boardId}" style="animation-delay:${Math.min(i * 35, 400)}ms">
+          ${pBoard ? '<span class="chip chip-p board-p-flag" title="[P]">[P]</span>' : ''}
           <div class="board-card-head">
             <div class="board-avatar" aria-hidden="true">${initial}</div>
             <div class="board-id-block">
               <h3 title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</h3>
               <div class="board-meta">
-                ${pBoard ? '<span class="chip chip-p" title="[P]">[P]</span>' : (b.projectName ? `<span class="chip" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : '')}
+                ${!pBoard && b.projectName ? `<span class="chip" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : ''}
               </div>
             </div>
             <div class="board-head-side">
-              <span class="board-head-pct pub-head-pct" id="pubpct_${b.boardId}" hidden>&nbsp;</span>
               ${admin ? `<button class="link-btn board-copy-link" data-copyboard="${b.boardId}" data-i18n-title="pub.copyBoardLink" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>` : ''}
             </div>
           </div>
@@ -1921,12 +1938,6 @@ async function renderPubContent() {
             created30: m.created30, resolved30: m.resolved30,
             blocked: m.blockedCount,
           });
-          const pctEl = document.getElementById('pubpct_' + b.boardId);
-          if (pctEl) {
-            pctEl.hidden = false;
-            pctEl.textContent = Math.max(0, Math.min(100, m.doneRate || 0)) + '%';
-            pctEl.title = tReplace('dash.completionRate', { p: Math.max(0, Math.min(100, m.doneRate || 0)) });
-          }
         } catch (e) {
           logDiag('warn', 'Publish all-boards: live stats failed', { boardId: b.boardId, message: e?.message });
           const box = document.getElementById('pubbstats_' + b.boardId);
@@ -2877,21 +2888,19 @@ function boardCardHTML(b, i) {
   const initial = escapeHtml((b.name || '?').trim().charAt(0).toUpperCase());
   const pBoard = isPBoard(b);
   const cached = cachedBoardStats(b.id);
-  const headPct = cached ? Math.max(0, Math.min(100, cached.doneRate || 0)) : null;
   return `
     <div class="board-card glass${pBoard ? ' p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}" data-id="${b.id}" style="animation-delay:${Math.min(i * 35, 400)}ms">
+      ${pBoard ? '<span class="chip chip-p board-p-flag" title="[P]">[P]</span>' : ''}
       <div class="board-card-head">
         <div class="board-avatar" aria-hidden="true">${initial}</div>
         <div class="board-id-block">
           <h3 title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</h3>
           <div class="board-meta">
-            ${pBoard ? '<span class="chip chip-p" title="[P]">[P]</span>' : ''}
             ${b.type ? `<span class="${boardTypeClass(b.type)}">${escapeHtml(b.type)}</span>` : ''}
             ${b.location?.projectKey ? `<span class="chip">${escapeHtml(b.location.projectKey)}</span>` : ''}
           </div>
         </div>
         <div class="board-head-side">
-          ${headPct != null ? `<span class="board-head-pct" title="${headPct}% ${escapeHtml(t('bc.done'))}">${headPct}%</span>` : ''}
           <button class="link-btn board-copy-link" data-copyboard="${b.id}" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>
         </div>
       </div>
