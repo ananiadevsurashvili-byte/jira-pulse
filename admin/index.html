@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-<link rel="stylesheet" href="../styles.css?v=8241310" />
+<link rel="stylesheet" href="../styles.css?v=8241311" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -54,6 +54,10 @@
     <span class="lang-switch" role="group" aria-label="Language">
       <button class="lang-btn" data-lang="en" type="button">EN</button>
       <button class="lang-btn" data-lang="ka" type="button">ქა</button>
+    </span>
+    <span class="theme-switch" role="group" aria-label="Theme" data-i18n-title="theme.title" title="Switch color theme">
+      <button class="theme-btn" data-theme="dark" type="button" data-i18n-title="theme.dark" title="Dark theme">🌙</button>
+      <button class="theme-btn" data-theme="light" type="button" data-i18n-title="theme.light" title="Light theme">☀️</button>
     </span>
     <button id="settingsBtn" class="btn btn-ghost icon-only" data-i18n-title="nav.settings" title="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -469,6 +473,10 @@
         <button class="lang-btn" data-lang="en" type="button">EN</button>
         <button class="lang-btn" data-lang="ka" type="button">ქა</button>
       </span>
+      <span class="theme-switch" role="group" aria-label="Theme" data-i18n-title="theme.title" title="Switch color theme">
+        <button class="theme-btn" data-theme="dark" type="button" data-i18n-title="theme.dark" title="Dark theme">🌙</button>
+        <button class="theme-btn" data-theme="light" type="button" data-i18n-title="theme.light" title="Light theme">☀️</button>
+      </span>
     </div>
   </header>
   <div class="dash-wrap">
@@ -573,6 +581,6 @@
 <div id="toast" class="toast hidden"></div>
 
 <script>window.ADMIN_PANEL = true;</script>
-<script src="../app.js?v=8241310"></script>
+<script src="../app.js?v=8241311"></script>
 </body>
 </html>

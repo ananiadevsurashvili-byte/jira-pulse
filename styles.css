@@ -730,9 +730,38 @@ body {
 }
 
 /* ── modal improvements ── */
-.modal-wide { max-width: 720px; }
+/* NOTE: no max-width cap on .modal-wide — the earlier 720px cap squeezed the
+   issue-list table (truncated headers, wrapped issue keys). */
 .modal .form-row { margin-top: 4px; }
 #subtitleHint { transition: opacity 0.15s ease; }
+
+/* ── issue list modal (chart click → drill-down) ──
+   wide layout so every column (Key · Summary · Status · Assignee · Created ·
+   Updated) is fully readable without wrapping */
+#issueListModal .modal {
+  width: min(1160px, 96vw);
+  max-width: 96vw;
+  max-height: 88vh;
+  gap: 12px;
+}
+#issueListModal .table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+/* issue keys are compact codes — never let them wrap mid-key */
+#issueListModal .data-table { min-width: 860px; }
+#issueListModal th, #issueListModal td { white-space: nowrap; }
+#issueListModal td:nth-child(2) { white-space: normal; min-width: 260px; }  /* summary may flow */
+#issueListModal .data-table a {
+  color: #a5b4fc; font-weight: 700; letter-spacing: 0.02em;
+  border-bottom: 1px dashed rgba(165, 180, 252, 0.45);
+}
+#issueListModal .data-table a:hover { color: #c7d2fe; border-bottom-style: solid; }
+.ilist-ext { font-size: 0.72em; margin-left: 4px; opacity: 0.75; }
+body.light #issueListModal .data-table a { color: #4f46e5; border-bottom-color: rgba(79, 70, 229, 0.4); }
+body.light #issueListModal .data-table a:hover { color: #4338ca; }
 
 /* ── chart canvas wrapper ── */
 .canvas-wrap { position: relative; min-height: 220px; }
@@ -1030,3 +1059,136 @@ body.pick-mode #pubScreen .board-card .board-open { color: #a5b4fc; }
 /* pub compare bar (board A vs B header inside the share view) */
 #pubScreen .compare-bar { margin-bottom: 18px; }
 #pubScreen .cmp-name { color: #a5b4fc; }
+
+/* ── theme switcher (dark default · light optional) ── */
+.theme-switch {
+  display: inline-flex; align-items: center; gap: 2px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 2px;
+}
+.theme-btn {
+  padding: 5px 9px; border-radius: 7px; border: none; background: transparent;
+  color: var(--muted); font-size: 0.82rem; font-weight: 700; cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease; line-height: 1;
+  display: inline-flex; align-items: center;
+}
+.theme-btn:hover { background: var(--panel-strong); color: var(--text); }
+.theme-btn.active { background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4); }
+
+/* ══════════ LIGHT THEME ══════════
+   Toggled via body.light from the theme switcher. Restyles the dark surfaces
+   (page bg, topbar, modals, inputs, tables) and re-tints the colored text
+   accents to darker hues that stay readable on light panels. */
+body.light {
+  --bg-0: #e9edf6;
+  --bg-1: #f4f6fc;
+  --panel: rgba(255, 255, 255, 0.75);
+  --panel-strong: rgba(255, 255, 255, 0.95);
+  --border: rgba(15, 23, 42, 0.10);
+  --border-strong: rgba(15, 23, 42, 0.20);
+  --text: #1e2540;
+  --muted: #5d6584;
+  --shadow: 0 20px 60px rgba(30, 41, 82, 0.14);
+}
+body.light {
+  background:
+    radial-gradient(1200px 700px at 85% -10%, rgba(99, 102, 241, 0.12), transparent 60%),
+    radial-gradient(1000px 600px at -10% 110%, rgba(34, 211, 238, 0.10), transparent 60%),
+    linear-gradient(160deg, var(--bg-1), var(--bg-0));
+  background-attachment: fixed;
+}
+body.light .orb { opacity: 0.15; }
+body.light .topbar,
+body.light #pubScreen .pub-topbar { background: rgba(255, 255, 255, 0.8); }
+body.light .modal { background: rgba(255, 255, 255, 0.96); }
+body.light .modal-overlay { background: rgba(30, 37, 64, 0.38); }
+body.light .toast { background: rgba(255, 255, 255, 0.97); }
+body.light .toast-ok { color: #047857; }
+body.light .toast-err { color: #b91c1c; }
+body.light .debug-log { background: rgba(15, 23, 42, 0.045); color: #334155; }
+body.light .input { background: rgba(255, 255, 255, 0.9); }
+body.light .input::placeholder { color: #8b93ad; }
+body.light .modal label,
+body.light .hero label { color: #4a5375; }
+body.light .help summary { color: #4a5375; }
+body.light .seg-label { color: #6a7290; }
+body.light .form-error { color: #b91c1c; }
+body.light .btn-danger-ghost { color: #b91c1c; }
+body.light .btn-compare { color: #4f46e5; }
+body.light .spinner { border-color: rgba(15, 23, 42, 0.15); border-top-color: var(--accent); }
+body.light ::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, 0.2); }
+
+/* tables */
+body.light .data-table td { border-bottom-color: rgba(15, 23, 42, 0.07); }
+body.light .data-table tbody tr:hover { background: rgba(99, 102, 241, 0.06); }
+body.light .data-table a { color: #4f46e5; }
+body.light .status-pill { background: rgba(15, 23, 42, 0.05); }
+body.light .age-bar { background: rgba(15, 23, 42, 0.1); }
+
+/* badges / chips / accents → darker tints for light panels */
+body.light .badge { color: #4f46e5; }
+body.light .badge-warn { color: #a16207; }
+body.light .admin-badge { color: #4f46e5; }
+body.light .org-badge { color: #0e7490; }
+body.light .chip { color: #0e7490; }
+body.light .chip-scrum { color: #4f46e5; }
+body.light .chip-simple { color: #047857; }
+body.light .chip.chip-p { color: #0369a1; }
+body.light .board-open { color: #4f46e5; }
+body.light .board-group-title { color: #4f46e5; }
+body.light .board-head-pct { color: #0e7490; }
+body.light .ic-indigo { color: #4f46e5; }
+body.light .ic-cyan { color: #0e7490; }
+body.light .ic-green { color: #047857; }
+body.light .ic-violet { color: #6d28d9; }
+body.light .ic-amber { color: #a16207; }
+body.light .accent-cyan { color: #0e7490; }
+body.light .accent-green { color: #047857; }
+body.light .accent-violet { color: #6d28d9; }
+body.light .accent-amber { color: #a16207; }
+body.light .age-hot { color: #b91c1c; }
+body.light .age-warm { color: #a16207; }
+body.light .trend-good { color: #047857; }
+body.light .trend-bad { color: #b91c1c; }
+body.light .trend-flat { color: #1d4ed8; }
+body.light .insight,
+body.light .cmp-insight { color: #3f4660; }
+body.light .ins-good b,
+body.light .cmp-good { color: #047857; }
+body.light .ins-warn b { color: #a16207; }
+body.light .ins-bad b,
+body.light .cmp-bad { color: #b91c1c; }
+
+/* board-card stats */
+body.light .bstat { color: #47506b; }
+body.light .bstat-skip { color: #64748b; }
+body.light .bc-v { color: #1e2540; }
+body.light .bc-stat.bc-pos .bc-v { color: #15803d; }
+body.light .bc-stat.bc-neg .bc-v { color: #a16207; }
+body.light .bc-health { color: #64748b; }
+body.light .bc-health.hl-good { color: #047857; }
+body.light .bc-health.hl-warn { color: #a16207; }
+body.light .bc-health.hl-info { color: #4f46e5; }
+
+/* compare + pick mode */
+body.light .cmp-name { color: #4f46e5; }
+body.light .cmp-val-a .cmp-val-num { color: #4f46e5; }
+body.light .cmp-val-b .cmp-val-num { color: #0e7490; }
+body.light .cmp-winner-a { color: #4f46e5; }
+body.light .cmp-winner-b { color: #0e7490; }
+body.light .cmp-winner-even { color: #64748b; }
+body.light .cmp-delta.up { color: #047857; }
+body.light .cmp-delta.down { color: #b91c1c; }
+body.light .pick-title { color: #4f46e5; }
+body.light .pick-slot.filled { color: #312e81; }
+body.light .board-card.pick-sel .board-open,
+body.light #pubScreen .board-card.pick-sel .board-open { color: #4338ca; }
+body.light.pick-mode .board-card .board-open,
+body.light #pubScreen .board-card .board-open { color: #4f46e5; }
+body.light .hidden-charts-strip { color: #a16207; }
+body.light .hidden-charts-strip .muted { color: #854d0e; }
+
+/* issue list modal */
+body.light #issueListModal .table-wrap { background: rgba(15, 23, 42, 0.025); }
+
+/* admin ribbon (amber on dark → darker amber on light) */
+body.light .admin-ribbon { color: #a16207; }

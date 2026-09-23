@@ -585,6 +585,9 @@ const I18N = {
     'lang.en': 'English',
     'lang.ka': 'ქართული',
     'lang.title': 'Switch language',
+    'theme.title': 'Switch color theme',
+    'theme.dark': 'Dark theme',
+    'theme.light': 'Light theme',
   },
   ka: {
     'nav.allBoards': 'ყველა დაფა',
@@ -620,8 +623,8 @@ const I18N = {
     'setup.adminTitle': 'ადმინისტრატორის პანელი<br /><span class="grad-text">მართეთ თქვენი მიწოდების სტატისტიკა.</span>',
     'setup.adminLead': 'ეს არის <b>JiraPulse-ის ადმინისტრატორის პანელი</b>. დაუკავშირდით თქვენს Jira ანგარიშს დაფების სტატისტიკის გასამოქვეყნებლად, გასაზიარებელი ბმულების შესაქმნელად და იმის საკონტროლოდ, თუ რას ხედავს თქვენი ორგანიზაცია. თქვენი მონაცემები ბრაუზერს არ ტოვებს.',
     'boards.choose': 'აირჩიეთ დაფა',
-    'boards.sub': 'პირდაპირ თქვენი Jira-დანაა სინქრონიზებული. დააჭირეთ ნებისმიერ ბარათს ანალიტიკური დაშბორდის გასახსნელად.',
-    'boards.subAdmin': 'პირდაპირ თქვენი Jira-დანაა სინქრონიზებული. დააჭირეთ ნებისმიერ ბარათს ადმინისტრატორის დაშბორდის გასახსნელად.',
+    'boards.sub': 'უშუალოდ თქვენი Jira-დან არის სინქრონიზებული. დააჭირეთ ნებისმიერ ბარათს ანალიტიკური დაშბორდის გასახსნელად.',
+    'boards.subAdmin': 'უშუალოდ თქვენი Jira-დან არის სინქრონიზებული. დააჭირეთ ნებისმიერ ბარათს ადმინისტრატორის დაშბორდის გასახსნელად.',
     'boards.publishAll': '⟳ ყველას გამოქვეყნება',
     'boards.publishAllTitle': 'ყველა დაფის გამოქვეყნება თქვენი ორგანიზაციისთვის',
     'boards.loading': 'დაფების მიღება Jira-დან…',
@@ -638,7 +641,7 @@ const I18N = {
     'kpi.totalSub': 'ამ დაფაზე',
     'kpi.created': 'შექმნილი · 30 დღე',
     'kpi.createdSub': 'ახალი დავალებები',
-    'kpi.done': 'მზადაა საერთო',
+    'kpi.done': 'ჯამურად დასრულებული',
     'kpi.doneSub': 'დასრულების მაჩვენებელი',
     'kpi.resolved': 'დახურული · 30 დღე',
     'kpi.resolvedSub': 'ცოტა ხნის წინ გაიგზავნა',
@@ -674,9 +677,9 @@ const I18N = {
     'cmp.pubSynced': 'სინქრონიზებულია · {x}',
     'cmp.pubA': 'დაფა A',
     'cmp.pubB': 'დაფა B',
-    'table.title': 'ყველაზე დიდხანს მდგომი მიმდინარე სტატუსში',
+    'table.title': 'ყველაზე დიდხანს დგას მიმდინარე სტატუსში',
     'table.titleSub': '· ღია სამუშაო',
-    'th.key': 'გასაღები', 'th.summary': 'შინაარსი', 'th.status': 'სტატუსი',
+    'th.key': 'გასაღები', 'th.summary': 'დავალების სახელი', 'th.status': 'სტატუსი',
     'th.timeInStatus': 'დრო სტატუსში', 'th.type': 'ტიპი', 'th.assignee': 'შემსრულებელი', 'th.created': 'შექმნის თარიღი',
     'th.updated': 'განახლების თარიღი',
     'ilist.empty': 'ამ შერჩევისთვის დავალების მონაცემები არ არის.',
@@ -758,14 +761,14 @@ const I18N = {
     /* dynamic strings — Georgian */
     'cmp.loading': 'იტვირთება „X" vs „Y"…',
     'cmp.failed': 'შედარების რეჟიმის გაშვება ვერ მოხერხდა.',
-    'cmp.bSyncing': 'დაფა B სინქრონიზდება…',
+    'cmp.bSyncing': 'ისინქრონება დაფა B…',
     'cmp.bSynced': 'დაფა B სინქრონიზებულია · {x}',
     'cmp.bFailed': '⚠ დაფა B ვერ სინქრონიზდა — აირჩიეთ სხვა',
     'cmp.count': 'A: {a} დავალება · B: {b} დავალება',
     'cmp.prompt': 'შედარების რეჟიმი — აირჩიეთ მეორე დაფა ზემოთა ზოლში, რომ ყველა გრაფიკი და მეტრიკა გადაფარვით ნახოთ.',
-    'cmp.even': '— თანაბარი', 'cmp.identical': 'ორივე დაფაზე იდენტურია', 'cmp.noData': 'შედარების მონაცემები არ არის',
+    'cmp.even': 'თანაბარი', 'cmp.identical': 'ორივე დაფაზე იდენტურია', 'cmp.noData': 'შედარების მონაცემები არ არის',
     'cmp.vsQ': '{a} vs ? — აირჩიეთ დაფა B ზემოთ',
-    'cmp.higher': '{x} მეტია', 'cmp.lower': '{x} სწრაფია', 'cmp.above': '{a} {p}%-ით აღემატება {b}-ს', 'cmp.below': '{a} {p}%-ით ჩამორჩება {b}-ს',
+    'cmp.higher': '{x} უფრო მეტია', 'cmp.lower': '{x} უფრო სწრაფია', 'cmp.above': '{a} {p}%-ით აღემატება {b}-ს', 'cmp.below': '{a} {p}%-ით ჩამორჩება {b}-ს',
     'insight.throughput': 'პროდუქტივობა', 'insight.speed': 'სიჩქარე', 'insight.load': 'ღია დავალებები',
     'insight.completion': 'დასრულება', 'insight.blocked': 'დაბლოკილი სამუშაო', 'insight.intake': 'შემოდინების სხვაობა',
     'kpi.syncing': 'სინქრონიზაცია…',
@@ -807,7 +810,7 @@ const I18N = {
     'metric.avgCycle': 'საშ. ციკლის დრო ჯგუფებად', 'metric.openAge': 'ღია დავალებების ასაკი',
     'metric.avgStatusTime': 'საშ. დრო სტატუსში ჯგუფებად',
     'group.time': 'დრო', 'group.status': 'სტატუსი', 'group.assignee': 'შემსრულებელი', 'group.type': 'დავალების ტიპი',
-    'group.priority': 'პრიორიტეტი', 'group.label': 'პირველი ჭდე', 'group.bottleneck': 'გამხრების ეტაპი',
+    'group.priority': 'პრიორიტეტი', 'group.label': 'პირველი ჭდე', 'group.bottleneck': 'გამავრობის შემზღუდავი ეტაპი',
     'group.stage': 'სტეიკჰოლდერი vs გუნდი', 'group.ageBucket': 'ასაკის დიაპაზონი', 'group.assigneeState': 'განაწილებული vs დაუნიშნავი',
     'range.30': 'ბოლო 30 დღე', 'range.90': 'ბოლო 90 დღე', 'range.182': 'ბოლო 6 თვე',
     'range.365': 'ბოლო 12 თვე', 'range.0': 'მთელი ისტორია',
@@ -819,7 +822,7 @@ const I18N = {
     'chart.title.resolvedTrend': 'დახურული დავალებები', 'chart.sub.resolvedTrend': 'თვიური დასრულების ტენდენცია',
     'chart.title.backlogGrowth': 'ბექლოგის ტენდენცია', 'chart.sub.backlogGrowth': 'კუმულაციური ღია სამუშაო (შექმნა − დახურვა)',
     'chart.title.blockedDist': 'დაბლოკილი და გაუქმებული', 'chart.sub.blockedDist': 'სამუშაო, რომელიც დაბლოკილ/გაუქმებულ/უარყოფილ სტატუსებში დგას',
-    'chart.title.bottlenecks': 'აქტიური გამხრები', 'chart.sub.bottlenecks': 'სად გროვდება ღია სამუშაო',
+    'chart.title.bottlenecks': 'აქტიური გამავრობის შემზღუდავი ეტაპები', 'chart.sub.bottlenecks': 'სად გროვდება ღია სამუშაო',
     'chart.title.statusDist': 'სტატუსების განაწილება', 'chart.sub.statusDist': 'ყველა დავალება მიმდინარე სტატუსით',
     'chart.title.statusTime': 'საშ. დრო სტატუსში', 'chart.sub.statusTime': 'საშუალო დრო თითოეულ სტატუსში · ჟურნალი',
     'chart.title.phaseDelays': 'სტეიკჰოლდერი vs გუნდის დაგვიანებები', 'chart.sub.phaseDelays': 'საშ. დღეები ეტაპზე · სტეიკჰოლდერის კარიბჭეები vs გუნდის სამუშაო · ჟურნალი',
@@ -968,7 +971,7 @@ const I18N = {
     'cmp.kpiTotalSub': 'დაფაზე',
     'cmp.kpiCreated': 'შექმნილი · 30 დღე',
     'cmp.kpiCreatedSub': 'ახალი დავალებები',
-    'cmp.kpiDone': 'დასრულებული სულ',
+    'cmp.kpiDone': 'ჯამურად დასრულებული',
     'cmp.kpiDoneSub': 'დასრულებული',
     'cmp.kpiResolved': 'დახურული · 30 დღე',
     'cmp.kpiResolvedSub': 'ცოტა ხნის წინ გაიგზავნა',
@@ -978,10 +981,10 @@ const I18N = {
     'cmp.kpiWipSub': 'ჯერ არ დასრულებულა',
     'cmp.badgeBoth': 'A: {a} დავალება · B: {b} დავალება',
     'cmp.hintBar': 'შედარების რეჟიმი — აირჩიეთ მეორე დაფა ზემოთა ზოლში, რომ ყველა გრაფიკი და მეტრიკა გადაფაროთ.',
-    'cmp.aFaster': '{n} სწრაფია',
-    'cmp.bFaster': '{n} სწრაფია',
-    'cmp.aHigher': '{n} მაღალია',
-    'cmp.bHigher': '{n} მაღალია',
+    'cmp.aFaster': '{n} უფრო სწრაფია',
+    'cmp.bFaster': '{n} უფრო სწრაფია',
+    'cmp.aHigher': '{n} უფრო მაღალია',
+    'cmp.bHigher': '{n} უფრო მაღალია',
     'cmp.aAbove': 'A {p}%-ით მაღლაა B-ზე',
     'cmp.aBelow': 'A {p}%-ით დაბლაა B-ზე',
     'cmp.even': 'თანაბარი',
@@ -1020,7 +1023,7 @@ const I18N = {
     'pick.clickPickB': 'დააკლიკეთ B-დ ასარჩევად',
     'hl.blocked': '{b} დაბლოკილია',
     'hl.allClear': 'ყველაფერი რიგზეა — არაფერი მიმდინარეობს',
-    'hl.backlogGrowing': 'Backlog იზრდება',
+    'hl.backlogGrowing': 'ბექლოგი იზრდება',
     'hl.strongOutflow': 'ძლიერი გამოდინება',
     'hl.steadyFlow': 'სტაბილური ნაკადი',
     'badge.noChangelogTitle': 'ამ დაფაზე changelog მიუწვდომელია',
@@ -1034,8 +1037,8 @@ const I18N = {
     'ins.bottleneck': '<b>{n}</b> ღია დავალება ახლა იდგება <b>{cat}</b>-ში',
     'ins.slowest': 'ახლა ყველაზე ნელი ეტაპია: <b>{s}</b> · საშ. {d}',
     'ins.throughput': 'გამტარუნარიანობა <b>{p}%</b> წინა 30 დღესთან შედარებით',
-    'ins.aged': '<b>{n}</b> ღია დავალება 14 დღეზე მეტხანს არის გათოში',
-    'ins.netFlow': 'წმინდა ნაკადი 30 დღეში <b>{n}</b> დავალება — backlog {w}',
+    'ins.aged': '<b>{n}</b> ღია დავალება 14 დღეზე მეტხანსაა ჩაძრახული',
+    'ins.netFlow': '30 დღეში წმინდა ნაკადი <b>{n}</b> დავალება — ბექლოგი {w}',
     'ins.shrinking': 'მცირდება',
     'ins.growing': 'იზრდება',
     'cmp.noDataEither1': 'ორივე დაფაზე მონაცემები არ არის',
@@ -1048,10 +1051,10 @@ const I18N = {
     'cmp.avg': 'საშ.',
     'cmp.issues': 'დავალება',
     'cmp.tie': 'თანაბარია',
-    'pub.liveUnavailable': 'ლაივ მონაცემები მიუწვდომელია',
+    'pub.liveUnavailable': 'პირდაპირი მონაცემები მიუწვდომელია',
     'pub.noBoardSelected': 'დაფა არ არის არჩეული.',
-    'pub.loadingLive': 'მიმდინარეობს ლაივ მონაცემების ჩატვირთვა Jira-დან…',
-    'pub.loadFailed': 'ლაივ მონაცემების ჩატვირთვა ვერ მოხერხდა ({m}).',
+    'pub.loadingLive': 'მიმდინარეობს პირდაპირი მონაცემების ჩატვირთვა Jira-დან…',
+    'pub.loadFailed': 'პირდაპირი მონაცემების ჩატვირთვა ვერ მოხერხდა ({m}).',
     'pub.nIssues': '{n} დავალება',
     'pub.noCharts': 'ამ დაფისთვის გრაფიკები კონფიგურირებული არ არის.',
     'chart.newTitle': 'ახალი გრაფიკი',
@@ -1077,7 +1080,7 @@ const I18N = {
     'series.resolved': 'დახურვა',
     'series.perBucket': '{b}-მიერ',
     'series.openNow': 'ახლა ღიაა',
-    'series.avg': 'საშ. ',
+    'series.avg': 'საშ. მნიშვნელობა',
     'series.count': 'რაოდენობა',
     'series.byGroup': '{g}-ის მიხედვით',
     'statusTime.noChangelog1': 'ამ დაფაზე ცვლილებების ისტორია მიუწვდომელია',
@@ -1099,13 +1102,16 @@ const I18N = {
     'cat.noIssues': 'ამ გრაფიკს დავალებები ჯერ არ ერგება',
     'filter.openOnly': 'მხოლოდ ღია',
     'filter.doneOnly': 'მხოლოდ დახურული',
-    'bn.pendingReview': 'მიმოხილვის პროცესში',
+    'bn.pendingReview': 'განხილვის პროცესში',
     'bn.techAnalysis': 'ტექნიკური ანალიზი',
     'bn.inDevelopment': 'შემუშავებაში',
     'bn.testing': 'ტესტირება',
     'lang.en': 'English',
     'lang.ka': 'ქართული',
     'lang.title': 'ენის გადამრთველი',
+    'theme.title': 'ფერის თემის გადამრთველი',
+    'theme.dark': 'მუქი თემა',
+    'theme.light': 'ღია თემა',
   },
 };
 
@@ -1123,6 +1129,53 @@ function tReplace(key, subs, fallback) {
   let s = t(key, fallback);
   for (const [k, v] of Object.entries(subs || {})) s = s.split('{' + k + '}').join(String(v));
   return s;
+}
+
+/* ── dark / light theme switcher ───────────────────────────────────
+   Dark is the default (unchanged look); a user can flip to light.
+   Persisted in localStorage, applied as body[data-theme] so all CSS
+   variables + surfaces restyle, and charts re-render with theme-aware
+   colors. Mirrors the language switcher's persistence pattern. */
+const LS_THEME = 'jp_theme_v1';
+let THEME = 'dark';
+try { THEME = localStorage.getItem(LS_THEME) === 'light' ? 'light' : 'dark'; } catch (_) {}
+
+/* theme-aware colors for canvas-drawn content (charts can't use CSS vars) */
+function themeColors() {
+  const light = THEME === 'light';
+  return {
+    light,
+    text: light ? '#3f4660' : '#e9edf8',
+    muted: light ? '#5d6584' : '#8b93ad',
+    grid: light ? 'rgba(15, 23, 42, 0.08)' : 'rgba(255, 255, 255, 0.05)',
+    tooltipBg: light ? 'rgba(255, 255, 255, 0.97)' : 'rgba(13, 18, 38, 0.95)',
+    tooltipText: light ? '#1e2540' : '#e9edf8',
+    tooltipBorder: light ? 'rgba(15, 23, 42, 0.12)' : 'rgba(255, 255, 255, 0.09)',
+    emptyMsg: light ? '#5d6584' : '#8b93ad',
+    /* slice/point edge color (doughnut borders, line point borders) */
+    edge: light ? 'rgba(255, 255, 255, 0.9)' : 'rgba(10, 15, 34, 0.9)',
+    edgeHover: light ? '#4f46e5' : '#fff',
+  };
+}
+
+function applyThemeClass() {
+  document.body.classList.toggle('light', THEME === 'light');
+  document.querySelectorAll('.theme-btn').forEach((b) => {
+    b.classList.toggle('active', (b.dataset.theme === 'light') === (THEME === 'light'));
+  });
+}
+
+function setTheme(theme) {
+  THEME = (theme === 'light') ? 'light' : 'dark';
+  try { localStorage.setItem(LS_THEME, THEME); } catch (_) {}
+  applyThemeClass();
+  /* re-render charts + canvas messages so hardcoded canvas colors follow the theme */
+  try {
+    if (state.inShareScreen) { renderPubContent(); }
+    else if (state.lastBoard && state.lastMetrics && !$('#dashScreen').classList.contains('hidden')) {
+      renderCharts(effectiveCharts(), state.lastMetrics);
+    }
+  } catch (err) { logDiag('theme rerender failed: ' + err.message); }
 }
 
 function applyI18n(root) {
@@ -1419,6 +1472,7 @@ function showPubScreen(snapshot) {
   pubState.codeSent = false;
   pubState.isAdmin = false;
   pubState.currentBoard = null;
+  pubState.allSnapshot = null;
   pubState.pickCompare = null;
   pubState.compare = null;
   pubState.compareGen = (pubState.compareGen || 0) + 1;
@@ -1629,7 +1683,13 @@ function pubChartDefs() {
 /* the Jira base URL for issue links: the signed-in connection first, then the
    domain the admin baked into the published snapshot (viewer-only path) */
 function jiraIssueBase() {
-  return state.conn?.domain || pubState.snapshot?.domain || '';
+  /* Jira site origin used to build /browse/KEY links from the issue list modal.
+     Chain: the viewer's own connection → the published config's stored domain
+     (v2+ snapshots) → a parent 'all' snapshot (board drill-down keeps it). */
+  let d = state.conn?.domain || pubState.snapshot?.domain || pubState.allSnapshot?.domain || '';
+  d = String(d).trim();
+  if (!d) return '';
+  return d.startsWith('http') ? d.replace(/\/+$/, '') : 'https://' + d.replace(/^\/+|\/+$/g, '');
 }
 
 /* resolve issue keys (or issue objects) into display rows, preferring the live
@@ -1686,7 +1746,7 @@ function openIssueListModal(chartTitle, pointLabel, keys, seriesLabel) {
   body.innerHTML = rows.length
     ? rows.map((r) => {
         const link = base
-          ? `<a href="${escapeHtml(base)}/browse/${encodeURIComponent(r.key)}" target="_blank" rel="noopener" title="${t('ilist.openJira')}">${escapeHtml(r.key)}</a>`
+          ? `<a href="${escapeHtml(base)}/browse/${encodeURIComponent(r.key)}" target="_blank" rel="noopener" title="${t('ilist.openJira')}">${escapeHtml(r.key)}<span class="ilist-ext" aria-hidden="true">↗</span></a>`
           : `<span class="muted">${escapeHtml(r.key)}</span>`;
         return `<tr>
           <td>${link}</td>
@@ -1929,6 +1989,7 @@ function openBoardSnapshot(boardRec) {
     scope: 'board',
     createdAt: snap.createdAt,
     chartDefs: snap.chartDefs || pubState.chartDefs || [],
+    domain: snap.domain || '',
   };
   pubState.snapshot = sub;
   renderPubContent();
@@ -1961,6 +2022,7 @@ async function showPublicLanding() {
     createdAt: (cfg && cfg.savedAt) || Date.now(),
     chartDefs: (cfg && cfg.chartDefs) || [],
     boards,
+    domain: (cfg && cfg.domain) || '',
   };
   showPubScreen(snapshot);
 }
@@ -2146,7 +2208,7 @@ function drawCanvasMessage(id, lines) {
   ctx.clearRect(0, 0, el.width, el.height);
   ctx.save();
   ctx.font = '600 13px Inter, system-ui';
-  ctx.fillStyle = '#8b93ad';
+  ctx.fillStyle = themeColors().emptyMsg;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   lines.forEach((line, i) => {
@@ -4535,6 +4597,7 @@ function chartConfigFor(def, data, theme, canvasId) {
   const dur = data.duration;
   const fmtV = dur ? (v) => fmtDuration(v * DAY) : (v) => String(Math.round(v));
   const fmtNum = (v) => (v == null || !isFinite(v) ? '—' : String(Math.round(v)));
+  const tc = themeColors();   /* theme-aware chart edge/hover colors */
 
   /* click a data point → open the issue-list modal for that slice/point.
      Doughnut: index → group label. Line/bar: index → bucket/group, dataset
@@ -4562,10 +4625,10 @@ function chartConfigFor(def, data, theme, canvasId) {
         datasets: [{
           data: data.datasets[0].data,
           backgroundColor: data.colors,
-          borderColor: 'rgba(10,15,34,.9)',
+          borderColor: tc.edge,
           borderWidth: 2,
           hoverOffset: 10,
-          hoverBorderColor: '#fff',
+          hoverBorderColor: tc.edgeHover,
           __keys: data.datasets[0].__keys,
           __src: data.datasets[0].__src,
         }],
@@ -4612,7 +4675,7 @@ function chartConfigFor(def, data, theme, canvasId) {
           borderColor: ds.color, backgroundColor: grad(ds.rgb),
           fill: true, tension: 0.35,
           pointRadius: 2, pointHoverRadius: 5,
-          pointBackgroundColor: ds.color, pointBorderColor: 'rgba(10,15,34,.9)', pointBorderWidth: 1.5,
+          pointBackgroundColor: ds.color, pointBorderColor: tc.edge, pointBorderWidth: 1.5,
           borderWidth: 2.5,
           __keys: ds.__keys, __src: ds.__src,
         })),
@@ -5066,10 +5129,10 @@ const centerTextPlugin = {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = '800 26px Inter, system-ui';
-    ctx.fillStyle = '#e9edf8';
+    ctx.fillStyle = themeColors().text;
     ctx.fillText(String(opts.value ?? ''), x, y - 7);
     ctx.font = '700 10px Inter, system-ui';
-    ctx.fillStyle = '#8b93ad';
+    ctx.fillStyle = themeColors().muted;
     ctx.fillText(String(opts.label ?? '').toUpperCase(), x, y + 14);
     ctx.restore();
   },
@@ -5077,7 +5140,8 @@ const centerTextPlugin = {
 Chart.register(centerTextPlugin);
 
 function chartTheme() {
-  Chart.defaults.color = '#8b93ad';
+  const tc = themeColors();
+  Chart.defaults.color = tc.muted;
   Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
   Chart.defaults.font.size = 11;
   return {
@@ -5086,17 +5150,19 @@ function chartTheme() {
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: 'rgba(13,18,38,.95)',
-        borderColor: 'rgba(255,255,255,.14)',
+        backgroundColor: tc.tooltipBg,
+        borderColor: tc.tooltipBorder,
         borderWidth: 1,
         padding: 10,
         cornerRadius: 9,
         titleFont: { weight: '700' },
+        titleColor: tc.tooltipText,
+        bodyColor: tc.tooltipText,
       },
     },
     scales: {
-      x: { grid: { color: 'rgba(255,255,255,.05)' }, ticks: { maxTicksLimit: 10 } },
-      y: { grid: { color: 'rgba(255,255,255,.05)' }, ticks: { precision: 0 } },
+      x: { grid: { color: tc.grid }, ticks: { maxTicksLimit: 10, color: tc.muted } },
+      y: { grid: { color: tc.grid }, ticks: { precision: 0, color: tc.muted } },
     },
   };
 }
@@ -5468,6 +5534,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.lang-btn').forEach((b) => {
     b.addEventListener('click', () => setLang(b.dataset.lang));
   });
+
+  /* theme switcher: one handler covers every .theme-btn on the page — dark is default */
+  document.querySelectorAll('.theme-btn').forEach((b) => {
+    b.addEventListener('click', () => setTheme(b.dataset.theme));
+  });
+  applyThemeClass();
 
   /* route on hash change (back/forward navigation) — but not when opening a share link */
   window.addEventListener('hashchange', () => {
