@@ -481,14 +481,12 @@ const I18N = {
     'cmp.insLess': 'has less ({a} vs {b})',
     'cmp.insIntake': '{n} created {a} vs {b} ({p}%)',
     'bc.measuring': 'measuring…',
-    'bc.issuesTitle': 'Issues analyzed',
-    'bc.issues': 'issues',
+    'bc.newTitle': 'New issues · last 30 days',
+    'bc.new30': 'new 30D',
     'bc.wipTitle': 'Work in progress',
     'bc.active': 'active',
-    'bc.cycleTitle': 'Avg cycle time (create → resolve)',
-    'bc.cycle': 'cycle',
     'bc.netTitle': 'Net flow · last 30 days (resolved − created)',
-    'bc.net30d': 'net 30d',
+    'bc.net30d': 'net 30D',
     'bc.done': 'done',
     'bc.unavailable': 'stats unavailable',
     'card.openDash': 'Open dashboard →',
@@ -1006,12 +1004,10 @@ const I18N = {
     'cmp.insLess': 'ნაკლები აქვს ({a} vs {b})',
     'cmp.insIntake': '{n} შექმნა {a} vs {b} ({p}%)',
     'bc.measuring': 'იზომება…',
-    'bc.issuesTitle': 'დაანალიზებული დავალებები',
-    'bc.issues': 'დავალება',
+    'bc.newTitle': 'ახალი დავალებები · ბოლო 30 დღე',
+    'bc.new30': 'ახალი 30დ',
     'bc.wipTitle': 'მიმდინარე სამუშაო',
     'bc.active': 'აქტიური',
-    'bc.cycleTitle': 'საშ. ციკლის დრო (შექმნა → დახურვა)',
-    'bc.cycle': 'ციკლი',
     'bc.netTitle': 'ნაკადი · ბოლო 30 დღე (დახურული − შექმნილი)',
     'bc.net30d': 'ნაკადი 30დ',
     'bc.done': 'მზადაა',
@@ -2840,7 +2836,7 @@ function boardHealthLabel(h) {
   return t('hl.steadyFlow');
 }
 
-/* card stats body: compact 4-stat grid + slim progress bar + one quiet info line.
+/* card stats body: compact 3-stat grid + slim progress bar + one quiet info line.
    (loading pill keeps the `bstat` class so placeholder state is testable) */
 function boardStatsChipHtml(rec) {
   if (!rec) return `<span class="bstat bstat-pending"><span class="spinner spinner-sm"></span> ${escapeHtml(t('bc.measuring'))}</span>`;
@@ -2851,9 +2847,8 @@ function boardStatsChipHtml(rec) {
   const h = boardHealth(rec);
   return `
     <div class="bc-grid">
-      <div class="bc-stat bstat" title="${escapeHtml(t('bc.issuesTitle'))}"><span class="bc-v">${rec.total}</span><span class="bc-l">${escapeHtml(t('bc.issues'))}</span></div>
+      <div class="bc-stat bstat" title="${escapeHtml(t('bc.newTitle'))}"><span class="bc-v">${rec.created30 || 0}</span><span class="bc-l">${escapeHtml(t('bc.new30'))}</span></div>
       <div class="bc-stat bstat" title="${escapeHtml(t('bc.wipTitle'))}"><span class="bc-v">${rec.wip}</span><span class="bc-l">${escapeHtml(t('bc.active'))}</span></div>
-      <div class="bc-stat bstat" title="${escapeHtml(t('bc.cycleTitle'))}"><span class="bc-v">${rec.cycleAvg != null ? fmtDuration(rec.cycleAvg) : '—'}</span><span class="bc-l">${escapeHtml(t('bc.cycle'))}</span></div>
       <div class="bc-stat bstat ${netCls}" title="${escapeHtml(t('bc.netTitle'))}"><span class="bc-v">${netTxt}</span><span class="bc-l">${escapeHtml(t('bc.net30d'))}</span></div>
     </div>
     <div class="bc-bar" title="${pct}% ${escapeHtml(t('bc.done'))}">
@@ -3333,7 +3328,12 @@ function computeMetrics(issues) {
       const pwIdx = WEEKS - 1 - Math.floor((NOW - created) / (7 * DAY));
       if (pwIdx >= 0 && pwIdx < WEEKS) m.pipelineWeekly[pwIdx].created++;
     }
-    if (doneCat) m.done++; else m.wip++;
+    /* done = Jira's statusCategory=done OR an org-flow "green" completed status
+       (Released / Babysitting / Done Approved… — these carry no resolutiondate on
+       [P] boards, so the name check is what recognises them everywhere else).
+       Blocked/Canceled work is neither done nor active — tracked separately. */
+    if (doneCat || isCompletedStatus(f, false)) m.done++;
+    else if (!isBlockedStatus(f)) m.wip++;
 
     m.statusDist.set(statusName, (m.statusDist.get(statusName) || 0) + 1);
 
