@@ -56,6 +56,1095 @@ function escapeHtml(s) {
   }[c]));
 }
 
+/* ── i18n · English + Georgian ──────────────────────────────────────
+   t(key) resolves against the active language with an English fallback,
+   so a missing Georgian key can never break the UI. applyI18n() walks the
+   DOM for data-i18n / data-i18n-placeholder / data-i18n-title attributes. */
+const LS_LANG = 'jp_lang_v1';
+let LANG = 'en';
+try { LANG = localStorage.getItem(LS_LANG) === 'ka' ? 'ka' : 'en'; } catch (_) {}
+
+const I18N = {
+  en: {
+    'nav.allBoards': 'All boards',
+    'nav.syncBoards': 'Sync boards',
+    'nav.diagnostics': 'Diagnostics',
+    'nav.boards': 'Boards',
+    'nav.refresh': 'Refresh',
+    'nav.publicView': 'Public view',
+    'nav.compareBoards': '⇄ Compare boards',
+    'nav.compare': '⇄ Compare',
+    'nav.admin': 'Admin',
+    'nav.org': 'Org',
+    'nav.ribbon': '⚙ Management',
+    'nav.manage': '⚙ Publish / manage boards',
+    'nav.settings': 'Settings',
+    'nav.disconnect': 'Disconnect',
+    'nav.toBoards': 'Go to all boards',
+    'setup.title': 'Your Jira,<br /><span class="grad-text">beautifully visualized.</span>',
+    'setup.lead': 'Connect with your Jira API token to get instant delivery insights — how long tasks sit in each status, what shipped in the last 30&nbsp;days, team throughput and more. Credentials never leave your browser.',
+    'setup.site': 'Jira site',
+    'setup.email': 'Email',
+    'setup.token': 'API token',
+    'setup.tokenPh': 'Attach your Jira API token',
+    'setup.connect': 'Connect to Jira',
+    'setup.relay': '⚙ Relay settings',
+    'setup.relayTitle': "Configure a CORS relay — fixes 'Could not reach' errors",
+    'setup.helpSummary': 'How do I get an API token?',
+    'setup.help1': 'Open <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener">id.atlassian.com → API tokens</a>',
+    'setup.help2': 'Click <b>Create API token</b>, give it a name and copy the value',
+    'setup.help3': 'Paste your site address, account email and token above',
+    'setup.privacy': "This app runs fully client-side. Your credentials are stored only in this browser's local storage and sent directly (or via optional CORS proxy) to your Jira site.",
+    'setup.privacyAdmin': "This admin panel runs fully client-side. Your credentials are stored only in this browser's local storage and sent directly (or via optional CORS proxy) to your Jira site.",
+    'setup.adminTitle': 'Admin panel<br /><span class="grad-text">Manage your deliverable stats.</span>',
+    'setup.adminLead': 'This is the <b>JiraPulse admin panel</b>. Connect your Jira account to publish board stats, generate shareable links, and control what your organization can see. Your credentials never leave this browser.',
+    'boards.choose': 'Choose a board',
+    'boards.sub': 'Synced straight from your Jira instance. Click any card to open its analytics dashboard.',
+    'boards.subAdmin': 'Synced straight from your Jira instance. Click any card to open its admin dashboard.',
+    'boards.publishAll': '⟳ Publish all',
+    'boards.publishAllTitle': 'Publish all boards to your organization',
+    'boards.loading': 'Fetching boards from Jira…',
+    'boards.empty': 'No boards found for this account.<br />Make sure your Jira user has access to company-managed or team-managed boards.',
+    'pick.title': '⇄ Compare boards',
+    'pick.slotA': 'Pick board A',
+    'pick.slotB': 'Pick board B',
+    'pick.go': 'Compare →',
+    'pick.cancel': 'Cancel',
+    'pick.hintA': 'click a card to slot it as A',
+    'pick.hintB': 'now click a second card as B',
+    'pick.hintGo': 'ready — open the side-by-side view',
+    'kpi.total': 'Issues analyzed',
+    'kpi.totalSub': 'on this board',
+    'kpi.created': 'Created · 30 days',
+    'kpi.createdSub': 'new tasks registered',
+    'kpi.done': 'Done overall',
+    'kpi.doneSub': 'completion rate',
+    'kpi.resolved': 'Resolved · 30 days',
+    'kpi.resolvedSub': 'shipped recently',
+    'kpi.cycle': 'Avg cycle time',
+    'kpi.cycleSub': 'create → resolve',
+    'kpi.wip': 'Work in progress',
+    'kpi.wipSub': 'not yet done',
+    'cmp.roleA': 'Board A · current',
+    'cmp.roleB': 'Board B · compared',
+    'cmp.loadingBoards': 'Loading boards…',
+    'cmp.pickB': 'Pick the board to compare against',
+    'cmp.exit': '✕ Exit compare',
+    'cmp.exitTitle': 'Leave compare mode and go back to the single-board dashboard',
+    'cmp.compareTitle': 'Compare this board with another board — overlay every chart & metric',
+    'cmp.pickTitle': 'Compare any two boards side by side — every chart & metric overlaid',
+    'cmp.pubBtn': '⇄ Compare boards',
+    'cmp.pubExit': '✕ Exit compare',
+    'cmp.pubExitTitle': 'Leave the side-by-side comparison and go back to the board list',
+    'cmp.pubPickTitle': '⇄ Compare boards',
+    'cmp.pubPickHintA': 'click a card to slot it as A',
+    'cmp.pubPickHintB': 'now click a second card as B',
+    'cmp.pubPickHintGo': 'ready — open the side-by-side view',
+    'cmp.pubLoading': 'Loading "X" vs "Y"…',
+    'cmp.pubLoadFailed': 'Could not load "{b}" for comparison.',
+    'cmp.pubSlotA': 'Pick board A',
+    'cmp.pubSlotB': 'Pick board B',
+    'cmp.pubSelectedAs': 'Selected as {s} — click to remove',
+    'cmp.pubClickPickA': 'Click to pick as A',
+    'cmp.pubClickPickB': 'Click to pick as B',
+    'cmp.pubGo': 'Compare →',
+    'cmp.pubCancel': 'Cancel',
+    'cmp.pubSyncing': 'syncing…',
+    'cmp.pubSynced': 'synced · {x}',
+    'cmp.pubA': 'Board A',
+    'cmp.pubB': 'Board B',
+    'table.title': 'Longest sitting in current status',
+    'table.titleSub': '· open work',
+    'th.key': 'Key', 'th.summary': 'Summary', 'th.status': 'Status',
+    'th.timeInStatus': 'Time in status', 'th.type': 'Type', 'th.assignee': 'Assignee', 'th.created': 'Created',
+    'footer': 'JiraPulse · client-side delivery analytics — your credentials never leave this browser',
+    'footerAdmin': 'JiraPulse · admin panel — your credentials never leave this browser',
+    'proxyBadge': 'via relay',
+    'proxyBadgeTitle': "Requests are being routed through JiraPulse's hosted relay (100k requests/day, free).",
+    'pub.publish': '⟳ Publish',
+    'settings.title': 'Settings',
+    'settings.site': 'Jira site',
+    'settings.email': 'Email',
+    'settings.token': 'API token',
+    'settings.tokenKeep': '(leave blank to keep current)',
+    'settings.relayOnly': 'Relay-only mode',
+    'settings.relayOnlyDesc': 'Requests always go through the hosted relay (default: built-in relay → fallbacks → direct). Turning this on skips the final direct browser→Jira attempt, which Jira blocks anyway (CORS).',
+    'settings.proxyKey': 'corsproxy.io API key',
+    'settings.optional': '(optional)',
+    'settings.proxyKeyPh': 'paste key for higher limits',
+    'settings.customRelay': 'Custom relay URL',
+    'settings.customRelaySub': '(optional, used first)',
+    'settings.clearData': 'Clear local data',
+    'settings.close': 'Close',
+    'settings.save': 'Save',
+    'debug.title': 'Diagnostics',
+    'debug.desc': 'If a board fails, open this panel and copy the log. It includes each Jira request, fallback strategy, and response status.',
+    'debug.none': 'No diagnostics captured yet.',
+    'debug.clear': 'Clear log',
+    'debug.copy': 'Copy log',
+    'chart.new': 'New chart',
+    'chart.edit': 'Edit chart',
+    'chart.titleLabel': 'Chart title',
+    'chart.titlePh': 'e.g. Bugs created per week',
+    'chart.type': 'Chart type',
+    'chart.scope': 'Applies to',
+    'chart.metric': 'Metric',
+    'chart.groupBy': 'Group by',
+    'chart.range': 'Time range',
+    'chart.bucket': 'Bucket',
+    'chart.filter': 'Filter',
+    'chart.split': 'Split',
+    'chart.top': 'Max groups',
+    'chart.accent': 'Accent',
+    'chart.wide': 'Full-width chart',
+    'chart.scopeNote': 'This is a built-in chart. Editing it here updates it for <b>all boards</b>.',
+    'chart.delete': 'Delete',
+    'chart.reset': 'Reset to default',
+    'chart.save': 'Save chart',
+    'bucket.day': 'Day', 'bucket.week': 'Week', 'bucket.month': 'Month',
+    'filter.all': 'All issues', 'filter.open': 'Open only', 'filter.done': 'Done only',
+    'split.none': 'None', 'split.stage': 'Stakeholder vs team',
+    'accent.indigo': 'Indigo', 'accent.cyan': 'Cyan', 'accent.green': 'Green',
+    'accent.amber': 'Amber', 'accent.violet': 'Violet', 'accent.pink': 'Pink',
+    'pub.modal.title': 'Publish board stats',
+    'pub.modal.desc': 'Create a public snapshot anyone in your organization can view. Share the link — viewers sign in with a <b>@caucasusauto.com</b> email and a one-time code.',
+    'pub.scope': 'Scope',
+    'pub.scopeAll': 'All boards',
+    'pub.scopeBoard': 'This board',
+    'pub.board': 'Board',
+    'pub.create': 'Create snapshot',
+    'pub.list': 'Published snapshots',
+    'th.board': 'Board', 'th.scope': 'Scope', 'th.created': 'Created', 'th.token': 'Token', 'th.actions': 'Actions',
+    'pub.title': 'Published stats',
+    'pub.subtitle': 'Sign in with your @caucasusauto.com email to view this board snapshot.',
+    'pub.google': 'Sign in with Google',
+    'pub.orEmail': '— or with email —',
+    'pub.send': 'Send code',
+    'pub.accessCode': 'Access code',
+    'pub.codePh': '6-digit code',
+    'pub.verify': 'Verify',
+    'pub.mailLink': 'Email me the code',
+    'pub.share': '🔗 Share link',
+    'pub.shareNote': 'Only you (admin) can see this link. Viewers authenticate with a @caucasusauto.com Google or email account.',
+    'pub.copy': 'Copy',
+    'pub.back': '← Back',
+    'pub.backAll': '← All boards',
+    'pub.changelog': '✓ changelog',
+    /* dynamic (JS-built) strings — {a}/{b}/{x} are interpolated via tReplace() */
+    'cmp.loading': 'Loading "X" vs "Y"…',
+    'cmp.failed': 'Could not start compare mode.',
+    'cmp.bSyncing': 'syncing board B…',
+    'cmp.bSynced': 'board B synced · {x}',
+    'cmp.bFailed': '⚠ board B failed to sync — pick another',
+    'cmp.count': 'A: {a} issues · B: {b} issues',
+    'cmp.prompt': 'Compare mode — pick a second board in the bar above to overlay every chart and metric.',
+    'cmp.even': '— even', 'cmp.identical': 'identical on both boards', 'cmp.noData': 'no data to compare',
+    'cmp.vsQ': '{a} vs ? — pick board B above',
+    'cmp.higher': '{x} higher', 'cmp.lower': '{x} faster', 'cmp.above': '{a} is {p}% above {b}', 'cmp.below': '{a} is {p}% below {b}',
+    'insight.throughput': 'Throughput', 'insight.speed': 'Speed', 'insight.load': 'Open load',
+    'insight.completion': 'Completion', 'insight.blocked': 'Blocked work', 'insight.intake': 'Intake gap',
+    'kpi.syncing': 'syncing…',
+    'dash.noWip': 'Nothing in progress — everything is done 🎉',
+    'dash.trend': 'vs prior 30d',
+    'dash.allBoardsScope': 'all boards', 'dash.thisBoardScope': 'this board',
+    'pub.bLoading': 'Loading…', 'pub.bFailed': 'Failed to load board B — try again.',
+    'pub.cmpPrompt': 'Compare mode — pick a second board in the bar above to overlay every chart and metric.',
+    'pub.cmpCount': 'A: {a} issues · B: {b} issues',
+    'pub.boardStats': '{i} issues · {a} active · {c} avg cycle · {n} net 30d',
+    'pub.orgBoards': '[P] Org boards', 'pub.otherBoards': 'All other boards',
+    'pub.openDash': 'Open dashboard →',
+    'pub.cmpFrom': 'compare · {a} vs {b}',
+    'board.pickA': 'click a card to slot it as A', 'board.pickB': 'now click a second card as B', 'board.pickReady': 'ready — open the side-by-side view',
+    'health.healthy': 'healthy', 'health.watch': 'watch', 'health.atRisk': 'at risk',
+    'stat.issues': 'issues', 'stat.active': 'active', 'stat.cycle': 'cycle', 'stat.net': 'net 30d',
+    'bc.done': '{p}% done',
+    'toast.noConn': 'Connect to Jira first.',
+    'toast.boardsLoading': 'Board list is still loading — try again in a moment.',
+    'toast.openBoard': 'Open a board first.',
+    'toast.hiddenChart': 'Chart hidden — restore it from the link below the grid.',
+    'confirm.deleteChart': 'Delete chart "{title}"?',
+    'toast.chartReset': 'Chart reset to default.',
+    'toast.chartDeleted': 'Chart deleted.',
+    'toast.copied': 'Copied to clipboard.',
+    'toast.refreshing': 'Refreshing board data…',
+    'toast.diagCleared': 'Diagnostics cleared.',
+    'toast.copyFail': 'Could not copy.',
+    'chart.empty': 'No charts yet — press ＋ New chart to build your first one.',
+    'chart.hiddenLink': '{n} hidden chart(s) — click to restore',
+    'data.noChangelog': '⚠ No changelog', 'data.noOpen': '⚠ No open issues', 'data.noData': '⚠ No data', 'data.ok': '✓ Changelog',
+    'scope.all': 'All boards', 'scope.board': 'This board',
+    'chartmodal.kind.line': 'Line', 'chartmodal.kind.bar': 'Bars', 'chartmodal.kind.hbar': 'Horizontal', 'chartmodal.kind.doughnut': 'Donut',
+    'pub.emailPh': 'you@caucasusauto.com',
+    /* chart engine constants */
+    'metric.flow': 'Created vs resolved over time', 'metric.created': 'Issues created over time',
+    'metric.resolved': 'Issues resolved over time', 'metric.netflow': 'Cumulative net flow (backlog size)',
+    'metric.count': 'Issue count by group', 'metric.blockedCount': 'Blocked / canceled by status',
+    'metric.avgCycle': 'Avg cycle time by group', 'metric.openAge': 'Current age of open issues',
+    'metric.avgStatusTime': 'Avg time in status by group',
+    'group.time': 'Time', 'group.status': 'Status', 'group.assignee': 'Assignee', 'group.type': 'Issue type',
+    'group.priority': 'Priority', 'group.label': 'First label', 'group.bottleneck': 'Bottleneck stage',
+    'group.stage': 'Stakeholder vs team', 'group.ageBucket': 'Age bucket', 'group.assigneeState': 'Assigned vs unassigned',
+    'range.30': 'Last 30 days', 'range.90': 'Last 90 days', 'range.182': 'Last 6 months',
+    'range.365': 'Last 12 months', 'range.0': 'All time',
+    'age.le2d': '≤ 2d', 'age.3_7d': '3–7d', 'age.1_2w': '1–2w', 'age.2_4w': '2–4w',
+    'age.1_3mo': '1–3mo', 'age.3_6mo': '3–6mo', 'age.6moPlus': '6mo+',
+    'chart.title.pipeline': 'Incoming vs Completed', 'chart.sub.pipeline': 'Created vs resolved over time',
+    'chart.title.throughput': 'Monthly Throughput', 'chart.sub.throughput': 'Completed issues per month (Done/Approved/Babysitting/Released)',
+    'chart.title.createdTrend': 'Issues Created', 'chart.sub.createdTrend': 'Weekly creation trend',
+    'chart.title.resolvedTrend': 'Issues Resolved', 'chart.sub.resolvedTrend': 'Monthly completion trend',
+    'chart.title.backlogGrowth': 'Backlog Trend', 'chart.sub.backlogGrowth': 'Cumulative open work (created − resolved)',
+    'chart.title.blockedDist': 'Blocked & Canceled', 'chart.sub.blockedDist': 'Work sitting on blocked/canceled/rejected statuses',
+    'chart.title.bottlenecks': 'Active Bottlenecks', 'chart.sub.bottlenecks': 'Where open work is parked',
+    'chart.title.statusDist': 'Status Distribution', 'chart.sub.statusDist': 'All issues by current status',
+    'chart.title.statusTime': 'Avg Time in Status', 'chart.sub.statusTime': 'Lifetime average per status · changelog',
+    'chart.title.phaseDelays': 'Stakeholder vs Team Delays', 'chart.sub.phaseDelays': 'Avg days per stage · stakeholder gates vs team work · changelog',
+    'chart.title.typeDist': 'Issue Type Breakdown', 'chart.sub.typeDist': 'Open issues by type',
+    'chart.title.assigneeLoad': 'Assignee Workload', 'chart.sub.assigneeLoad': 'Open issues per assignee',
+    'chart.title.priorityDist': 'Priority Distribution', 'chart.sub.priorityDist': 'Open issues by priority',
+    'chart.title.ageDist': 'Open Issue Age', 'chart.sub.ageDist': 'How long issues have been open',
+    'chart.title.ageBuckets': 'Age vs Demand', 'chart.sub.ageBuckets': 'How long the open backlog has been waiting',
+    'chart.title.unassigned': 'Assignment Gaps', 'chart.sub.unassigned': 'Who owns the open work — spot the load imbalance',
+    'chart.title.assigneeCycle': 'Cycle Time Leaderboard', 'chart.sub.assigneeCycle': 'Avg create → resolve per assignee · resolved issues only',
+    /* auth · connect · publish · misc dynamic strings */
+    'auth.sending': 'Sending…',
+    'auth.codeSent': 'Code sent to {email} — check your inbox (and spam).',
+    'auth.codeFailed': 'Could not send the code. Check the address and try again.',
+    'auth.verifying': 'Verifying…',
+    'auth.wrongCode': 'Wrong or expired code — try again.',
+    'auth.welcome': 'Welcome! You are signed in for this session.',
+    'auth.signedInAs': 'Signed in as {name}',
+    'auth.googleOnly': 'Only @caucasusauto.com Google accounts can view published boards.',
+    'auth.enterEmail': 'Enter your @caucasusauto.com email first.',
+    'auth.invalidEmail': 'That does not look like a @caucasusauto.com address.',
+    'connect.connecting': 'Connecting…',
+    'connect.ok': 'Connected to {domain} 🎉',
+    'connect.failed': 'Could not reach {domain}. Check the site, email and token, then try again.',
+    'connect.synced': 'Synced {n} boards',
+    'connect.noBoards': 'No boards returned for this account.',
+    'pub.copied': 'Share link copied to clipboard.',
+    'pub.boardCopied': 'Board link copied.',
+    'pub.viewerCopied': 'Viewer link copied — works on every device.',
+    'pub.unpublished': 'Unpublished.',
+    'pub.unpublishFailed': 'Unpublish failed: {m}',
+    'pub.selectBoard': 'Select a board first.',
+    'pub.noBoards': 'No boards to publish.',
+    'pub.publishedLive': 'Published — viewer link copied. Data is always live; republish only when charts/boards change.',
+    'pub.publishedNext': 'Published. Viewers will see it on next sign-in.',
+    'pub.publishFailed': 'Publish failed: {m}',
+    'auth.sessionRejected': 'Session rejected by Jira ({s}). Please reconnect with a fresh API token.',
+    'cmp.startFailed': 'Could not start compare mode.',
+    'chart.restored': 'Chart restored.',
+    'chart.titleRequired': 'Please enter a chart title.',
+    'chart.addedAll': 'Chart added to all boards.',
+    'chart.addedBoard': 'Chart added to this board.',
+    'chart.updated': 'Chart updated.',
+    'chart.updatedAll': 'Chart updated for all boards.',
+    'debug.copied': 'Diagnostics copied.',
+    'debug.copyFailed': 'Could not copy diagnostics.',
+    'pub.published': 'Published — share this link:',
+    'pub.created': 'Snapshot created — share the link below.',
+    'pub.createFailed': 'Could not create the snapshot.',
+    'pub.loadingList': 'Loading published snapshots…',
+    'pub.emptyList': 'No snapshots yet — create one above.',
+    'pub.removed': 'Snapshot removed.',
+    'pub.deleteFailed': 'Could not delete the snapshot.',
+    'pub.notPublished': 'This board is not published yet — create a snapshot first.',
+    'pub.badgeYes': 'Published', 'pub.badgeNo': 'Not published',
+    'pub.actCopy': 'Copy', 'pub.actOpen': 'Open', 'pub.actDelete': 'Delete',
+    'pub.creating': 'Creating snapshot…',
+    'pub.manageHint': 'You are signed in as an admin — you can manage published boards here.',
+    'pub.issuesCount': '{n} issues',
+    'pub.loadingData': 'Loading live data from Jira…',
+    'pub.dataFailed': 'Could not load live data — showing cached stats.',
+    'pub.noCharts': 'No charts published for this board yet.',
+    'pub.allTitle': 'All boards',
+    'pub.boardTitle': '{b} · published stats',
+    'pub.subtitleAll': 'Live delivery analytics for your organization.',
+    'pub.subtitleBoard': 'Live stats for this board, refreshed from Jira.',
+    'pub.orgTitle': 'Organization board stats',
+    'pub.orgSubtitle': 'All published boards · live data',
+    'pub.liveSubtitle': 'Live data · real-time from Jira',
+    'pub.liveBadge': '⟳ live',
+    'pub.noBoardsPublished': 'No boards published yet — the admin can publish the board list from the admin panel.',
+    'pub.nBoards': '{n} boards',
+    'pub.zeroBoards': '0 boards',
+    'pub.copyBoardLink': 'Copy link to this board',
+    'pub.signedInAdmin': 'Signed in as {e} · Admin',
+    'pub.cfgTitle': 'Publish boards (configuration only)',
+    'pub.cfgOnlyTitle': 'Publish configuration',
+    'pub.currentlyPublished': 'Currently published: <b>{n} board(s)</b>{saved}',
+    'pub.savedAt': ' · saved {s}',
+    'pub.viewerLiveNote': 'Viewers always see <b>live Jira data</b> — republish only needed when charts or the board list change.',
+    'pub.nothingPublished': 'Nothing published yet. Publish the board list so org members see it after sign-in.',
+    'pub.copyViewerLink': 'copy viewer link',
+    'pub.unpublishBtn': 'unpublish',
+    'pub.publishToOrg': 'Publish to organization',
+    'pub.publishing': 'Publishing…',
+    'pub.restricted': 'Access is restricted to @{d} accounts.',
+    'pub.googleVerified': 'Verified via Google. Loading snapshot…',
+    'pub.googleLoading': 'Google sign-in is still loading… try again in a few seconds.',
+    'pub.googleFailed': 'Google sign-in could not start. Use your @{d} email instead.',
+    'pub.sendCode': 'Send code',
+    'pub.resendCode': 'Resend code',
+    'pub.sending': 'Sending your code to {email}…',
+    'pub.sentTo': 'Code sent to {email}. Check your inbox, then enter it below.',
+    'pub.sendFailed': 'Could not email the code ({m}). Use Sign in with Google instead.',
+    'pub.verified': 'Verified. Loading snapshot…',
+    'pub.wrongCode': 'Wrong code. Please try again.',
+    'pub.invalidEmail': 'Please enter a valid @{d} email.',
+    'pub.signinAll': 'Sign in with your @{d} email to view the published board stats.',
+    'pub.signinBoard': 'Sign in with your @{d} email to view this board snapshot.',
+    'pub.headBoard': 'Board',
+    'pub.activateFirst': 'First time for this email — FormSubmit has emailed an activation link to {email}. Click it, then press "Resend code".',
+    'pub.deliverFailed': 'Could not deliver the code right now ({m}). Use Sign in with Google instead.',
+    'confirm.unpublish': 'Unpublish? Viewers will no longer see the boards after sign-in.',
+    'settings.saved': 'Settings saved.',
+    'settings.savedRelay': 'Relay settings saved. Now connect to Jira.',
+    'settings.cleared': 'Local data cleared — reloading…',
+    'chart.deleted': 'Chart deleted.',
+    'chart.saved': 'Chart saved.',
+    'err.generic': 'Something went wrong — open Diagnostics for details.',
+    'err.loadBoard': 'Could not load the board',
+    'err.status401': 'Check your email / API token in Settings.',
+    'err.status403': 'Your account does not have access to this board.',
+    'err.status404': 'Board not found — it may have been deleted.',
+    'err.status429': 'Rate limited by Jira — wait a moment and retry.',
+    'err.status5xx': 'Jira server error — try again shortly.',
+    'err.network': 'Could not reach Jira — check your connection or relay settings.',
+    'sync.updated': 'updated {t}',
+    'sync.failed': 'failed to load',
+    'err.loadIssues': 'Failed to load board issues.',
+    'err.connectFailed': 'Connection failed.',
+    'dash.syncing': 'syncing…',
+    'dash.syncingDash': 'Syncing your dashboard…',
+    'dash.loadingBoard': 'Loading {b}',
+    'dash.thisBoard': 'this board',
+    'dash.issuesOnBoard': 'issues on this board',
+    'dash.vsPrior30d': 'vs prior 30d',
+    'dash.completionRate': '{p}% completion rate',
+    'dash.createResolve': 'create → resolve',
+    'dash.fasterThan': '{p}% faster than prior 30d',
+    'dash.slowerThan': '{p}% slower than prior 30d',
+    'dash.issuesAnalyzed': '{n} issues analyzed',
+    'dash.changelogNotice': '⚠ Status-time analytics unavailable — this board may be team-managed or your token lacks changelog permissions. Showing core metrics only.',
+    'insight.throughputText': '{r} resolved in the last 30 days ({d}/day avg).',
+    'insight.speedText': 'Average cycle time is {c} across {n} resolved issues.',
+    'insight.loadText': '{w} issues in progress right now · {o} open overall.',
+    'insight.completionText': '{p}% of all issues on this board are done.',
+    'insight.blockedText': '{b} issues are blocked or canceled right now.',
+    'insight.intakeText': 'Intake vs delivery: {c} created vs {r} resolved in 30 days.',
+    'cmp.insightThroughput': '{a}: {ra}/30d · {b}: {rb}/30d — {w} ships more.',
+    'cmp.insightSpeed': '{a}: {ca} avg · {b}: {cb} avg — {w} is faster.',
+    'cmp.insightLoad': '{a}: {wa} WIP · {b}: {wb} WIP — {w} carries more open work.',
+    'cmp.insightCompletion': '{a}: {pa}% done · {b}: {pb}% done.',
+    'cmp.insightBlocked': 'Blocked work — {a}: {ba} · {b}: {bb}.',
+    'cmp.insightIntake': 'Intake — {a}: {ca} created · {b}: {cb} created in 30 days.',
+    'cmp.kpiTotal': 'Issues analyzed',
+    'cmp.kpiTotalSub': 'on the board',
+    'cmp.kpiCreated': 'Created · 30 days',
+    'cmp.kpiCreatedSub': 'new issues',
+    'cmp.kpiDone': 'Done overall',
+    'cmp.kpiDoneSub': 'completed',
+    'cmp.kpiResolved': 'Resolved · 30 days',
+    'cmp.kpiResolvedSub': 'shipped recently',
+    'cmp.kpiCycle': 'Avg cycle time',
+    'cmp.kpiCycleSub': 'create → resolve',
+    'cmp.kpiWip': 'Work in progress',
+    'cmp.kpiWipSub': 'not yet done',
+    'cmp.badgeBoth': 'A: {a} issues · B: {b} issues',
+    'cmp.hintBar': 'Compare mode — pick a second board in the bar above to overlay every chart and metric.',
+    'cmp.aFaster': '{n} is faster',
+    'cmp.bFaster': '{n} is faster',
+    'cmp.aHigher': '{n} higher',
+    'cmp.bHigher': '{n} higher',
+    'cmp.aAbove': 'A is {p}% above B',
+    'cmp.aBelow': 'A is {p}% below B',
+    'cmp.even': 'even',
+    'cmp.identical': 'identical on both boards',
+    'cmp.noData': 'no data to compare',
+    'cmp.pickBHint': 'pick board B above',
+    'cmp.lblThroughput': 'Throughput',
+    'cmp.lblSpeed': 'Speed',
+    'cmp.lblOpenLoad': 'Open load',
+    'cmp.lblCompletion': 'Completion',
+    'cmp.lblBlocked': 'Blocked work',
+    'cmp.lblIntake': 'Intake gap',
+    'cmp.insShipped': 'shipped {a} vs {b} in 30 days',
+    'cmp.insCloses': 'closes work in {a} vs {b}',
+    'cmp.insWip': 'carries less WIP ({a} vs {b})',
+    'cmp.insDone': '{a}% done vs {b}%',
+    'cmp.insLess': 'has less ({a} vs {b})',
+    'cmp.insIntake': '{n} created {a} vs {b} ({p}%)',
+    'bc.measuring': 'measuring…',
+    'bc.issuesTitle': 'Issues analyzed',
+    'bc.issues': 'issues',
+    'bc.wipTitle': 'Work in progress',
+    'bc.active': 'active',
+    'bc.cycleTitle': 'Avg cycle time (create → resolve)',
+    'bc.cycle': 'cycle',
+    'bc.netTitle': 'Net flow · last 30 days (resolved − created)',
+    'bc.net30d': 'net 30d',
+    'bc.done': 'done',
+    'bc.unavailable': 'stats unavailable',
+    'card.openDash': 'Open dashboard →',
+    'card.copyLinkTitle': 'Copy link to this board',
+    'card.orgBoards': '[P] Org boards',
+    'card.otherBoards': 'All other boards',
+    'pick.selectedAs': 'Selected as {s} — click to remove',
+    'pick.clickPickA': 'Click to pick as A',
+    'pick.clickPickB': 'Click to pick as B',
+    'hl.blocked': '{b} blocked',
+    'hl.allClear': 'All clear — nothing in progress',
+    'hl.backlogGrowing': 'Backlog growing',
+    'hl.strongOutflow': 'Strong outflow',
+    'hl.steadyFlow': 'Steady flow',
+    'badge.noChangelogTitle': 'Changelog not available for this board',
+    'badge.noChangelog': 'No changelog',
+    'badge.noOpenTitle': 'No open issues on this board',
+    'badge.noOpen': 'No open issues',
+    'badge.noDataTitle': 'No data matches the current filters',
+    'badge.noData': 'No data',
+    'badge.changelogOkTitle': 'Changelog data available',
+    'badge.changelog': 'Changelog',
+    'ins.bottleneck': '<b>{n}</b> open issue{ns} currently sitting in <b>{cat}</b>',
+    'ins.slowest': 'Slowest stage right now: <b>{s}</b> · {d} average',
+    'ins.throughput': 'Throughput <b>{p}%</b> vs the previous 30 days',
+    'ins.aged': '<b>{n}</b> open issue{ns} stuck longer than 14 days',
+    'ins.netFlow': 'Net flow <b>{n}</b> issues in 30 days — backlog {w}',
+    'ins.shrinking': 'shrinking',
+    'ins.growing': 'growing',
+    'cmp.noDataEither1': 'No data on either board',
+    'cmp.noDataEither2': 'for this chart',
+    'cmp.noDataA': 'No data on board A for this chart',
+    'cmp.noComparable': 'No comparable data',
+    'cmp.shownCyan': 'shown in cyan',
+    'cmp.only': 'only',
+    'cmp.oneBoardNoData': 'one board has no data here',
+    'cmp.avg': 'avg',
+    'cmp.issues': 'issues',
+    'cmp.tie': 'a tie',
+    'pub.liveUnavailable': 'live data unavailable',
+    'pub.noBoardSelected': 'No board selected.',
+    'pub.loadingLive': 'loading live data from Jira…',
+    'pub.loadFailed': 'Could not load live data ({m}).',
+    'pub.nIssues': '{n} issues',
+    'pub.noCharts': 'No charts configured for this board.',
+    'chart.newTitle': 'New chart',
+    'chart.configureTitle': 'Configure “{title}”',
+    'chart.segLine': 'Line',
+    'chart.segBar': 'Bars',
+    'chart.segHbar': 'Horizontal',
+    'chart.segDoughnut': 'Donut',
+    'chart.segBoard': 'This board only',
+    'chart.segGlobal': 'All boards',
+    'chart.scopeBoard': 'this board',
+    'chart.scopeGlobal': 'all boards',
+    'chart.btnEdit': 'Configure this chart',
+    'chart.btnReset': 'Reset to default',
+    'chart.btnHide': 'Hide this chart',
+    'chart.btnDelete': 'Delete this chart',
+    'series.registered': 'Registered',
+    'series.completed': 'Completed',
+    'series.openBacklog': 'Open backlog',
+    'series.netflowDesc': 'cumulative open backlog (created − resolved)',
+    'series.createdVsResolved': 'registered vs completed',
+    'series.created': 'created',
+    'series.resolved': 'resolved',
+    'series.perBucket': 'per {b}',
+    'series.openNow': 'open now',
+    'series.avg': 'avg',
+    'series.count': 'count',
+    'series.byGroup': 'by {g}',
+    'statusTime.noChangelog1': 'Changelog unavailable on this board',
+    'statusTime.noChangelog2': '— status-time charts need it',
+    'statusTime.noTransitions': 'No status transition data found',
+    'statusTime.noStages': 'No stakeholder / team stage transitions detected',
+    'statusTime.subStage': 'avg days · stakeholder vs team · changelog',
+    'statusTime.subStatus': 'avg days per status · lifetime · changelog',
+    'statusTime.subSplit': 'avg days parked per stage · changelog',
+    'statusTime.stakeholderAvg': 'Stakeholder gates avg',
+    'statusTime.teamAvg': 'Team phases avg',
+    'stage.stakeholder': 'Stakeholder gates',
+    'stage.team': 'Team phases',
+    'group.unassigned': 'Unassigned',
+    'group.assigned': 'Assigned',
+    'group.other': 'Other',
+    'err.unknownMetric': 'Unknown metric',
+    'cat.noResolved': 'No resolved issues to measure yet',
+    'cat.noIssues': 'No issues match this chart yet',
+    'filter.openOnly': 'open only',
+    'filter.doneOnly': 'done only',
+    'bn.pendingReview': 'Pending Review',
+    'bn.techAnalysis': 'Technical Analysis',
+    'bn.inDevelopment': 'In Development',
+    'bn.testing': 'Testing',
+    'lang.en': 'English',
+    'lang.ka': 'ქართული',
+    'lang.title': 'Switch language',
+  },
+  ka: {
+    'nav.allBoards': 'ყველა დაფა',
+    'nav.syncBoards': 'დაფების სინქრონიზაცია',
+    'nav.diagnostics': 'დიაგნოსტიკა',
+    'nav.boards': 'დაფები',
+    'nav.refresh': 'განახლება',
+    'nav.publicView': 'საჯარო ხედი',
+    'nav.compareBoards': '⇄ დაფების შედარება',
+    'nav.compare': '⇄ შედარება',
+    'nav.admin': 'ადმინი',
+    'nav.org': 'ორგ.',
+    'nav.ribbon': '⚙ მართვა',
+    'nav.manage': '⚙ გამოქვეყნება / დაფების მართვა',
+    'nav.settings': 'პარამეტრები',
+    'nav.disconnect': 'გათიშვა',
+    'nav.toBoards': 'ყველა დაფაზე გადასვლა',
+    'setup.title': 'შენი Jira,<br /><span class="grad-text">ლამაზად ვიზუალიზებული.</span>',
+    'setup.lead': 'დაუკავშირდით Jira-ს API ტოკენით და მიიღეთ მყისიერი ანალიტიკა — რამდენ ხანს დგას დავალება თითოეულ სტატუსში, რა გაეგზავნა ბოლო 30&nbsp;დღეში, გუნდის პროდუქტივობა და სხვა. თქვენი მონაცემები ბრაუზერს არ ტოვებს.',
+    'setup.site': 'Jira-ს საიტი',
+    'setup.email': 'ელფოსტა',
+    'setup.token': 'API ტოკენი',
+    'setup.tokenPh': 'მიამაგრეთ თქვენი Jira API ტოკენი',
+    'setup.connect': 'Jira-სთან დაკავშირება',
+    'setup.relay': '⚙ Relay-ის პარამეტრები',
+    'setup.relayTitle': 'CORS relay-ის კონფიგურაცია — აგვარებს „ვერ დაუკავშირდა" შეცდომებს',
+    'setup.helpSummary': 'როგორ მივიღო API ტოკენი?',
+    'setup.help1': 'გახსენით <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener">id.atlassian.com → API ტოკენები</a>',
+    'setup.help2': 'დააჭირეთ <b>Create API token</b>-ს, დაარქვით სახელი და დააკოპირეთ მნიშვნელობა',
+    'setup.help3': 'ჩასვით საიტის მისამართი, ანგარიშის ელფოსტა და ტოკენი ზემოთ',
+    'setup.privacy': 'ეს აპლიკაცია მთლიანად ბრაუზერში მუშაობს. თქვენი მონაცემები ინახება მხოლოდ ამ ბრაუზერის ლოკალურ საცავში და პირდაპირ (ან სურვილისამებრ CORS პროქსით) იგზავნება თქვენს Jira საიტზე.',
+    'setup.privacyAdmin': 'ეს ადმინისტრატორის პანელი მთლიანად ბრაუზერში მუშაობს. თქვენი მონაცემები ინახება მხოლოდ ამ ბრაუზერის ლოკალურ საცავში და პირდაპირ (ან სურვილისამებრ CORS პროქსით) იგზავნება თქვენს Jira საიტზე.',
+    'setup.adminTitle': 'ადმინისტრატორის პანელი<br /><span class="grad-text">მართეთ თქვენი მიწოდების სტატისტიკა.</span>',
+    'setup.adminLead': 'ეს არის <b>JiraPulse-ის ადმინისტრატორის პანელი</b>. დაუკავშირდით თქვენს Jira ანგარიშს დაფების სტატისტიკის გასამოქვეყნებლად, გასაზიარებელი ბმულების შესაქმნელად და იმის საკონტროლოდ, თუ რას ხედავს თქვენი ორგანიზაცია. თქვენი მონაცემები ბრაუზერს არ ტოვებს.',
+    'boards.choose': 'აირჩიეთ დაფა',
+    'boards.sub': 'პირდაპირ თქვენი Jira-დანაა სინქრონიზებული. დააჭირეთ ნებისმიერ ბარათს ანალიტიკური დაშბორდის გასახსნელად.',
+    'boards.subAdmin': 'პირდაპირ თქვენი Jira-დანაა სინქრონიზებული. დააჭირეთ ნებისმიერ ბარათს ადმინისტრატორის დაშბორდის გასახსნელად.',
+    'boards.publishAll': '⟳ ყველას გამოქვეყნება',
+    'boards.publishAllTitle': 'ყველა დაფის გამოქვეყნება თქვენი ორგანიზაციისთვის',
+    'boards.loading': 'დაფების მიღება Jira-დან…',
+    'boards.empty': 'ამ ანგარიშისთვის დაფები ვერ მოიძებნა.<br />დარწმუნდით, რომ თქვენს Jira მომხმარებელს წვდომა აქვს კომპანიის ან გუნდის დაფებზე.',
+    'pick.title': '⇄ დაფების შედარება',
+    'pick.slotA': 'აირჩიეთ დაფა A',
+    'pick.slotB': 'აირჩიეთ დაფა B',
+    'pick.go': 'შედარება →',
+    'pick.cancel': 'გაუქმება',
+    'pick.hintA': 'დააკლიკეთ ბარათს დაფა A-სთვის',
+    'pick.hintB': 'ახლა დააკლიკეთ მეორე ბარათს დაფა B-სთვის',
+    'pick.hintGo': 'მზადაა — გახსენით გვერდით-გვერდ ხედი',
+    'kpi.total': 'გაანალიზებული დავალებები',
+    'kpi.totalSub': 'ამ დაფაზე',
+    'kpi.created': 'შექმნილი · 30 დღე',
+    'kpi.createdSub': 'ახალი დავალებები',
+    'kpi.done': 'მზადაა საერთო',
+    'kpi.doneSub': 'დასრულების მაჩვენებელი',
+    'kpi.resolved': 'დახურული · 30 დღე',
+    'kpi.resolvedSub': 'ცოტა ხნის წინ გაიგზავნა',
+    'kpi.cycle': 'საშ. ციკლის დრო',
+    'kpi.cycleSub': 'შექმნა → დასრულება',
+    'kpi.wip': 'მიმდინარე სამუშაო',
+    'kpi.wipSub': 'ჯერ არ არის მზად',
+    'cmp.roleA': 'დაფა A · მიმდინარე',
+    'cmp.roleB': 'დაფა B · შედარებული',
+    'cmp.loadingBoards': 'დაფების ჩატვირთვა…',
+    'cmp.pickB': 'აირჩიეთ დაფა შედარებისთვის',
+    'cmp.exit': '✕ შედარებიდან გასვლა',
+    'cmp.exitTitle': 'დატოვეთ შედარების რეჟიმი და დაბრუნდით ერთი დაფის დაშბორდზე',
+    'cmp.compareTitle': 'შეადარეთ ეს დაფა სხვა დაფას — ყველა გრაფიკი და მეტრიკა გადაფარვით',
+    'cmp.pickTitle': 'შეადარეთ ორი დაფა გვერდით-გვერდ — ყველა გრაფიკი და მეტრიკა გადაფარვით',
+    'cmp.pubBtn': '⇄ დაფების შედარება',
+    'cmp.pubExit': '✕ შედარებიდან გასვლა',
+    'cmp.pubExitTitle': 'დატოვეთ გვერდით-გვერდ შედარება და დაბრუნდით დაფების სიაში',
+    'cmp.pubPickTitle': '⇄ დაფების შედარება',
+    'cmp.pubPickHintA': 'დააკლიკეთ ბარათს დაფა A-სთვის',
+    'cmp.pubPickHintB': 'ახლა დააკლიკეთ მეორე ბარათს დაფა B-სთვის',
+    'cmp.pubPickHintGo': 'მზადაა — გახსენით გვერდით-გვერდ ხედი',
+    'cmp.pubLoading': 'იტვირთება „X" vs „Y"…',
+    'cmp.pubLoadFailed': 'დაფა „{b}"-ის ჩატვირთვა შედარებისთვის ვერ მოხერხდა.',
+    'cmp.pubSlotA': 'აირჩიეთ დაფა A',
+    'cmp.pubSlotB': 'აირჩიეთ დაფა B',
+    'cmp.pubSelectedAs': 'არჩეულია როგორც {s} — დააკლიკეთ მოსაშორებლად',
+    'cmp.pubClickPickA': 'დააკლიკეთ A-დ ასარჩევად',
+    'cmp.pubClickPickB': 'დააკლიკეთ B-დ ასარჩევად',
+    'cmp.pubGo': 'შედარება →',
+    'cmp.pubCancel': 'გაუქმება',
+    'cmp.pubSyncing': 'სინქრონიზაცია…',
+    'cmp.pubSynced': 'სინქრონიზებულია · {x}',
+    'cmp.pubA': 'დაფა A',
+    'cmp.pubB': 'დაფა B',
+    'table.title': 'ყველაზე დიდხანს მდგომი მიმდინარე სტატუსში',
+    'table.titleSub': '· ღია სამუშაო',
+    'th.key': 'გასაღები', 'th.summary': 'შინაარსი', 'th.status': 'სტატუსი',
+    'th.timeInStatus': 'დრო სტატუსში', 'th.type': 'ტიპი', 'th.assignee': 'შემსრულებელი', 'th.created': 'შექმნის თარიღი',
+    'footer': 'JiraPulse · კლიენტის მხარეს მოქმედი ანალიტიკა — თქვენი მონაცემები ბრაუზერს არ ტოვებს',
+    'footerAdmin': 'JiraPulse · ადმინისტრატორის პანელი — თქვენი მონაცემები ბრაუზერს არ ტოვებს',
+    'proxyBadge': 'relay-ით',
+    'proxyBadgeTitle': 'მოთხოვნები გადის JiraPulse-ის ჰოსტირებულ relay-ზე (100k მოთხოვნა/დღე, უფასო).',
+    'pub.publish': '⟳ გამოქვეყნება',
+    'settings.title': 'პარამეტრები',
+    'settings.site': 'Jira-ს საიტი',
+    'settings.email': 'ელფოსტა',
+    'settings.token': 'API ტოკენი',
+    'settings.tokenKeep': '(ცარიელი დატოვეთ მიმდინარეს შესანარჩუნებლად)',
+    'settings.relayOnly': 'მხოლოდ relay-ის რეჟიმი',
+    'settings.relayOnlyDesc': 'მოთხოვნები ყოველთვის ჰოსტირებულ relay-ზე გადის (ნაგულისხმევი: ჩაშენებული relay → სათადარიგოები → პირდაპირ). ჩართვისას გამოიტოვება ბოლო პირდაპირი მცდელობა ბრაუზერიდან Jira-მდე, რომელსაც Jira მაინც ბლოკავს (CORS).',
+    'settings.proxyKey': 'corsproxy.io API გასაღები',
+    'settings.optional': '(სურვილისამებრ)',
+    'settings.proxyKeyPh': 'ჩასვით გასაღები მაღალი ლიმიტებისთვის',
+    'settings.customRelay': 'საკუთარი relay URL',
+    'settings.customRelaySub': '(სურვილისამებრ, პირველად გამოიყენება)',
+    'settings.clearData': 'ლოკალური მონაცემების გასუფთავება',
+    'settings.close': 'დახურვა',
+    'settings.save': 'შენახვა',
+    'debug.title': 'დიაგნოსტიკა',
+    'debug.desc': 'თუ დაფა ვერ ჩაიტვირთა, გახსენით ეს პანელი და დააკოპირეთ ლოგი. ის მოიცავს თითოეულ Jira მოთხოვნას, სათადარიგო სტრატეგიას და პასუხის კოდს.',
+    'debug.none': 'დიაგნოსტიკა ჯერ არ არის ჩაწერილი.',
+    'debug.clear': 'ლოგის გასუფთავება',
+    'debug.copy': 'ლოგის კოპირება',
+    'chart.new': 'ახალი გრაფიკი',
+    'chart.edit': 'გრაფიკის რედაქტირება',
+    'chart.titleLabel': 'გრაფიკის სახელი',
+    'chart.titlePh': 'მაგ. ბაგების რაოდენობა კვირაში',
+    'chart.type': 'გრაფიკის ტიპი',
+    'chart.scope': 'ვრცელდება',
+    'chart.metric': 'მეტრიკა',
+    'chart.groupBy': 'დაჯგუფება',
+    'chart.range': 'დროის დიაპაზონი',
+    'chart.bucket': 'ინტერვალი',
+    'chart.filter': 'ფილტრი',
+    'chart.split': 'გაყოფა',
+    'chart.top': 'მაქს. ჯგუფი',
+    'chart.accent': 'ფერი',
+    'chart.wide': 'სრული სიგანის გრაფიკი',
+    'chart.scopeNote': 'ეს ჩაშენებული გრაფიკია. აქ რედაქტირება ყველა <b>დაფაზე</b> განაახლებს მას.',
+    'chart.delete': 'წაშლა',
+    'chart.reset': 'ნაგულისხმევზე დაბრუნება',
+    'chart.save': 'გრაფიკის შენახვა',
+    'bucket.day': 'დღე', 'bucket.week': 'კვირა', 'bucket.month': 'თვე',
+    'filter.all': 'ყველა დავალება', 'filter.open': 'მხოლოდ ღია', 'filter.done': 'მხოლოდ დასრულებული',
+    'split.none': 'არაფერი', 'split.stage': 'სტეიკჰოლდერი vs გუნდი',
+    'accent.indigo': 'ინდიგო', 'accent.cyan': 'ცისფერი', 'accent.green': 'მწვანე',
+    'accent.amber': 'ქვიშისფერი', 'accent.violet': 'იისფერი', 'accent.pink': 'ვარდისფერი',
+    'pub.modal.title': 'დაფის სტატისტიკის გამოქვეყნება',
+    'pub.modal.desc': 'შექმენით საჯარო სნაპშოტი, რომელსაც თქვენი ორგანიზაციის ყველა ნახავს. გააზიარეთ ბმული — მნახველები შედიან <b>@caucasusauto.com</b> ელფოსტით და ერთჯერადი კოდით.',
+    'pub.scope': 'მოცულობა',
+    'pub.scopeAll': 'ყველა დაფა',
+    'pub.scopeBoard': 'ეს დაფა',
+    'pub.board': 'დაფა',
+    'pub.create': 'სნაპშოტის შექმნა',
+    'pub.list': 'გამოქვეყნებული სნაპშოტები',
+    'th.board': 'დაფა', 'th.scope': 'მოცულობა', 'th.created': 'შექმნის თარიღი', 'th.token': 'ტოკენი', 'th.actions': 'მოქმედებები',
+    'pub.title': 'გამოქვეყნებული სტატისტიკა',
+    'pub.subtitle': 'შედით @caucasusauto.com ელფოსტით ამ დაფის სნაპშოტის სანახავად.',
+    'pub.google': 'Google-ით შესვლა',
+    'pub.orEmail': '— ან ელფოსტით —',
+    'pub.send': 'კოდის გაგზავნა',
+    'pub.accessCode': 'წვდომის კოდი',
+    'pub.codePh': '6-ციფრიანი კოდი',
+    'pub.verify': 'დადასტურება',
+    'pub.mailLink': 'კოდი ელფოსტით გამომიგზავნეთ',
+    'pub.share': '🔗 გაზიარების ბმული',
+    'pub.shareNote': 'ეს ბმული მხოლოდ თქვენ (ადმინს) ხედავთ. მნახველები ავთენტიფიცირდებიან @caucasusauto.com Google ან ელფოსტის ანგარიშით.',
+    'pub.copy': 'კოპირება',
+    'pub.back': '← უკან',
+    'pub.backAll': '← ყველა დაფა',
+    'pub.changelog': '✓ ცვლილებების ჟურნალი',
+    /* dynamic strings — Georgian */
+    'cmp.loading': 'იტვირთება „X" vs „Y"…',
+    'cmp.failed': 'შედარების რეჟიმის გაშვება ვერ მოხერხდა.',
+    'cmp.bSyncing': 'დაფა B სინქრონიზდება…',
+    'cmp.bSynced': 'დაფა B სინქრონიზებულია · {x}',
+    'cmp.bFailed': '⚠ დაფა B ვერ სინქრონიზდა — აირჩიეთ სხვა',
+    'cmp.count': 'A: {a} დავალება · B: {b} დავალება',
+    'cmp.prompt': 'შედარების რეჟიმი — აირჩიეთ მეორე დაფა ზემოთა ზოლში, რომ ყველა გრაფიკი და მეტრიკა გადაფარვით ნახოთ.',
+    'cmp.even': '— თანაბარი', 'cmp.identical': 'ორივე დაფაზე იდენტურია', 'cmp.noData': 'შედარების მონაცემები არ არის',
+    'cmp.vsQ': '{a} vs ? — აირჩიეთ დაფა B ზემოთ',
+    'cmp.higher': '{x} მეტია', 'cmp.lower': '{x} სწრაფია', 'cmp.above': '{a} {p}%-ით აღემატება {b}-ს', 'cmp.below': '{a} {p}%-ით ჩამორჩება {b}-ს',
+    'insight.throughput': 'პროდუქტივობა', 'insight.speed': 'სიჩქარე', 'insight.load': 'ღია დავალებები',
+    'insight.completion': 'დასრულება', 'insight.blocked': 'დაბლოკილი სამუშაო', 'insight.intake': 'შემოდინების სხვაობა',
+    'kpi.syncing': 'სინქრონიზაცია…',
+    'dash.noWip': 'მიმდინარე სამუშაო არ არის — ყველაფერი მზადაა 🎉',
+    'dash.trend': 'წინა 30 დღესთან შედარებით',
+    'dash.allBoardsScope': 'ყველა დაფა', 'dash.thisBoardScope': 'ეს დაფა',
+    'pub.bLoading': 'იტვირთება…', 'pub.bFailed': 'დაფა B ვერ ჩაიტვირთა — სცადეთ ხელახლა.',
+    'pub.cmpPrompt': 'შედარების რეჟიმი — აირჩიეთ მეორე დაფა ზემოთა ზოლში, რომ ყველა გრაფიკი და მეტრიკა გადაფარვით ნახოთ.',
+    'pub.cmpCount': 'A: {a} დავალება · B: {b} დავალება',
+    'pub.boardStats': '{i} დავალება · {a} აქტიური · {c} საშ. ციკლი · {n} ბოლო 30 დღე',
+    'pub.orgBoards': '[P] ორგანიზაციის დაფები', 'pub.otherBoards': 'დანარჩენი დაფები',
+    'pub.openDash': 'დაშბორდის გახსნა →',
+    'pub.cmpFrom': 'შედარება · {a} vs {b}',
+    'board.pickA': 'დააჭირეთ ბარათს, რომ დაფა A-დ ჩაიწეროს', 'board.pickB': 'ახლა დააჭირეთ მეორე ბარათს როგორც B', 'board.pickReady': 'მზადაა — გახსენით გვერდით-გვერდ ხედი',
+    'health.healthy': 'ჯანმრთელი', 'health.watch': 'თვალყური', 'health.atRisk': 'რისკის ქვეშ',
+    'stat.issues': 'დავალება', 'stat.active': 'აქტიური', 'stat.cycle': 'ციკლი', 'stat.net': 'ბოლო 30 დღე',
+    'bc.done': '{p}% მზადაა',
+    'toast.noConn': 'ჯერ Jira-სთან დაუკავშირდით.',
+    'toast.boardsLoading': 'დაფების სია ჯერ იტვირთება — სცადეთ ცოტა ხანში.',
+    'toast.openBoard': 'ჯერ გახსენით დაფა.',
+    'toast.hiddenChart': 'გრაფიკი დამალულია — აღადგინეთ ბმულით ბადის ქვემოთ.',
+    'confirm.deleteChart': 'წავშალოთ გრაფიკი „{title}"?',
+    'toast.chartReset': 'გრაფიკი ნაგულისხმევზე დაბრუნდა.',
+    'toast.chartDeleted': 'გრაფიკი წაიშალა.',
+    'toast.copied': 'კოპირებულია ბუფერში.',
+    'toast.refreshing': 'დაფის მონაცემები განახლდება…',
+    'toast.diagCleared': 'დიაგნოსტიკა გასუფთავდა.',
+    'toast.copyFail': 'ვერ დაკოპირდა.',
+    'chart.empty': 'გრაფიკები ჯერ არ არის — დააჭირეთ ＋ ახალი გრაფიკს პირველის შესაქმნელად.',
+    'chart.hiddenLink': '{n} დამალული გრაფიკი — დააჭირეთ აღსადგენად',
+    'data.noChangelog': '⚠ ჟურნალი არ არის', 'data.noOpen': '⚠ ღია დავალებები არ არის', 'data.noData': '⚠ მონაცემები არ არის', 'data.ok': '✓ ჟურნალი',
+    'scope.all': 'ყველა დაფა', 'scope.board': 'ეს დაფა',
+    'chartmodal.kind.line': 'წრფივი', 'chartmodal.kind.bar': 'სვეტები', 'chartmodal.kind.hbar': 'ჰორიზონტალური', 'chartmodal.kind.doughnut': 'რგოლი',
+    'pub.emailPh': 'you@caucasusauto.com',
+    /* chart engine constants — Georgian */
+    'metric.flow': 'შექმნა vs დახურვა დროში', 'metric.created': 'შექმნილი დავალებები დროში',
+    'metric.resolved': 'დახურული დავალებები დროში', 'metric.netflow': 'კუმულაციური ნაკადი (ბექლოგის ზომა)',
+    'metric.count': 'დავალებების რაოდენობა ჯგუფებად', 'metric.blockedCount': 'დაბლოკილი / გაუქმებული სტატუსებით',
+    'metric.avgCycle': 'საშ. ციკლის დრო ჯგუფებად', 'metric.openAge': 'ღია დავალებების ასაკი',
+    'metric.avgStatusTime': 'საშ. დრო სტატუსში ჯგუფებად',
+    'group.time': 'დრო', 'group.status': 'სტატუსი', 'group.assignee': 'შემსრულებელი', 'group.type': 'დავალების ტიპი',
+    'group.priority': 'პრიორიტეტი', 'group.label': 'პირველი ჭდე', 'group.bottleneck': 'გამხრების ეტაპი',
+    'group.stage': 'სტეიკჰოლდერი vs გუნდი', 'group.ageBucket': 'ასაკის დიაპაზონი', 'group.assigneeState': 'განაწილებული vs დაუნიშნავი',
+    'range.30': 'ბოლო 30 დღე', 'range.90': 'ბოლო 90 დღე', 'range.182': 'ბოლო 6 თვე',
+    'range.365': 'ბოლო 12 თვე', 'range.0': 'მთელი ისტორია',
+    'age.le2d': '≤ 2 დღე', 'age.3_7d': '3–7 დღე', 'age.1_2w': '1–2 კვირა', 'age.2_4w': '2–4 კვირა',
+    'age.1_3mo': '1–3 თვე', 'age.3_6mo': '3–6 თვე', 'age.6moPlus': '6 თვე+',
+    'chart.title.pipeline': 'შემოსვლა vs დასრულება', 'chart.sub.pipeline': 'შექმნა vs დახურვა დროში',
+    'chart.title.throughput': 'თვიური პროდუქტივობა', 'chart.sub.throughput': 'დასრულებული დავალებები თვეში (Done/Approved/Babysitting/Released)',
+    'chart.title.createdTrend': 'შექმნილი დავალებები', 'chart.sub.createdTrend': 'კვირაში შექმნის ტენდენცია',
+    'chart.title.resolvedTrend': 'დახურული დავალებები', 'chart.sub.resolvedTrend': 'თვიური დასრულების ტენდენცია',
+    'chart.title.backlogGrowth': 'ბექლოგის ტენდენცია', 'chart.sub.backlogGrowth': 'კუმულაციური ღია სამუშაო (შექმნა − დახურვა)',
+    'chart.title.blockedDist': 'დაბლოკილი და გაუქმებული', 'chart.sub.blockedDist': 'სამუშაო, რომელიც დაბლოკილ/გაუქმებულ/უარყოფილ სტატუსებში დგას',
+    'chart.title.bottlenecks': 'აქტიური გამხრები', 'chart.sub.bottlenecks': 'სად გროვდება ღია სამუშაო',
+    'chart.title.statusDist': 'სტატუსების განაწილება', 'chart.sub.statusDist': 'ყველა დავალება მიმდინარე სტატუსით',
+    'chart.title.statusTime': 'საშ. დრო სტატუსში', 'chart.sub.statusTime': 'საშუალო დრო თითოეულ სტატუსში · ჟურნალი',
+    'chart.title.phaseDelays': 'სტეიკჰოლდერი vs გუნდის დაგვიანებები', 'chart.sub.phaseDelays': 'საშ. დღეები ეტაპზე · სტეიკჰოლდერის კარიბჭეები vs გუნდის სამუშაო · ჟურნალი',
+    'chart.title.typeDist': 'ტიპების განაწილება', 'chart.sub.typeDist': 'ღია დავალებები ტიპებად',
+    'chart.title.assigneeLoad': 'შემსრულებლების დატვირთვა', 'chart.sub.assigneeLoad': 'ღია დავალებები შემსრულებლებად',
+    'chart.title.priorityDist': 'პრიორიტეტების განაწილება', 'chart.sub.priorityDist': 'ღია დავალებები პრიორიტეტებად',
+    'chart.title.ageDist': 'ღია დავალებების ასაკი', 'chart.sub.ageDist': 'რამდენ ხანსაა დავალებები ღიაა',
+    'chart.title.ageBuckets': 'ასაკი vs მოთხოვნილება', 'chart.sub.ageBuckets': 'რამდენ ხანს ელოდება ღია ბექლოგი',
+    'chart.title.unassigned': 'დანიშვნის ხარვეზები', 'chart.sub.unassigned': 'ვინ ფლობს ღია სამუშაოს — დატვირთვის დისბალანსის აღმოჩენა',
+    'chart.title.assigneeCycle': 'ციკლის დროის ლიდერბორდი', 'chart.sub.assigneeCycle': 'საშ. შექმნა → დასრულება შემსრულებლებად · მხოლოდ დახურული',
+    /* auth · connect · publish · misc dynamic strings — Georgian */
+    'auth.sending': 'იგზავნება…',
+    'auth.codeSent': 'კოდი გაიგზავნა {email}-ზე — შეამოწმეთ შემოსულები (და სპამი).',
+    'auth.codeFailed': 'კოდი ვერ გაიგზავნა. შეამოწმეთ მისამართი და სცადეთ ხელახლა.',
+    'auth.verifying': 'მოწმდება…',
+    'auth.wrongCode': 'კოდი არასწორი ან ვადაგასულია — სცადეთ ხელახლა.',
+    'auth.welcome': 'მოგესალმებით! ამ სესიისთვის შესული ხართ.',
+    'auth.signedInAs': 'შესული ხართ როგორც {name}',
+    'auth.googleOnly': 'გამოქვეყნებულ დაფებს ხედავს მხოლოდ @caucasusauto.com Google ანგარიშები.',
+    'auth.enterEmail': 'ჯერ შეიყვანეთ თქვენი @caucasusauto.com ელფოსტა.',
+    'auth.invalidEmail': 'ეს არ ჰგავს @caucasusauto.com მისამართს.',
+    'connect.connecting': 'მიმდინარეობს დაკავშირება…',
+    'connect.ok': 'დაკავშირებულია {domain}-თან 🎉',
+    'connect.failed': '{domain}-თან დაკავშირება ვერ მოხერხდა. შეამოწმეთ საიტი, ელფოსტა და ტოკენი, და სცადეთ ხელახლა.',
+    'connect.synced': 'სინქრონიზებულია {n} დაფა',
+    'connect.noBoards': 'ამ ანგარიშისთვის დაფები არ დაბრუნდა.',
+    'pub.copied': 'გაზიარების ბმული კოპირებულია ბუფერში.',
+    'pub.boardCopied': 'დაფის ბმული დაკოპირებულია.',
+    'pub.viewerCopied': 'მნახველის ბმული დაკოპირებულია — მუშაობს ყველა მოწყობილობაზე.',
+    'pub.unpublished': 'გაუქმდა გამოქვეყნება.',
+    'pub.unpublishFailed': 'გამოქვეყნების გაუქმება ვერ მოხერხდა: {m}',
+    'pub.selectBoard': 'ჯერ აირჩიეთ დაფა.',
+    'pub.noBoards': 'გასამოქვეყნებლად დაფები არ არის.',
+    'pub.publishedLive': 'გამოქვეყნდა — მნახველის ბმული დაკოპირებულია. მონაცემები ყოველთვის პირდაპირია; ხელახლა გამოქვეყნება მხოლოდ გრაფიკების/დაფების ცვლილებისას არის საჭირო.',
+    'pub.publishedNext': 'გამოქვეყნდა. მნახველები შემდეგი შესვლისას დაინახავენ.',
+    'pub.publishFailed': 'გამოქვეყნება ვერ მოხერხდა: {m}',
+    'auth.sessionRejected': 'Jira-მ სესია უარყო ({s}). გახსენით ხელახლა კავშირი ახალი API ტოკენით.',
+    'cmp.startFailed': 'შედარების რეჟიმი ვერ დაიწყო.',
+    'chart.restored': 'გრაფიკი აღდგენილია.',
+    'chart.titleRequired': 'გთხოვთ, შეიყვანეთ გრაფიკის სათაური.',
+    'chart.addedAll': 'გრაფიკი დაემატა ყველა დაფას.',
+    'chart.addedBoard': 'გრაფიკი დაემატა ამ დაფას.',
+    'chart.updated': 'გრაფიკი განახლდა.',
+    'chart.updatedAll': 'გრაფიკი განახლდა ყველა დაფისთვის.',
+    'debug.copied': 'დიაგნოსტიკა დაკოპირებულია.',
+    'debug.copyFailed': 'დიაგნოსტიკა ვერ დაკოპირდა.',
+    'pub.published': 'გამოქვეყნდა — გააზიარეთ ეს ბმული:',
+    'pub.created': 'სნაპშოტი შეიქმნა — გააზიარეთ ქვემოთა ბმული.',
+    'pub.createFailed': 'სნაპშოტის შექმნა ვერ მოხერხდა.',
+    'pub.loadingList': 'გამოქვეყნებული სნაპშოტების ჩატვირთვა…',
+    'pub.emptyList': 'სნაპშოტები ჯერ არ არის — შექმენით ზემოთ.',
+    'pub.removed': 'სნაპშოტი წაიშალა.',
+    'pub.deleteFailed': 'სნაპშოტის წაშლა ვერ მოხერხდა.',
+    'pub.notPublished': 'ეს დაფა ჯერ არ არის გამოქვეყნებული — ჯერ შექმენით სნაპშოტი.',
+    'pub.badgeYes': 'გამოქვეყნებული', 'pub.badgeNo': 'არ არის გამოქვეყნებული',
+    'pub.actCopy': 'კოპირება', 'pub.actOpen': 'გახსნა', 'pub.actDelete': 'წაშლა',
+    'pub.creating': 'სნაპშოტი იქმნება…',
+    'pub.manageHint': 'შესული ხართ როგორც ადმინისტრატორი — აქ შეგიძლიათ გამოქვეყნებული დაფების მართვა.',
+    'pub.issuesCount': '{n} დავალება',
+    'pub.loadingData': 'მიმდინარეობს მონაცემების ჩატვირთვა Jira-დან…',
+    'pub.dataFailed': 'მონაცემები ვერ ჩაიტვირთა — ნაჩვენებია კეშირებული სტატისტიკა.',
+    'pub.noCharts': 'ამ დაფისთვის გრაფიკები ჯერ არ არის გამოქვეყნებული.',
+    'pub.allTitle': 'ყველა დაფა',
+    'pub.boardTitle': '{b} · გამოქვეყნებული სტატისტიკა',
+    'pub.subtitleAll': 'მიწოდების ანალიტიკა თქვენი ორგანიზაციისთვის.',
+    'pub.subtitleBoard': 'ამ დაფის მიმდინარე სტატისტიკა, განახლებული Jira-დან.',
+    'pub.orgTitle': 'ორგანიზაციის დაფების სტატისტიკა',
+    'pub.orgSubtitle': 'ყველა გამოქვეყნებული დაფა · პირდაპირი მონაცემები',
+    'pub.liveSubtitle': 'პირდაპირი მონაცემები · რეალურ დროში Jira-დან',
+    'pub.liveBadge': '⟳ პირდაპირი',
+    'pub.noBoardsPublished': 'დაფები ჯერ არ არის გამოქვეყნებული — ადმინისტრატორს შეუძლია დაფების სიის გამოქვეყნება ადმინისტრატორის პანელიდან.',
+    'pub.nBoards': '{n} დაფა',
+    'pub.zeroBoards': '0 დაფა',
+    'pub.copyBoardLink': 'ამ დაფის ბმულის დაკოპირება',
+    'pub.signedInAdmin': 'შესული ხართ როგორც {e} · ადმინი',
+    'pub.cfgTitle': 'დაფების გამოქვეყნება (მხოლოდ კონფიგურაცია)',
+    'pub.cfgOnlyTitle': 'კონფიგურაციის გამოქვეყნება',
+    'pub.currentlyPublished': 'ამჟამად გამოქვეყნებულია: <b>{n} დაფა</b>{saved}',
+    'pub.savedAt': ' · შენახულია {s}',
+    'pub.viewerLiveNote': 'მნახველები ყოველთვის ხედავენ <b>პირდაპირ Jira-ს მონაცემებს</b> — ხელახლა გამოქვეყნება მხოლოდ გრაფიკების ან დაფების სიის ცვლილებისას არის საჭირო.',
+    'pub.nothingPublished': 'ჯერ არაფერია გამოქვეყნებული. გამოაქვეყნეთ დაფების სია, რომ ორგანიზაციის წევრებმა შესვლის შემდეგ დაინახონ.',
+    'pub.copyViewerLink': 'მნახველის ბმულის დაკოპირება',
+    'pub.unpublishBtn': 'გაუქმება',
+    'pub.publishToOrg': 'ორგანიზაციისთვის გამოქვეყნება',
+    'pub.publishing': 'მიმდინარეობს გამოქვეყნება…',
+    'pub.restricted': 'წვდომა შეზღუდულია @{d} ანგარიშებზე.',
+    'pub.googleVerified': 'დადასტურებულია Google-ით. იტვირთება მონაცემები…',
+    'pub.googleLoading': 'Google-ით შესვლა ჯერ იტვირთება… სცადეთ რამდენიმე წამში.',
+    'pub.googleFailed': 'Google-ით შესვლა ვერ დაიწყო. გამოიყენეთ თქვენი @{d} ფოსტა.',
+    'pub.sendCode': 'კოდის გაგზავნა',
+    'pub.resendCode': 'კოდის ხელახლა გაგზავნა',
+    'pub.sending': 'კოდი იგზავნება {email} მისამართზე…',
+    'pub.sentTo': 'კოდი გაიგზავნა {email} მისამართზე. შეამოწმეთ შემომავალი და შეიყვანეთ ქვემოთ.',
+    'pub.sendFailed': 'კოდის გაგზავნა ვერ მოხერხდა ({m}). გამოიყენეთ Google-ით შესვლა.',
+    'pub.verified': 'დადასტურებულია. იტვირთება მონაცემები…',
+    'pub.wrongCode': 'კოდი არასწორია. სცადეთ ხელახლა.',
+    'pub.invalidEmail': 'გთხოვთ, შეიყვანეთ სწორი @{d} ფოსტა.',
+    'pub.signinAll': 'შედით თქვენი @{d} ფოსტით გამოქვეყნებული დაფების სტატისტიკის სანახავად.',
+    'pub.signinBoard': 'შედით თქვენი @{d} ფოსტით ამ დაფის სტატისტიკის სანახავად.',
+    'pub.headBoard': 'დაფა',
+    'pub.activateFirst': 'ეს ფოსტა პირველად გამოიყენება — FormSubmit-მა {email} მისამართზე გააქტივაციის ბმული გაგზავნა. დააჭირეთ მას და შემდეგ აირჩიეთ „კოდის ხელახლა გაგზავნა".',
+    'pub.deliverFailed': 'კოდი ამჟამად ვერ მიეწოდა ({m}). გამოიყენეთ Google-ით შესვლა.',
+    'confirm.unpublish': 'გავაუქმოთ გამოქვეყნება? მნახველები შესვლის შემდეგ დაფებს ვეღარ დაინახავენ.',
+    'settings.saved': 'პარამეტრები შენახულია.',
+    'settings.savedRelay': 'Relay-ის პარამეტრები შენახულია. ახლა დაუკავშირდით Jira-ს.',
+    'settings.cleared': 'ლოკალური მონაცემები გასუფთავდა — ხდება გადატვირთვა…',
+    'chart.deleted': 'გრაფიკი წაიშალა.',
+    'chart.saved': 'გრაფიკი შენახულია.',
+    'err.generic': 'რაღაც არასწორად წავიდა — დეტალებისთვის გახსენით დიაგნოსტიკა.',
+    'err.loadBoard': 'დაფის ჩატვირთვა ვერ მოხერხდა',
+    'err.status401': 'შეამოწმეთ ელფოსტა / API ტოკენი პარამეტრებში.',
+    'err.status403': 'თქვენს ანგარიშს ამ დაფაზე წვდომა არ აქვს.',
+    'err.status404': 'დაფა ვერ მოიძებნა — შესაძლოა წაშლილია.',
+    'err.status429': 'Jira-მ მოთხოვნები შემოიზღუდა — დაელოდეთ და სცადეთ ხელახლა.',
+    'err.status5xx': 'Jira-ს სერვერის შეცდომა — ცოტა ხანში სცადეთ.',
+    'err.network': 'Jira-სთან დაკავშირება ვერ მოხერხდა — შეამოწმეთ კავშირი ან relay-ის პარამეტრები.',
+    'sync.updated': 'განახლდა {t}',
+    'sync.failed': 'ვერ ჩაიტვირთა',
+    'err.loadIssues': 'დაფის დავალებების ჩატვირთვა ვერ მოხერხდა.',
+    'err.connectFailed': 'დაკავშირება ვერ მოხერხდა.',
+    'dash.syncing': 'სინქრონიზაცია…',
+    'dash.syncingDash': 'მიმდინარეობს დაშბორდის სინქრონიზაცია…',
+    'dash.loadingBoard': 'იტვირთება {b}',
+    'dash.thisBoard': 'ეს დაფა',
+    'dash.issuesOnBoard': 'დავალება ამ დაფაზე',
+    'dash.vsPrior30d': 'წინა 30 დღესთან შედარებით',
+    'dash.completionRate': '{p}% დასრულების მაჩვენებელი',
+    'dash.createResolve': 'შექმნა → დახურვა',
+    'dash.fasterThan': '{p}% უფრო სწრაფია წინა 30 დღესთან შედარებით',
+    'dash.slowerThan': '{p}% უფრო ნელია წინა 30 დღესთან შედარებით',
+    'dash.issuesAnalyzed': '{n} დავალება ანალიზდება',
+    'dash.changelogNotice': '⚠ სტატუსების დროის ანალიზი მიუწვდომელია — ეს დაფა შესაძლოა team-managed იყოს ან თქვენს ტოკენს არ აქვს changelog-ის უფლება. ნაჩვენებია მხოლოდ ძირითადი მეტრიკები.',
+    'insight.throughputText': '{r} დახურულია ბოლო 30 დღეში ({d}/დღე საშ.).',
+    'insight.speedText': 'საშუალო ციკლის დროა {c} — {n} დახურულ დავალებაზე.',
+    'insight.loadText': 'ახლა {w} დავალება მიმდინარეობს · სულ {o} ღიაა.',
+    'insight.completionText': 'ამ დაფაზე დავალებების {p}% მზადაა.',
+    'insight.blockedText': '{b} დავალება ახლა დაბლოკილი ან გაუქმებულია.',
+    'insight.intakeText': 'შემოდინება vs მიწოდება: 30 დღეში {c} შეიქმნა vs {r} დაიხურა.',
+    'cmp.insightThroughput': '{a}: {ra}/30 დღე · {b}: {rb}/30 დღე — {w} მეტს აგზავნის.',
+    'cmp.insightSpeed': '{a}: {ca} საშ. · {b}: {cb} საშ. — {w} სწრაფია.',
+    'cmp.insightLoad': '{a}: {wa} WIP · {b}: {wb} WIP — {w} მეტ ღია სამუშაოს ატარებს.',
+    'cmp.insightCompletion': '{a}: {pa}% მზადაა · {b}: {pb}% მზადაა.',
+    'cmp.insightBlocked': 'დაბლოკილი სამუშაო — {a}: {ba} · {b}: {bb}.',
+    'cmp.insightIntake': 'შემოდინება — {a}: {ca} შექმნილი · {b}: {cb} შექმნილი 30 დღეში.',
+    'cmp.kpiTotal': 'დაანალიზებული დავალებები',
+    'cmp.kpiTotalSub': 'დაფაზე',
+    'cmp.kpiCreated': 'შექმნილი · 30 დღე',
+    'cmp.kpiCreatedSub': 'ახალი დავალებები',
+    'cmp.kpiDone': 'დასრულებული სულ',
+    'cmp.kpiDoneSub': 'დასრულებული',
+    'cmp.kpiResolved': 'დახურული · 30 დღე',
+    'cmp.kpiResolvedSub': 'ცოტა ხნის წინ გაიგზავნა',
+    'cmp.kpiCycle': 'საშ. ციკლის დრო',
+    'cmp.kpiCycleSub': 'შექმნა → დახურვა',
+    'cmp.kpiWip': 'მიმდინარე სამუშაო',
+    'cmp.kpiWipSub': 'ჯერ არ დასრულებულა',
+    'cmp.badgeBoth': 'A: {a} დავალება · B: {b} დავალება',
+    'cmp.hintBar': 'შედარების რეჟიმი — აირჩიეთ მეორე დაფა ზემოთა ზოლში, რომ ყველა გრაფიკი და მეტრიკა გადაფაროთ.',
+    'cmp.aFaster': '{n} სწრაფია',
+    'cmp.bFaster': '{n} სწრაფია',
+    'cmp.aHigher': '{n} მაღალია',
+    'cmp.bHigher': '{n} მაღალია',
+    'cmp.aAbove': 'A {p}%-ით მაღლაა B-ზე',
+    'cmp.aBelow': 'A {p}%-ით დაბლაა B-ზე',
+    'cmp.even': 'თანაბარი',
+    'cmp.identical': 'ორივე დაფაზე იდენტურია',
+    'cmp.noData': 'შედარების მონაცემები არ არის',
+    'cmp.pickBHint': 'აირჩიეთ დაფა B ზემოთ',
+    'cmp.lblThroughput': 'გამტარუნარიანობა',
+    'cmp.lblSpeed': 'სიჩქარე',
+    'cmp.lblOpenLoad': 'ღია დატვირთვა',
+    'cmp.lblCompletion': 'დასრულება',
+    'cmp.lblBlocked': 'დაბლოკილი სამუშაო',
+    'cmp.lblIntake': 'შემოდინების სხვაობა',
+    'cmp.insShipped': '30 დღეში გაგზავნა {a} vs {b}',
+    'cmp.insCloses': 'სამუშაოს ხურავს {a}-ში vs {b}',
+    'cmp.insWip': 'ნაკლებ WIP აქვს ({a} vs {b})',
+    'cmp.insDone': '{a}% მზადაა vs {b}%',
+    'cmp.insLess': 'ნაკლები აქვს ({a} vs {b})',
+    'cmp.insIntake': '{n} შექმნა {a} vs {b} ({p}%)',
+    'bc.measuring': 'იზომება…',
+    'bc.issuesTitle': 'დაანალიზებული დავალებები',
+    'bc.issues': 'დავალება',
+    'bc.wipTitle': 'მიმდინარე სამუშაო',
+    'bc.active': 'აქტიური',
+    'bc.cycleTitle': 'საშ. ციკლის დრო (შექმნა → დახურვა)',
+    'bc.cycle': 'ციკლი',
+    'bc.netTitle': 'ნაკადი · ბოლო 30 დღე (დახურული − შექმნილი)',
+    'bc.net30d': 'ნაკადი 30დ',
+    'bc.done': 'მზადაა',
+    'bc.unavailable': 'სტატისტიკა მიუწვდომელია',
+    'card.openDash': 'გახსენით დაშბორდი →',
+    'card.copyLinkTitle': 'დაფის ლინკის კოპირება',
+    'card.orgBoards': '[P] ორგანიზაციის დაფები',
+    'card.otherBoards': 'დანარჩენი დაფები',
+    'pick.selectedAs': 'არჩეულია როგორც {s} — დააკლიკეთ მოსაშორებლად',
+    'pick.clickPickA': 'დააკლიკეთ A-დ ასარჩევად',
+    'pick.clickPickB': 'დააკლიკეთ B-დ ასარჩევად',
+    'hl.blocked': '{b} დაბლოკილია',
+    'hl.allClear': 'ყველაფერი რიგზეა — არაფერი მიმდინარეობს',
+    'hl.backlogGrowing': 'Backlog იზრდება',
+    'hl.strongOutflow': 'ძლიერი გამოდინება',
+    'hl.steadyFlow': 'სტაბილური ნაკადი',
+    'badge.noChangelogTitle': 'ამ დაფაზე changelog მიუწვდომელია',
+    'badge.noChangelog': 'changelog არ არის',
+    'badge.noOpenTitle': 'ამ დაფაზე ღია დავალებები არ არის',
+    'badge.noOpen': 'ღია დავალებები არ არის',
+    'badge.noDataTitle': 'მოქმედი ფილტრებით მონაცემები არ მოიძებნა',
+    'badge.noData': 'მონაცემები არ არის',
+    'badge.changelogOkTitle': 'changelog-ის მონაცემები ხელმისაწვდომია',
+    'badge.changelog': 'Changelog',
+    'ins.bottleneck': '<b>{n}</b> ღია დავალება ახლა იდგება <b>{cat}</b>-ში',
+    'ins.slowest': 'ახლა ყველაზე ნელი ეტაპია: <b>{s}</b> · საშ. {d}',
+    'ins.throughput': 'გამტარუნარიანობა <b>{p}%</b> წინა 30 დღესთან შედარებით',
+    'ins.aged': '<b>{n}</b> ღია დავალება 14 დღეზე მეტხანს არის გათოში',
+    'ins.netFlow': 'წმინდა ნაკადი 30 დღეში <b>{n}</b> დავალება — backlog {w}',
+    'ins.shrinking': 'მცირდება',
+    'ins.growing': 'იზრდება',
+    'cmp.noDataEither1': 'ორივე დაფაზე მონაცემები არ არის',
+    'cmp.noDataEither2': 'ამ გრაფიკისთვის',
+    'cmp.noDataA': 'დაფა A-ზე ამ გრაფიკის მონაცემები არ არის',
+    'cmp.noComparable': 'შედარებადი მონაცემები არ არის',
+    'cmp.shownCyan': 'ნაჩვენებია ცისფრად',
+    'cmp.only': 'მხოლოდ',
+    'cmp.oneBoardNoData': 'ერთ დაფაზე აქ მონაცემები არ არის',
+    'cmp.avg': 'საშ.',
+    'cmp.issues': 'დავალება',
+    'cmp.tie': 'თანაბარია',
+    'pub.liveUnavailable': 'ლაივ მონაცემები მიუწვდომელია',
+    'pub.noBoardSelected': 'დაფა არ არის არჩეული.',
+    'pub.loadingLive': 'მიმდინარეობს ლაივ მონაცემების ჩატვირთვა Jira-დან…',
+    'pub.loadFailed': 'ლაივ მონაცემების ჩატვირთვა ვერ მოხერხდა ({m}).',
+    'pub.nIssues': '{n} დავალება',
+    'pub.noCharts': 'ამ დაფისთვის გრაფიკები კონფიგურირებული არ არის.',
+    'chart.newTitle': 'ახალი გრაფიკი',
+    'chart.configureTitle': 'კონფიგურაცია — „{title}“',
+    'chart.segLine': 'ხაზოვანი',
+    'chart.segBar': 'სვეტები',
+    'chart.segHbar': 'ჰორიზონტალური',
+    'chart.segDoughnut': 'რგოლი',
+    'chart.segBoard': 'მხოლოდ ეს დაფა',
+    'chart.segGlobal': 'ყველა დაფა',
+    'chart.scopeBoard': 'ეს დაფა',
+    'chart.scopeGlobal': 'ყველა დაფა',
+    'chart.btnEdit': 'გრაფიკის კონფიგურაცია',
+    'chart.btnReset': 'ნაგულისხმევზე დაბრუნება',
+    'chart.btnHide': 'გრაფიკის დამალვა',
+    'chart.btnDelete': 'გრაფიკის წაშლა',
+    'series.registered': 'რეგისტრირებული',
+    'series.completed': 'დასრულებული',
+    'series.openBacklog': 'ღია ბექლოგი',
+    'series.netflowDesc': 'დაგროვილი ღია ბექლოგი (შექმნა − დახურვა)',
+    'series.createdVsResolved': 'შექმნილი vs დასრულებული',
+    'series.created': 'შექმნა',
+    'series.resolved': 'დახურვა',
+    'series.perBucket': '{b}-მიერ',
+    'series.openNow': 'ახლა ღიაა',
+    'series.avg': 'საშ. ',
+    'series.count': 'რაოდენობა',
+    'series.byGroup': '{g}-ის მიხედვით',
+    'statusTime.noChangelog1': 'ამ დაფაზე ცვლილებების ისტორია მიუწვდომელია',
+    'statusTime.noChangelog2': '— სტატუსის დროის გრაფიკებს ეს სჭირდება',
+    'statusTime.noTransitions': 'სტატუსის გადასვლების მონაცემები ვერ მოიძებნა',
+    'statusTime.noStages': 'სტეიკჰოლდერის / გუნდის ეტაპების გადასვლები ვერ მოიძებნა',
+    'statusTime.subStage': 'საშ. დღეები · სტეიკჰოლდერი vs გუნდი · ცვლილებების ისტორია',
+    'statusTime.subStatus': 'საშ. დღეები სტატუსის მიხედვით · სრული ვადა · ცვლილებების ისტორია',
+    'statusTime.subSplit': 'საშ. დღეები ეტაპზე ყოფნისთვის · ცვლილებების ისტორია',
+    'statusTime.stakeholderAvg': 'სტეიკჰოლდერის ეტაპების საშ.',
+    'statusTime.teamAvg': 'გუნდის ეტაპების საშ.',
+    'stage.stakeholder': 'სტეიკჰოლდერის ეტაპები',
+    'stage.team': 'გუნდის ეტაპები',
+    'group.unassigned': 'დაუნიშნავი',
+    'group.assigned': 'დანიშნული',
+    'group.other': 'სხვა',
+    'err.unknownMetric': 'უცნობი მეტრიკა',
+    'cat.noResolved': 'გასაზომად დახურული დავალებები ჯერ არ არის',
+    'cat.noIssues': 'ამ გრაფიკს დავალებები ჯერ არ ერგება',
+    'filter.openOnly': 'მხოლოდ ღია',
+    'filter.doneOnly': 'მხოლოდ დახურული',
+    'bn.pendingReview': 'მიმოხილვის პროცესში',
+    'bn.techAnalysis': 'ტექნიკური ანალიზი',
+    'bn.inDevelopment': 'შემუშავებაში',
+    'bn.testing': 'ტესტირება',
+    'lang.en': 'English',
+    'lang.ka': 'ქართული',
+    'lang.title': 'ენის გადამრთველი',
+  },
+};
+
+function t(key, fallback) {
+  const d = I18N[LANG] || I18N.en;
+  const v = d[key];
+  if (v != null && v !== '') return v;
+  const e = I18N.en[key];
+  if (e != null && e !== '') return e;
+  return fallback != null ? fallback : key;
+}
+
+/* format helpers that respect the active language */
+function tReplace(key, subs, fallback) {
+  let s = t(key, fallback);
+  for (const [k, v] of Object.entries(subs || {})) s = s.split('{' + k + '}').join(String(v));
+  return s;
+}
+
+function applyI18n(root) {
+  const scope = root || document;
+  scope.querySelectorAll('[data-i18n]').forEach((el) => { el.innerHTML = t(el.getAttribute('data-i18n')); });
+  scope.querySelectorAll('[data-i18n-text]').forEach((el) => { el.textContent = t(el.getAttribute('data-i18n-text')); });
+  scope.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.setAttribute('placeholder', t(el.getAttribute('data-i18n-placeholder'))); });
+  scope.querySelectorAll('[data-i18n-title]').forEach((el) => { el.setAttribute('title', t(el.getAttribute('data-i18n-title'))); });
+}
+
+function setLang(lang) {
+  LANG = (lang === 'ka') ? 'ka' : 'en';
+  try { localStorage.setItem(LS_LANG, LANG); } catch (_) {}
+  document.documentElement.setAttribute('lang', LANG === 'ka' ? 'ka' : 'en');
+  applyI18n();
+  document.querySelectorAll('.lang-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.lang === LANG);
+  });
+  /* re-render dynamic surfaces so runtime-built strings follow the language */
+  try {
+    if (state.inShareScreen) { renderPubContent(); }
+    else if (state.lastBoard && state.lastMetrics && !$('#dashScreen').classList.contains('hidden')) {
+      renderDashboard(state.lastBoard, state.lastMetrics);
+      renderCharts(effectiveCharts(), state.lastMetrics);
+    } else if (state.boards.length && !$('#boardsScreen').classList.contains('hidden')) {
+      renderBoardCards();
+    }
+  } catch (err) { logDiag('i18n rerender failed: ' + err.message); }
+}
+
 /* the public app root path — always strips a trailing /admin/ so share links and
    board links built anywhere (admin panel included) point at the *public* app. */
 function publicRootPath() {
@@ -208,6 +1297,9 @@ let pubState = {
   isAdmin: false,          /* true when the viewer is the JiraPulse admin */
   currentBoard: null,      /* board being viewed when snapshot.scope === 'all' */
   allSnapshot: null,       /* parent all-boards snapshot when drilled into a board */
+  pickCompare: null,       /* { a, b } board ids while the user is picking two boards to compare */
+  compare: null,           /* { a, b, recA, recB } active pub compare view (live records for both boards) */
+  compareGen: 0,           /* staleness guard for in-flight compare loads */
 };
 
 /* Google OAuth client id (leave empty to disable Google sign-in) */
@@ -222,14 +1314,14 @@ function handleGoogleCredential(resp) {
   const payload = decodeJwt(resp.credential);
   const email = (payload?.email || '').toLowerCase().trim();
   if (!publishEmailOk(email)) {
-    $('#pubStatus').textContent = 'Access is restricted to @' + PUBLISH_DOMAIN + ' accounts.';
+    $('#pubStatus').textContent = tReplace('pub.restricted', { d: PUBLISH_DOMAIN });
     $('#pubStatus').className = 'error';
     return;
   }
   pubState.email = email;
   pubState.verified = true;
   pubState.isAdmin = isAdminEmail(email);
-  $('#pubStatus').textContent = 'Verified via Google. Loading snapshot…';
+  $('#pubStatus').textContent = t('pub.googleVerified');
   $('#pubStatus').className = 'ok';
   $('#pubContent').classList.remove('hidden');
   $('#pubAuthBox').classList.add('hidden');
@@ -251,7 +1343,7 @@ function initGoogleButton() {
       /* never leave the user with a dead button — wire a manual fallback once */
       if (polls === 1) {
         container.addEventListener('click', () => {
-          $('#pubStatus').textContent = 'Google sign-in is still loading… try again in a few seconds.';
+          $('#pubStatus').textContent = t('pub.googleLoading');
           $('#pubStatus').className = 'warn';
         });
       }
@@ -279,7 +1371,7 @@ function initGoogleButton() {
       });
     } catch (e) {
       logDiag('warn', 'Google init failed', { message: e.message });
-      $('#pubStatus').textContent = 'Google sign-in could not start. Use your ' + PUBLISH_DOMAIN + ' email instead.';
+      $('#pubStatus').textContent = tReplace('pub.googleFailed', { d: PUBLISH_DOMAIN });
       $('#pubStatus').className = 'error';
     }
   }, 200);
@@ -319,17 +1411,20 @@ function showPubScreen(snapshot) {
   pubState.codeSent = false;
   pubState.isAdmin = false;
   pubState.currentBoard = null;
+  pubState.pickCompare = null;
+  pubState.compare = null;
+  pubState.compareGen = (pubState.compareGen || 0) + 1;
   updatePubUserChip();   /* reset the topbar profile chip for a fresh sign-in */
 
   /* title depends on scope */
   if (snapshot.scope === 'all') {
-    $('#pubTitle').textContent = 'Organization board stats';
-    $('#pubSubtitle').textContent = 'Sign in with your ' + PUBLISH_DOMAIN + ' email to view the published board stats.';
-    $('#pubHeadTitle').textContent = 'All boards';
+    $('#pubTitle').textContent = t('pub.orgTitle');
+    $('#pubSubtitle').textContent = tReplace('pub.signinAll', { d: PUBLISH_DOMAIN });
+    $('#pubHeadTitle').textContent = t('pub.allTitle');
   } else {
-    $('#pubTitle').textContent = snapshot.boardName + ' — published stats';
-    $('#pubSubtitle').textContent = 'Sign in with your ' + PUBLISH_DOMAIN + ' email to view this board snapshot.';
-    $('#pubHeadTitle').textContent = snapshot.boardName || 'Board';
+    $('#pubTitle').textContent = tReplace('pub.boardTitle', { b: snapshot.boardName });
+    $('#pubSubtitle').textContent = tReplace('pub.signinBoard', { d: PUBLISH_DOMAIN });
+    $('#pubHeadTitle').textContent = snapshot.boardName || t('pub.headBoard');
   }
   $('#pubEmail').value = '';
   $('#pubEmail').disabled = false;
@@ -337,8 +1432,8 @@ function showPubScreen(snapshot) {
   $('#pubCodeWrap').classList.add('hidden');
   $('#pubCode').value = '';
   $('#pubCode').disabled = false;
-  $('#pubSendBtn').textContent = 'Send code';
-  $('#pubVerifyBtn').textContent = 'Verify';
+  $('#pubSendBtn').textContent = t('pub.sendCode');
+  $('#pubVerifyBtn').textContent = t('pub.verify');
   $('#pubVerifyBtn').classList.add('hidden');
   $('#pubStatus').textContent = '';
   $('#pubStatus').className = 'muted';
@@ -371,7 +1466,7 @@ function pubCodeSeed(snap) {
 async function pubSendCode() {
   const email = $('#pubEmail').value.trim();
   if (!publishEmailOk(email)) {
-    $('#pubStatus').textContent = 'Please enter a valid @' + PUBLISH_DOMAIN + ' email.';
+    $('#pubStatus').textContent = tReplace('pub.invalidEmail', { d: PUBLISH_DOMAIN });
     $('#pubStatus').className = 'error';
     return;
   }
@@ -382,8 +1477,8 @@ async function pubSendCode() {
 
   const btn = $('#pubSendBtn');
   btn.disabled = true;
-  btn.textContent = 'Sending…';
-  $('#pubStatus').textContent = 'Sending your code to ' + email + '…';
+  btn.textContent = t('auth.sending');
+  $('#pubStatus').textContent = tReplace('pub.sending', { email });
   $('#pubStatus').className = 'muted';
 
   /* FormSubmit accepts an arbitrary recipient email — each org member receives
@@ -422,29 +1517,29 @@ async function pubSendCode() {
       const reason = data.message || 'the email service needs confirmation';
       const activating = /activat/i.test(reason);
       $('#pubStatus').textContent = activating
-        ? 'First time for this email — FormSubmit has emailed an activation link to ' + email + '. Click it, then press "Resend code".'
-        : 'Could not deliver the code right now (' + reason + '). Use Sign in with Google instead.';
+        ? tReplace('pub.activateFirst', { email })
+        : tReplace('pub.deliverFailed', { m: reason });
       $('#pubStatus').className = activating ? 'warn' : 'error';
       $('#pubCodeWrap').classList.remove('hidden');
       $('#pubVerifyBtn').classList.remove('hidden');
       $('#pubMailLink').classList.add('hidden');
-      $('#pubSendBtn').textContent = 'Resend code';
+      $('#pubSendBtn').textContent = t('pub.resendCode');
       return;
     }
-    $('#pubStatus').textContent = 'Code sent to ' + email + '. Check your inbox, then enter it below.';
+    $('#pubStatus').textContent = tReplace('pub.sentTo', { email });
     $('#pubStatus').className = 'ok';
     $('#pubCodeWrap').classList.remove('hidden');
     $('#pubVerifyBtn').classList.remove('hidden');
     $('#pubMailLink').classList.add('hidden');
-    $('#pubSendBtn').textContent = 'Resend code';
+    $('#pubSendBtn').textContent = t('pub.resendCode');
   } catch (e) {
     logDiag('warn', 'pubSendCode failed', { email, message: e.message });
-    $('#pubStatus').textContent = 'Could not email the code (' + e.message + '). Use Sign in with Google instead.';
+    $('#pubStatus').textContent = tReplace('pub.sendFailed', { m: e.message });
     $('#pubStatus').className = 'error';
     $('#pubMailLink').classList.add('hidden');
   } finally {
     btn.disabled = false;
-    if (!btn.textContent.startsWith('Resend')) btn.textContent = 'Send code';
+    if (!btn.textContent.startsWith('Resend') && !btn.textContent.startsWith('კოდის ხელახლა')) btn.textContent = t('pub.sendCode');
   }
 }
 
@@ -454,14 +1549,14 @@ function pubVerifyCode() {
   if (entered === expected) {
     pubState.verified = true;
     pubState.isAdmin = isAdminEmail(pubState.email);
-    $('#pubStatus').textContent = 'Verified. Loading snapshot…';
+    $('#pubStatus').textContent = t('pub.verified');
     $('#pubStatus').className = 'ok';
     $('#pubContent').classList.remove('hidden');
     $('#pubAuthBox').classList.add('hidden');
     updatePubUserChip();
     renderPubContent();
   } else {
-    $('#pubStatus').textContent = 'Wrong code. Please try again.';
+    $('#pubStatus').textContent = t('pub.wrongCode');
     $('#pubStatus').className = 'error';
   }
 }
@@ -524,6 +1619,9 @@ function pubChartDefs() {
 async function renderPubContent() {
   const snap = pubState.snapshot;
   if (!snap) return;
+  /* an active compare view owns the whole pub content area — re-render it
+     (this also covers setLang re-renders while comparing) */
+  if (pubState.compare) { renderPubCompareView(); return; }
   /* keep the topbar identity chip + org badge in sync on every render */
   updatePubUserChip();
   const orgBadge = $('#pubOrgBadge');
@@ -537,7 +1635,7 @@ async function renderPubContent() {
   const adminBar = $('#pubAdminBar');
   if (admin) {
     adminBar.classList.remove('hidden');
-    $('#pubAdminText').textContent = 'Signed in as ' + pubState.email + ' · Admin';
+    $('#pubAdminText').textContent = tReplace('pub.signedInAdmin', { e: pubState.email });
     $('#pubManageBtn').style.display = '';
   } else {
     adminBar.classList.add('hidden');
@@ -555,17 +1653,24 @@ async function renderPubContent() {
   /* title/subtitle — data is LIVE now, so the subtitle reflects freshness, not a date.
      The topbar center title mirrors the admin app's "All boards" header. */
   if (snap.scope === 'all') {
-    $('#pubTitle').textContent = 'Organization board stats';
-    $('#pubSubtitle').textContent = 'All published boards · live data';
-    $('#pubHeadTitle').textContent = 'All boards';
+    $('#pubTitle').textContent = t('pub.orgTitle');
+    $('#pubSubtitle').textContent = t('pub.orgSubtitle');
+    $('#pubHeadTitle').textContent = t('pub.allTitle');
   } else {
     $('#pubTitle').textContent = snap.boardName || 'Board';
-    $('#pubSubtitle').textContent = 'Live data · real-time from Jira';
+    $('#pubSubtitle').textContent = t('pub.liveSubtitle');
     $('#pubHeadTitle').textContent = snap.boardName || 'Board';
   }
 
-  $('#pubChangelogBadge').textContent = '⟳ live';
+  $('#pubChangelogBadge').textContent = t('pub.liveBadge');
   $('#pubChangelogBadge').className = 'data-badge ok';
+
+  /* compare button in the pub header — available to EVERY viewer on the
+     all-boards view (feature 1: compare for users, not only admins) */
+  const pubCmpBtn = $('#pubCompareBtn');
+  if (pubCmpBtn) pubCmpBtn.classList.toggle('hidden', snap.scope !== 'all');
+  /* pick mode body class drives card hover/label styling (shared CSS) */
+  document.body.classList.toggle('pick-mode', !!pubState.pickCompare);
 
   const boardsList = $('#pubBoardsList');
   const chartsGrid = $('#pubChartsGrid');
@@ -579,11 +1684,11 @@ async function renderPubContent() {
     boardsList.classList.remove('hidden');
     const boards = snap.boards || [];
     if (!boards.length) {
-      boardsList.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No boards published yet — the admin can publish the board list from the admin panel.</div>';
-      $('#pubIssueCount').textContent = '0 boards';
+      boardsList.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">' + escapeHtml(t('pub.noBoardsPublished')) + '</div>';
+      $('#pubIssueCount').textContent = t('pub.zeroBoards');
       return;
     }
-    $('#pubIssueCount').textContent = boards.length + ' boards';
+    $('#pubIssueCount').textContent = tReplace('pub.nBoards', { n: boards.length });
     /* SAME card design as the admin all-boards view: gradient avatar + type chips,
        4-up metric grid, done% bar, health pill — the share view is the admin view
        minus admin-only chrome. Stats arrive live (4 in parallel) and each card
@@ -591,8 +1696,16 @@ async function renderPubContent() {
     const pubCard = (b, i) => {
       const initial = escapeHtml((b.name || '?').trim().charAt(0).toUpperCase());
       const pBoard = /^\[P\]/i.test(b.projectName || '') || /^\[P\]/i.test(b.name || '');
+      /* pick-compare mode: cards become selectable slots (A/B) instead of links */
+      const pick = pubState.pickCompare;
+      const pickedA = pick && pick.a === b.boardId;
+      const pickedB = pick && pick.b === b.boardId;
+      const picked = pickedA || pickedB;
+      const openLabel = pick
+        ? (picked ? tReplace('cmp.pubSelectedAs', { s: pickedA ? 'A' : 'B' }) : (pick.a == null ? t('cmp.pubClickPickA') : t('cmp.pubClickPickB')))
+        : t('card.openDash');
       return `
-        <div class="board-card glass${pBoard ? ' p-board' : ''}" data-bid="${b.boardId}" style="animation-delay:${Math.min(i * 35, 400)}ms">
+        <div class="board-card glass${pBoard ? ' p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}" data-bid="${b.boardId}" style="animation-delay:${Math.min(i * 35, 400)}ms">
           <div class="board-card-head">
             <div class="board-avatar" aria-hidden="true">${initial}</div>
             <div class="board-id-block">
@@ -602,11 +1715,11 @@ async function renderPubContent() {
               </div>
             </div>
             <span class="board-head-pct pub-head-pct" id="pubpct_${b.boardId}" hidden></span>
-            ${admin ? `<button class="link-btn board-copy-link" data-copyboard="${b.boardId}" title="Copy link to this board" aria-label="Copy board link">🔗</button>` : ''}
+            ${admin ? `<button class="link-btn board-copy-link" data-copyboard="${b.boardId}" data-i18n-title="pub.copyBoardLink" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>` : ''}
           </div>
           <div class="board-stats" id="pubbstats_${b.boardId}">${boardStatsChipHtml(null)}</div>
           <div class="board-card-foot">
-            <span class="board-open">Open dashboard →</span>
+            <span class="board-open">${escapeHtml(openLabel)}</span>
             ${b.projectName ? `<span class="board-proj muted" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : ''}
           </div>
         </div>`;
@@ -614,8 +1727,8 @@ async function renderPubContent() {
     const P = boards.filter((b) => /^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || ''));
     const others = boards.filter((b) => !(/^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || '')));
     let html = '';
-    if (P.length) html += `<div class="board-group"><span class="board-group-title">[P] Org boards</span><div class="boards-grid">${P.map(pubCard).join('')}</div></div>`;
-    if (others.length) html += `<div class="board-group"><span class="board-group-title">All other boards</span><div class="boards-grid">${others.map(pubCard).join('')}</div></div>`;
+    if (P.length) html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.orgBoards'))}</span><div class="boards-grid">${P.map(pubCard).join('')}</div></div>`;
+    if (others.length) html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.otherBoards'))}</span><div class="boards-grid">${others.map(pubCard).join('')}</div></div>`;
     boardsList.className = '';
     boardsList.innerHTML = html;
 
@@ -623,14 +1736,17 @@ async function renderPubContent() {
       btn.addEventListener('click', (ev) => {
         ev.stopPropagation();
         const link = location.origin + publicRootPath() + '?share=' + encodeURIComponent(snap.shareSeed || 'org');
-        navigator.clipboard.writeText(link).then(() => toast('Board link copied.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
+        navigator.clipboard.writeText(link).then(() => toast(t('pub.boardCopied'), 'ok')).catch(() => toast(t('toast.copyFail'), 'warn'));
       });
     });
     boardsList.querySelectorAll('.board-card').forEach((card) => {
       card.addEventListener('click', () => {
         const bid = parseInt(card.dataset.bid, 10);
         const b = boards.find((x) => x.boardId === bid);
-        if (b) openBoardSnapshot(b);
+        if (!b) return;
+        /* pick-compare mode: cards fill the A/B slots instead of opening */
+        if (pubState.pickCompare) { togglePubPickCompare(b); return; }
+        openBoardSnapshot(b);
       });
     });
 
@@ -656,12 +1772,12 @@ async function renderPubContent() {
           if (pctEl) {
             pctEl.hidden = false;
             pctEl.textContent = Math.max(0, Math.min(100, m.doneRate || 0)) + '%';
-            pctEl.title = (m.doneRate || 0) + '% done';
+            pctEl.title = tReplace('dash.completionRate', { p: Math.max(0, Math.min(100, m.doneRate || 0)) });
           }
         } catch (e) {
           logDiag('warn', 'Publish all-boards: live stats failed', { boardId: b.boardId, message: e?.message });
           const box = document.getElementById('pubbstats_' + b.boardId);
-          if (box) box.innerHTML = '<span class="bstat bstat-skip">live data unavailable</span>';
+          if (box) box.innerHTML = `<span class="bstat bstat-skip">${escapeHtml(t('pub.liveUnavailable'))}</span>`;
         }
       }
     };
@@ -673,24 +1789,24 @@ async function renderPubContent() {
     const grid = chartsGrid;
     const defs = pubState.chartDefs;
     if (!snap.boardId) {
-      grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No board selected.</div>';
+      grid.innerHTML = `<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">${escapeHtml(t('pub.noBoardSelected'))}</div>`;
       return;
     }
-    grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)"><span class="spinner spinner-sm"></span> loading live data from Jira…</div>';
+    grid.innerHTML = `<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)"><span class="spinner spinner-sm"></span> ${escapeHtml(t('pub.loadingLive'))}</div>`;
     let rec;
     try {
       rec = await pubLoadBoardLive(snap.boardId);
     } catch (e) {
       logDiag('warn', 'Publish board view: live fetch failed', { boardId: snap.boardId, message: e?.message });
-      grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">⚠ Could not load live data (' + escapeHtml(e?.message || 'unknown error') + ').</div>';
+      grid.innerHTML = `<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">⚠ ${escapeHtml(tReplace('pub.loadFailed', { m: e?.message || t('err.generic') }))}</div>`;
       return;
     }
     const charts = rec.charts;
-    $('#pubIssueCount').textContent = rec.issuesCount + ' issues';
-    $('#pubChangelogBadge').textContent = rec.hasChangelog ? '✓ changelog' : '⚠ no changelog';
+    $('#pubIssueCount').textContent = tReplace('pub.nIssues', { n: rec.issuesCount });
+    $('#pubChangelogBadge').textContent = rec.hasChangelog ? t('badge.changelog') : t('badge.noChangelog');
     $('#pubChangelogBadge').className = 'data-badge ' + (rec.hasChangelog ? 'ok' : 'missing');
     if (!charts.length) {
-      grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No charts configured for this board.</div>';
+      grid.innerHTML = `<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">${escapeHtml(t('pub.noCharts'))}</div>`;
       return;
     }
     grid.innerHTML = charts.map((c) => chartCardHTML(c.def, false)).join('');
@@ -700,7 +1816,7 @@ async function renderPubContent() {
       const data = c.data;
       const canvasId = 'chart_' + def.id;
       if (!data || data.empty) {
-        drawCanvasMessage(canvasId, Array.isArray(data?.empty) ? data.empty : [data ? data.empty : 'No data']);
+        drawCanvasMessage(canvasId, Array.isArray(data?.empty) ? data.empty : [data ? data.empty : t('cmp.noData')]);
         continue;
       }
       mkPubChart(canvasId, chartConfigFor(def, data, theme, canvasId));
@@ -724,7 +1840,7 @@ function openBoardSnapshot(boardRec) {
   pubState.snapshot = sub;
   renderPubContent();
   $('#pubBackBtn').dataset.fromAll = '1';
-  $('#pubBackBtn').textContent = '← All boards';
+  $('#pubBackBtn').textContent = t('pub.backAll');
 }
 
 function hidePubScreen() {
@@ -777,7 +1893,7 @@ async function openPublishModal() {
     $('#pubBoardSelect').innerHTML = state.boards.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
   }
 
-  $('#pubModalTitle').textContent = connected ? 'Publish boards (configuration only)' : 'Publish configuration';
+  $('#pubModalTitle').textContent = connected ? t('pub.cfgTitle') : t('pub.cfgOnlyTitle');
   const cfg = await pubConfigGet();
   const cfgBoardCount = cfg && Array.isArray(cfg.boards) ? cfg.boards.length : 0;
   const savedAt = cfg && cfg.savedAt ? new Date(cfg.savedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : null;
@@ -785,31 +1901,31 @@ async function openPublishModal() {
     `<tr>
       <td colspan="4" style="padding:10px 6px">
         ${cfg
-          ? `<div>Currently published: <b>${cfgBoardCount} board${cfgBoardCount === 1 ? '' : 's'}</b>${savedAt ? ` · saved ${escapeHtml(savedAt)}` : ''}</div>
-             <div class="muted" style="margin-top:4px">Viewers always see <b>live Jira data</b> — republish only needed when charts or the board list change.</div>`
-          : '<div class="muted">Nothing published yet. Publish the board list so org members see it after sign-in.</div>'}
+          ? `<div>${tReplace('pub.currentlyPublished', { n: cfgBoardCount, saved: savedAt ? tReplace('pub.savedAt', { s: escapeHtml(savedAt) }) : '' })}</div>
+             <div class="muted" style="margin-top:4px">${t('pub.viewerLiveNote')}</div>`
+          : `<div class="muted">${t('pub.nothingPublished')}</div>`}
       </td>
       <td style="text-align:right;white-space:nowrap">
-        <button class="link-btn" data-copyorg="">copy viewer link</button>
-        ${cfg ? '<button class="link-btn" data-unpub="" style="color:#f87171">unpublish</button>' : ''}
+        <button class="link-btn" data-copyorg="">${escapeHtml(t('pub.copyViewerLink'))}</button>
+        ${cfg ? `<button class="link-btn" data-unpub="" style="color:#f87171">${escapeHtml(t('pub.unpublishBtn'))}</button>` : ''}
       </td>
     </tr>`;
 
   $('#pubListBody').querySelectorAll('[data-copyorg]').forEach((b) => {
     b.addEventListener('click', () => {
-      navigator.clipboard.writeText(shareLink()).then(() => toast('Viewer link copied — works on every device.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
+      navigator.clipboard.writeText(shareLink()).then(() => toast(t('pub.viewerCopied'), 'ok')).catch(() => toast(t('toast.copyFail'), 'warn'));
     });
   });
   $('#pubListBody').querySelectorAll('[data-unpub]').forEach((b) => {
     b.addEventListener('click', async () => {
-      if (!confirm('Unpublish? Viewers will no longer see the boards after sign-in.')) return;
-      try { await pubCmd('publish:clear', { method: 'POST', admin: true }); toast('Unpublished.', 'ok'); }
-      catch (e) { toast('Unpublish failed: ' + (e?.message || 'unknown'), 'warn'); }
+      if (!confirm(t('confirm.unpublish'))) return;
+      try { await pubCmd('publish:clear', { method: 'POST', admin: true }); toast(t('pub.unpublished'), 'ok'); }
+      catch (e) { toast(tReplace('pub.unpublishFailed', { m: e?.message || 'unknown' }), 'warn'); }
       openPublishModal();
     });
   });
 
-  $('#pubCreateBtn').textContent = connected ? 'Publish to organization' : 'Publish to organization';
+  $('#pubCreateBtn').textContent = connected ? t('pub.publishToOrg') : t('pub.publishToOrg');
   show($('#pubModal'));
 }
 
@@ -820,11 +1936,11 @@ async function openPublishModal() {
 async function createSnapshotFromModal() {
   const scope = $('#pubScope').querySelector('button.active').dataset.v;
   const boardId = scope === 'all' ? null : parseInt($('#pubBoardSelect').value, 10);
-  if (scope === 'board' && !boardId) { toast('Select a board first.', 'warn'); return; }
+  if (scope === 'board' && !boardId) { toast(t('pub.selectBoard'), 'warn'); return; }
 
   /* pick the board set: every board for 'all', or just one board */
   const boards = scope === 'all' ? state.boards : state.boards.filter((b) => b.id === boardId);
-  if (!boards.length) { toast('No boards to publish.', 'warn'); return; }
+  if (!boards.length) { toast(t('pub.noBoards'), 'warn'); return; }
 
   /* chart config = the current admin layout (built-ins incl. overrides + customs).
      Uses the board context of the FIRST published board so board-scoped custom
@@ -844,22 +1960,22 @@ async function createSnapshotFromModal() {
 
   const btn = $('#pubCreateBtn');
   btn.disabled = true;
-  btn.textContent = 'Publishing…';
+  btn.textContent = t('pub.publishing');
   try {
     await pubConfigSet(config);
     /* store admin creds once (best-effort — viewers with their own Jira sign-in
        never need them, but this keeps the viewer-only path working too) */
     try { await pubCredsSet(state.conn); } catch (e) { logDiag('warn', 'creds:set failed', { message: e?.message }); }
     navigator.clipboard.writeText(shareLink()).then(() =>
-      toast('Published — viewer link copied. Data is always live; republish only when charts/boards change.', 'ok')
-    ).catch(() => toast('Published. Viewers will see it on next sign-in.', 'ok'));
+      toast(t('pub.publishedLive'), 'ok')
+    ).catch(() => toast(t('pub.publishedNext'), 'ok'));
     hide($('#pubModal'));
     openPublishModal();
   } catch (e) {
-    toast('Publish failed: ' + (e?.message || 'unknown error'), 'warn');
+    toast(tReplace('pub.publishFailed', { m: e?.message || 'unknown error' }), 'warn');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Publish to organization';
+    btn.textContent = t('pub.publishToOrg');
   }
 }
 
@@ -1327,9 +2443,9 @@ function handleAuthError(e) {
   if (e && (e.status === 401 || e.status === 403)) {
     clearConn(); state.conn = null;
     showSetup();
-    toast('Session rejected by Jira (' + e.status + '). Please reconnect with a fresh API token.', 'err');
+    toast(tReplace('auth.sessionRejected', { s: e.status }), 'err');
   } else {
-    toast(e?.message || 'Something went wrong.', 'err');
+    toast(e?.message || t('err.generic'), 'err');
   }
 }
 
@@ -1363,7 +2479,7 @@ async function connect(domainRaw, email, token) {
     return;
   }
   enterApp();
-  toast('Connected to ' + domain.replace('https://', '') + ' 🎉', 'ok');
+  toast(tReplace('connect.ok', { domain: domain.replace('https://', '') }) + ' 🎉', 'ok');
 }
 
 /* ── boards ──────────────────────────────────────────────────────── */
@@ -1547,10 +2663,20 @@ function boardHealth(rec) {
   return { cls: 'hl-neutral', icon: '◈', label: 'Steady flow' };
 }
 
+/* health label resolved through i18n at render time (labels stay stable in the record) */
+function boardHealthLabel(h) {
+  if (!h) return '';
+  if (h.cls === 'hl-info') return tReplace('hl.blocked', { b: (h.label.match(/^(\d+)/) || [0, 0])[1] });
+  if (h.cls === 'hl-good' && h.icon === '✓') return t('hl.allClear');
+  if (h.cls === 'hl-warn') return t('hl.backlogGrowing');
+  if (h.cls === 'hl-good') return t('hl.strongOutflow');
+  return t('hl.steadyFlow');
+}
+
 /* card stats body: compact 4-stat grid + slim progress bar + one quiet info line.
    (loading pill keeps the `bstat` class so placeholder state is testable) */
 function boardStatsChipHtml(rec) {
-  if (!rec) return '<span class="bstat bstat-pending"><span class="spinner spinner-sm"></span> measuring…</span>';
+  if (!rec) return `<span class="bstat bstat-pending"><span class="spinner spinner-sm"></span> ${escapeHtml(t('bc.measuring'))}</span>`;
   const net = (rec.resolved30 || 0) - (rec.created30 || 0);
   const netCls = net > 0 ? 'bc-pos' : net < 0 ? 'bc-neg' : '';
   const netTxt = net > 0 ? `+${net}` : String(net);
@@ -1558,22 +2684,22 @@ function boardStatsChipHtml(rec) {
   const h = boardHealth(rec);
   return `
     <div class="bc-grid">
-      <div class="bc-stat bstat" title="Issues analyzed"><span class="bc-v">${rec.total}</span><span class="bc-l">issues</span></div>
-      <div class="bc-stat bstat" title="Work in progress"><span class="bc-v">${rec.wip}</span><span class="bc-l">active</span></div>
-      <div class="bc-stat bstat" title="Avg cycle time (create → resolve)"><span class="bc-v">${rec.cycleAvg != null ? fmtDuration(rec.cycleAvg) : '—'}</span><span class="bc-l">cycle</span></div>
-      <div class="bc-stat bstat ${netCls}" title="Net flow · last 30 days (resolved − created)"><span class="bc-v">${netTxt}</span><span class="bc-l">net 30d</span></div>
+      <div class="bc-stat bstat" title="${escapeHtml(t('bc.issuesTitle'))}"><span class="bc-v">${rec.total}</span><span class="bc-l">${escapeHtml(t('bc.issues'))}</span></div>
+      <div class="bc-stat bstat" title="${escapeHtml(t('bc.wipTitle'))}"><span class="bc-v">${rec.wip}</span><span class="bc-l">${escapeHtml(t('bc.active'))}</span></div>
+      <div class="bc-stat bstat" title="${escapeHtml(t('bc.cycleTitle'))}"><span class="bc-v">${rec.cycleAvg != null ? fmtDuration(rec.cycleAvg) : '—'}</span><span class="bc-l">${escapeHtml(t('bc.cycle'))}</span></div>
+      <div class="bc-stat bstat ${netCls}" title="${escapeHtml(t('bc.netTitle'))}"><span class="bc-v">${netTxt}</span><span class="bc-l">${escapeHtml(t('bc.net30d'))}</span></div>
     </div>
-    <div class="bc-bar" title="${pct}% done">
+    <div class="bc-bar" title="${pct}% ${escapeHtml(t('bc.done'))}">
       <i style="width:${pct}%"></i>
-      <span class="bc-bar-txt">${pct}% done</span>
+      <span class="bc-bar-txt">${pct}% ${escapeHtml(t('bc.done'))}</span>
     </div>
-    ${h ? `<div class="bc-health ${h.cls}"><span class="bc-hi">${h.icon}</span>${h.label}</div>` : ''}`;
+    ${h ? `<div class="bc-health ${h.cls}"><span class="bc-hi">${h.icon}</span>${escapeHtml(boardHealthLabel(h))}</div>` : ''}`;
 }
 
 /* update one card's stats row in place (cards animate in — never re-render the grid) */
 function updateBoardStatsDom(boardId, rec) {
   const box = document.getElementById('bstats_' + boardId);
-  if (box) box.innerHTML = rec ? boardStatsChipHtml(rec) : '<span class="bstat bstat-skip">stats unavailable</span>';
+  if (box) box.innerHTML = rec ? boardStatsChipHtml(rec) : `<span class="bstat bstat-skip">${escapeHtml(t('bc.unavailable'))}</span>`;
 }
 
 /* is this board one of the "[P]" org boards? Its project name (e.g. "[P] Automarket")
@@ -1590,8 +2716,8 @@ function boardCardHTML(b, i) {
   const pickedB = pick && pick.b === b.id;
   const picked = pickedA || pickedB;
   const openLabel = pick
-    ? (picked ? `Selected as ${pickedA ? 'A' : 'B'} — click to remove` : (pick.a == null ? 'Click to pick as A' : 'Click to pick as B'))
-    : 'Open dashboard →';
+    ? (picked ? tReplace('pick.selectedAs', { s: pickedA ? 'A' : 'B' }) : (pick.a == null ? t('pick.clickPickA') : t('pick.clickPickB')))
+    : t('card.openDash');
   const initial = escapeHtml((b.name || '?').trim().charAt(0).toUpperCase());
   const pBoard = isPBoard(b);
   const cached = cachedBoardStats(b.id);
@@ -1607,8 +2733,8 @@ function boardCardHTML(b, i) {
             ${b.location?.projectKey ? `<span class="chip">${escapeHtml(b.location.projectKey)}</span>` : ''}
           </div>
         </div>
-        ${headPct != null ? `<span class="board-head-pct" title="${headPct}% done">${headPct}%</span>` : ''}
-        <button class="link-btn board-copy-link" data-copyboard="${b.id}" title="Copy link to this board" aria-label="Copy board link">🔗</button>
+        ${headPct != null ? `<span class="board-head-pct" title="${headPct}% ${escapeHtml(t('bc.done'))}">${headPct}%</span>` : ''}
+        <button class="link-btn board-copy-link" data-copyboard="${b.id}" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>
       </div>
       <div class="board-stats" id="bstats_${b.id}">${boardStatsChipHtml(cached)}</div>
       <div class="board-card-foot">
@@ -1624,10 +2750,10 @@ function renderBoardCards() {
   const otherBoards = state.boards.filter((b) => !isPBoard(b));
   let html = '';
   if (pBoards.length) {
-    html += `<div class="board-group"><span class="board-group-title">[P] Org boards</span><div class="boards-grid">${pBoards.map((b, ci) => boardCardHTML(b, ci)).join('')}</div></div>`;
+    html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.orgBoards'))}</span><div class="boards-grid">${pBoards.map((b, ci) => boardCardHTML(b, ci)).join('')}</div></div>`;
   }
   if (otherBoards.length) {
-    html += `<div class="board-group"><span class="board-group-title">All other boards</span><div class="boards-grid">${otherBoards.map((b, ci) => boardCardHTML(b, ci)).join('')}</div></div>`;
+    html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.otherBoards'))}</span><div class="boards-grid">${otherBoards.map((b, ci) => boardCardHTML(b, ci)).join('')}</div></div>`;
   }
   grid.innerHTML = html;
   /* event wiring is shared for all cards (grouped grids are still DOM children) */
@@ -1637,7 +2763,7 @@ function renderBoardCards() {
       const b = state.boards.find((x) => x.id === parseInt(btn.dataset.copyboard, 10));
       if (b) {
         const link = boardLink(b.id);
-        navigator.clipboard.writeText(link).then(() => toast('Board link copied.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
+        navigator.clipboard.writeText(link).then(() => toast(t('pub.boardCopied'), 'ok')).catch(() => toast(t('toast.copyFail'), 'warn'));
       }
     });
   });
@@ -1944,12 +3070,12 @@ async function selectBoard(board) {
     hide($('#errorBanner'));
 
     renderDashboard(board, m);
-    $('#syncedAt').textContent = 'updated ' + new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    $('#syncedAt').textContent = tReplace('sync.updated', { t: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) });
   } catch (e) {
     /* keep the previous board's dashboard intact — just warn */
-    $('#issueCountBadge').textContent = 'failed';
+    $('#issueCountBadge').textContent = t('sync.failed');
     const banner = $('#errorBanner');
-    let msg = e?.message || 'Failed to load board issues.';
+    let msg = e?.message || t('err.loadIssues');
     if (e?.status === 403) msg += ' (403: check board permissions / API token scopes)';
     if (e?.status === 404) msg += ' (404: board may be team-managed with different API)';
     if (e?.status === 429) msg += ' (429: rate limited — wait a moment and click Refresh)';
@@ -2111,19 +3237,19 @@ function computeMetrics(issues) {
    chart overlays both boards as two datasets, and a "who wins what" strip
    replaces the auto-insights. Leaving compare restores the normal dashboard. */
 async function enterCompareMode() {
-  if (!state.conn) { toast('Connect to Jira first.', 'warn'); return; }
+  if (!state.conn) { toast(t('toast.noConn'), 'warn'); return; }
   if (!state.boards.length) {
-    toast('Board list is still loading — try again in a moment.', 'warn');
+    toast(t('toast.boardsLoading'), 'warn');
     return;
   }
-  if (!state.lastBoard || !state.lastMetrics) { toast('Open a board first.', 'warn'); return; }
+  if (!state.lastBoard || !state.lastMetrics) { toast(t('toast.openBoard'), 'warn'); return; }
 
   const btn = $('#compareBtn');
   btn.classList.add('active');
 
   /* populate the board picker (exclude the board we're currently viewing) */
   const sel = $('#cmpBoardSelect');
-  sel.innerHTML = '<option value="">Choose a board to compare…</option>' +
+  sel.innerHTML = `<option value="">${escapeHtml(t('cmp.pickB'))}</option>` +
     state.boards
       .filter((b) => b.id !== state.lastBoard.id)
       .map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`)
@@ -2136,7 +3262,7 @@ async function enterCompareMode() {
 
   show($('#compareBar'));
   $('#cmpNameA').textContent = state.lastBoard.name;
-  $('#cmpSynced').textContent = state.compare ? 'B synced' : '';
+  $('#cmpSynced').textContent = state.compare ? t('cmp.bSynced') : '';
   renderCompareDashboard();   /* re-render KPIs in compare layout (even before B is chosen) */
   if (state.compare) renderCharts(effectiveCharts(), state.lastMetrics);
 }
@@ -2147,6 +3273,7 @@ function exitCompareMode() {
   state.compareGen = (state.compareGen || 0) + 1;
   hide($('#compareBar'));
   $('#compareBtn').classList.remove('active');
+  restoreKpiGrid();   /* bring back the original six KPI cards before re-rendering */
   if (state.lastBoard && state.lastMetrics) {
     renderDashboard(state.lastBoard, state.lastMetrics);
   }
@@ -2162,7 +3289,7 @@ async function onCompareBoardChange(ev) {
 
   const sel = $('#cmpBoardSelect');
   sel.disabled = true;
-  $('#cmpSynced').innerHTML = '<span class="spinner spinner-sm"></span> syncing board B…';
+  $('#cmpSynced').innerHTML = `<span class="spinner spinner-sm"></span> ${escapeHtml(t('cmp.bSyncing'))}`;
 
   /* staleness guard: the user may switch boards (or exit compare) while board B is
      loading. Capture board A's id + a compare generation now and re-verify after the
@@ -2187,14 +3314,14 @@ async function onCompareBoardChange(ev) {
       hasChangelog: state.hasChangelog,
       syncedAt: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
     };
-    $('#cmpSynced').textContent = `board B synced · ${state.compare.syncedAt}`;
+    $('#cmpSynced').textContent = tReplace('cmp.bSynced', { x: state.compare.syncedAt });
     logDiag('info', 'Compare board loaded', { boardId: board.id, issues: issues.length, hasChangelog: state.hasChangelog });
     renderCompareDashboard();
     renderCharts(effectiveCharts(), state.lastMetrics);
   } catch (e) {
     if (isStale()) return; /* board switched during a failing load — stay silent */
-    $('#cmpSynced').textContent = '⚠ board B failed to sync — pick another';
-    toast(`Could not load “${board.name}” for comparison.`, 'warn');
+    $('#cmpSynced').textContent = t('cmp.bFailed');
+    toast(tReplace('cmp.loadFailed', { name: board.name }), 'warn');
     logDiag('error', 'Compare board load failed', { boardId: board.id, message: e?.message, status: e?.status });
     if (!state.compare) { sel.value = ''; }
   } finally {
@@ -2202,23 +3329,45 @@ async function onCompareBoardChange(ev) {
   }
 }
 
-/* KPI metric descriptors for compare mode */
+/* KPI metric descriptors for compare mode — label/sub resolved via i18n at render time */
 const CMP_KPIS = [
-  { key: 'total',    label: 'Issues analyzed', icon: '▦', cls: 'ic-indigo',     fmt: (v) => String(v),                          winner: 'more',  sub: 'on the board' },
-  { key: 'created30',label: 'Created · 30 days', icon: '＋', cls: 'ic-cyan',   fmt: (v) => String(v),                          winner: 'more',  sub: 'new issues' },
-  { key: 'done',     label: 'Done overall', icon: '✓', cls: 'ic-green',       fmt: (v) => String(v),                          winner: 'more',  sub: 'completed' },
-  { key: 'resolved30',label: 'Resolved · 30 days', icon: '↻', cls: 'ic-green',  fmt: (v) => String(v),                          winner: 'more',  sub: 'shipped recently' },
-  { key: 'cycleAvg', label: 'Avg cycle time', icon: '⏱', cls: 'ic-violet',     fmt: (v) => (v != null ? fmtDuration(v) : '—'), winner: 'less',  sub: 'create → resolve' },
-  { key: 'wip',      label: 'Work in progress', icon: '◔', cls: 'ic-amber',     fmt: (v) => String(v),                          winner: 'less',  sub: 'not yet done' },
+  { key: 'total',    label: 'cmp.kpiTotal',    icon: '▦', cls: 'ic-indigo',     fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiTotalSub' },
+  { key: 'created30',label: 'cmp.kpiCreated',  icon: '＋', cls: 'ic-cyan',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiCreatedSub' },
+  { key: 'done',     label: 'cmp.kpiDone',     icon: '✓', cls: 'ic-green',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiDoneSub' },
+  { key: 'resolved30',label: 'cmp.kpiResolved',icon: '↻', cls: 'ic-green',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiResolvedSub' },
+  { key: 'cycleAvg', label: 'cmp.kpiCycle',    icon: '⏱', cls: 'ic-violet',     fmt: (v) => (v != null ? fmtDuration(v) : '—'), winner: 'less',  sub: 'cmp.kpiCycleSub' },
+  { key: 'wip',      label: 'cmp.kpiWip',      icon: '◔', cls: 'ic-amber',      fmt: (v) => String(v),                          winner: 'less',  sub: 'cmp.kpiWipSub' },
 ];
 
-/* re-render the six KPI cards in compare layout (A value vs B value + winner + delta) */
-function renderCompareDashboard() {
-  const A = state.lastMetrics, B = state.compare?.metrics;
-  const nameA = state.lastBoard?.name || 'Board A';
-  const nameB = state.compare?.board?.name || null;
+/* ── KPI grid restore ─────────────────────────────────────────────────────
+   renderCompareDashboard() REPLACES the dashboard's .kpi-grid innerHTML with
+   compare cards. The original six KPI cards (kpiTotal/kpiCreated/… with their
+   sub-elements) must be restored before renderDashboard()/showDashLoading()
+   write into them again — otherwise $('#kpiTotalSub') is null and the app
+   crashes on exit from compare. Capture the pristine markup once at boot and
+   swap it back whenever the grid is still in compare layout. */
+let KPI_GRID_ORIGINAL = null;
+function restoreKpiGrid() {
   const grid = document.querySelector('.kpi-grid');
+  if (!grid || !KPI_GRID_ORIGINAL) return;
+  if (!grid.classList.contains('kpi-grid-compare')) return;
+  grid.classList.remove('kpi-grid-compare');
+  grid.innerHTML = KPI_GRID_ORIGINAL;
+}
+
+/* re-render the six KPI cards in compare layout (A value vs B value + winner + delta).
+   All inputs are explicit params so BOTH the admin dashboard and the public share
+   view can render the same compare layout: admin passes the live state values,
+   pub passes its own snapshot-derived ones (defaults fall back to state). */
+function renderCompareDashboard(opts = {}) {
+  const A = opts.metricsA != null ? opts.metricsA : state.lastMetrics;
+  const B = opts.metricsB != null ? opts.metricsB : state.compare?.metrics;
+  const nameA = opts.nameA || state.lastBoard?.name || t('cmp.pubA');
+  const nameB = opts.nameB || state.compare?.board?.name || null;
+  const grid = opts.gridEl || document.querySelector('.kpi-grid');
   if (!grid) return;
+  const badgeEl = opts.badgeEl || $('#issueCountBadge');
+  const stripEl = opts.stripEl || $('#insightsStrip');
 
   grid.classList.add('kpi-grid-compare');
   grid.innerHTML = CMP_KPIS.map((k) => {
@@ -2240,22 +3389,22 @@ function renderCompareDashboard() {
         const aWins = k.winner === 'less' ? numA < numB : numA > numB;
         const d = pctDelta(numB, numA);
         const label = k.winner === 'less'
-          ? (aWins ? `${nameA} is faster` : `${nameB} is faster`)
-          : (aWins ? `${nameA} higher` : `${nameB} higher`);
+          ? (aWins ? tReplace('cmp.aFaster', { n: nameA }) : tReplace('cmp.bFaster', { n: nameB }))
+          : (aWins ? tReplace('cmp.aHigher', { n: nameA }) : tReplace('cmp.bHigher', { n: nameB }));
         winnerHtml = `<span class="cmp-winner ${aWins ? 'cmp-winner-a' : 'cmp-winner-b'}">${aWins ? '▲' : '▼'} ${escapeHtml(label)}</span>`;
-        deltaHtml = `<div class="cmp-delta ${d > 0 ? 'up' : 'down'}">A is ${Math.abs(d)}% ${d > 0 ? 'above' : 'below'} B</div>`;
+        deltaHtml = `<div class="cmp-delta ${d > 0 ? 'up' : 'down'}">${escapeHtml(d > 0 ? tReplace('cmp.aAbove', { p: Math.abs(d) }) : tReplace('cmp.aBelow', { p: Math.abs(d) }))}</div>`;
       } else if (numA != null && numB != null) {
-        winnerHtml = `<span class="cmp-winner cmp-winner-even">— even</span>`;
-        deltaHtml = `<div class="cmp-delta even">identical on both boards</div>`;
+        winnerHtml = `<span class="cmp-winner cmp-winner-even">— ${escapeHtml(t('cmp.even'))}</span>`;
+        deltaHtml = `<div class="cmp-delta even">${escapeHtml(t('cmp.identical'))}</div>`;
       } else {
-        deltaHtml = `<div class="cmp-delta even">no data to compare</div>`;
+        deltaHtml = `<div class="cmp-delta even">${escapeHtml(t('cmp.noData'))}</div>`;
       }
     } else {
-      deltaHtml = `<div class="cmp-delta even">${escapeHtml(nameA)} vs <b>?</b> — pick board B above</div>`;
+      deltaHtml = `<div class="cmp-delta even">${escapeHtml(nameA)} vs <b>?</b> — ${escapeHtml(t('cmp.pickBHint'))}</div>`;
     }
 
     return `<div class="kpi glass compare">
-      <div class="kpi-top"><span class="kpi-icon ${k.cls}">${k.icon}</span><span class="kpi-label">${escapeHtml(k.label)}</span></div>
+      <div class="kpi-top"><span class="kpi-icon ${k.cls}">${k.icon}</span><span class="kpi-label">${escapeHtml(t(k.label))}</span></div>
       ${valuesHtml}
       ${winnerHtml}
       ${deltaHtml}
@@ -2263,12 +3412,13 @@ function renderCompareDashboard() {
   }).join('');
 
   /* keep the header badge informative */
-  $('#issueCountBadge').textContent = B
-    ? `A: ${A?.total ?? 0} issues · B: ${B.total} issues`
-    : `${A?.total ?? 0} issues analyzed`;
+  if (badgeEl) badgeEl.textContent = B
+    ? tReplace('cmp.badgeBoth', { a: A?.total ?? 0, b: B.total })
+    : tReplace('dash.issuesAnalyzed', { n: A?.total ?? 0 });
 
   /* insights strip → compare winners strip */
-  const strip = $('#insightsStrip');
+  const strip = stripEl;
+  if (!strip) return;
   if (B) {
     const ins = buildCompareInsights(A, B, nameA, nameB);
     strip.innerHTML = ins.map((x, i) =>
@@ -2276,7 +3426,7 @@ function renderCompareDashboard() {
     ).join('');
     show(strip);
   } else {
-    strip.innerHTML = `<div class="cmp-insight"><span class="ins-icon">⇄</span><span><b>Compare mode</b> — pick a second board in the bar above to overlay every chart and metric.</span></div>`;
+    strip.innerHTML = `<div class="cmp-insight"><span class="ins-icon">⇄</span><span>${escapeHtml(t('cmp.hintBar'))}</span></div>`;
     show(strip);
   }
 }
@@ -2291,32 +3441,32 @@ function buildCompareInsights(A, B, nameA, nameB) {
   /* throughput winner */
   if (A.resolved30 !== B.resolved30) {
     const aWins = A.resolved30 > B.resolved30;
-    out.push({ icon: '⚡', html: `Throughput · ${aWins ? wA(`shipped <b>${A.resolved30}</b> vs <b>${B.resolved30}</b> in 30 days`) : wB(`shipped <b>${B.resolved30}</b> vs <b>${A.resolved30}</b> in 30 days`)}` });
+    out.push({ icon: '⚡', html: `${t('cmp.lblThroughput')} · ${aWins ? wA(tReplace('cmp.insShipped', { a: `<b>${A.resolved30}</b>`, b: `<b>${B.resolved30}</b>` })) : wB(tReplace('cmp.insShipped', { a: `<b>${B.resolved30}</b>`, b: `<b>${A.resolved30}</b>` }))}` });
   }
   /* cycle time winner (lower is better) */
   if (A.cycleAvg != null && B.cycleAvg != null && Math.round(A.cycleAvg) !== Math.round(B.cycleAvg)) {
     const aWins = A.cycleAvg < B.cycleAvg;
-    out.push({ icon: '⏱', html: `Speed · ${aWins ? wA(`closes work in <b>${fmtDuration(A.cycleAvg)}</b> vs <b>${fmtDuration(B.cycleAvg)}</b>`) : wB(`closes work in <b>${fmtDuration(B.cycleAvg)}</b> vs <b>${fmtDuration(A.cycleAvg)}</b>`)}` });
+    out.push({ icon: '⏱', html: `${t('cmp.lblSpeed')} · ${aWins ? wA(tReplace('cmp.insCloses', { a: fmtDuration(A.cycleAvg), b: fmtDuration(B.cycleAvg) })) : wB(tReplace('cmp.insCloses', { a: fmtDuration(B.cycleAvg), b: fmtDuration(A.cycleAvg) }))}` });
   }
   /* WIP (lower is healthier) */
   if (A.wip !== B.wip) {
     const aWins = A.wip < B.wip;
-    out.push({ icon: '📋', html: `Open load · ${aWins ? wA(`carries less WIP (<b>${A.wip}</b> vs <b>${B.wip}</b>)`) : wB(`carries less WIP (<b>${B.wip}</b> vs <b>${A.wip}</b>)`)}` });
+    out.push({ icon: '📋', html: `${t('cmp.lblOpenLoad')} · ${aWins ? wA(tReplace('cmp.insWip', { a: A.wip, b: B.wip })) : wB(tReplace('cmp.insWip', { a: B.wip, b: A.wip }))}` });
   }
   /* completion rate */
   if (A.doneRate !== B.doneRate) {
     const aWins = A.doneRate > B.doneRate;
-    out.push({ icon: '🏁', html: `Completion · ${aWins ? wA(`<b>${A.doneRate}%</b> done vs <b>${B.doneRate}%</b>`) : wB(`<b>${B.doneRate}%</b> done vs <b>${A.doneRate}%</b>`)}` });
+    out.push({ icon: '🏁', html: `${t('cmp.lblCompletion')} · ${aWins ? wA(tReplace('cmp.insDone', { a: A.doneRate, b: B.doneRate })) : wB(tReplace('cmp.insDone', { a: B.doneRate, b: A.doneRate }))}` });
   }
   /* blocked work */
   if (A.blockedCount !== B.blockedCount) {
     const aWins = A.blockedCount < B.blockedCount;
-    out.push({ icon: '⛔', html: `Blocked work · ${aWins ? wA(`has less (<b>${A.blockedCount}</b> vs <b>${B.blockedCount}</b>)`) : wB(`has less (<b>${B.blockedCount}</b> vs <b>${A.blockedCount}</b>)`)}` });
+    out.push({ icon: '⛔', html: `${t('cmp.lblBlocked')} · ${aWins ? wA(tReplace('cmp.insLess', { a: A.blockedCount, b: B.blockedCount })) : wB(tReplace('cmp.insLess', { a: B.blockedCount, b: A.blockedCount }))}` });
   }
   /* biggest divergence */
   const dd = d(A.created30, B.created30);
   if (dd !== null && Math.abs(dd) >= 25) {
-    out.push({ icon: '📥', cls: '', html: `Intake gap · ${nameA} created <b>${A.created30}</b> vs <b>${B.created30}</b> (${dd > 0 ? '+' : ''}${dd}%)` });
+    out.push({ icon: '📥', cls: '', html: `${t('cmp.lblIntake')} · ${tReplace('cmp.insIntake', { n: nameA, a: A.created30, b: B.created30, p: (dd > 0 ? '+' : '') + dd })}` });
   }
   return out.slice(0, 4);
 }
@@ -2327,7 +3477,7 @@ function buildCompareInsights(A, B, nameA, nameB) {
    KPI + chart overlaid. Available on the admin panel AND the public user view. */
 function togglePickCompareMode() {
   if (state.pickCompare) { state.pickCompare = null; updatePickBar(); renderBoardCards(); return; }
-  if (!state.boards.length) { toast('Board list is still loading — try again in a moment.', 'warn'); return; }
+  if (!state.boards.length) { toast(t('toast.boardsLoading'), 'warn'); return; }
   state.pickCompare = { a: null, b: null };
   updatePickBar();
   renderBoardCards();
@@ -2358,14 +3508,14 @@ function updatePickBar() {
   if (!pick) { hide(bar); return; }
   const nameA = pick.a != null ? (state.boards.find((x) => x.id === pick.a) || {}).name : null;
   const nameB = pick.b != null ? (state.boards.find((x) => x.id === pick.b) || {}).name : null;
-  $('#pickSlotA').textContent = nameA || 'Pick board A';
+  $('#pickSlotA').textContent = nameA || t('pick.slotA');
   $('#pickSlotA').classList.toggle('filled', !!nameA);
-  $('#pickSlotB').textContent = nameB || 'Pick board B';
+  $('#pickSlotB').textContent = nameB || t('pick.slotB');
   $('#pickSlotB').classList.toggle('filled', !!nameB);
   $('#pickGoBtn').disabled = !(nameA && nameB);
-  $('#pickHint').textContent = !nameA ? 'click a card to slot it as A'
-    : !nameB ? 'now click a second card as B'
-    : 'ready — open the side-by-side view';
+  $('#pickHint').textContent = !nameA ? t('pick.hintA')
+    : !nameB ? t('pick.hintB')
+    : t('pick.hintGo');
   show(bar);
 }
 
@@ -2383,33 +3533,203 @@ async function openPickCompareDashboard() {
   state.pickCompare = null;
   updatePickBar();
 
-  toast(`Loading “${boardA.name}” vs “${boardB.name}”…`);
+  toast(tReplace('cmp.loading', { a: boardA.name, b: boardB.name }));
   await selectBoard(boardA);
   if (!state.lastBoard || state.lastBoard.id !== boardA.id) return;   // A failed → error banner already shown
 
   /* enter compare on A's dashboard and sync B through the standard picker path */
   await enterCompareMode();
   const sel = $('#cmpBoardSelect');
-  if (!sel.querySelector(`option[value="${boardB.id}"]`)) { toast('Could not start compare mode.', 'warn'); return; }
+  if (!sel.querySelector(`option[value="${boardB.id}"]`)) { toast(t('cmp.failed'), 'warn'); return; }
   sel.value = String(boardB.id);
   await onCompareBoardChange({ target: sel });
 }
 
-/* ── compare-mode chart merging: overlay board B's data onto each chart ── */
-function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB) {
+/* ══════════════════ compare on the PUBLIC share view (pick 2 boards) ══════════════════
+   Mirrors the admin pick-compare flow but runs entirely on the relay-backed live
+   loader (pubLoadBoardLive) — no Jira session is needed, so org members get the
+   same side-by-side comparison without any admin powers. */
+function pubBoardsList() {
+  return (pubState.snapshot?.boards) || [];
+}
+
+function togglePubPickCompareMode() {
+  if (pubState.pickCompare) { pubState.pickCompare = null; updatePubPickBar(); renderPubContent(); return; }
+  if (pubState.snapshot?.scope !== 'all') return;   /* pick mode lives on the all-boards view */
+  const boards = pubBoardsList();
+  if (!boards.length) { toast(t('toast.boardsLoading'), 'warn'); return; }
+  pubState.pickCompare = { a: null, b: null };
+  updatePubPickBar();
+  renderPubContent();
+}
+
+/* pub card click inside pick mode: fill A, then B; click a picked card to un-pick;
+   click an unpicked card when both slots are full → replace B */
+function togglePubPickCompare(board) {
+  const pick = pubState.pickCompare;
+  if (!pick) return;
+  if (pick.a === board.boardId) { pick.a = pick.b; pick.b = null; }
+  else if (pick.b === board.boardId) { pick.b = null; }
+  else if (pick.a == null) { pick.a = board.boardId; }
+  else if (pick.b == null) { pick.b = board.boardId; }
+  else { pick.b = board.boardId; }
+  updatePubPickBar();
+  renderPubContent();
+}
+
+/* sync the pub floating pick bar with pubState.pickCompare */
+function updatePubPickBar() {
+  document.body.classList.toggle('pick-mode', !!pubState.pickCompare);
+  const bar = $('#pubPickBar');
+  if (!bar) return;
+  const pick = pubState.pickCompare;
+  if (!pick) { hide(bar); return; }
+  const boards = pubBoardsList();
+  const nameA = pick.a != null ? (boards.find((x) => x.boardId === pick.a) || {}).name : null;
+  const nameB = pick.b != null ? (boards.find((x) => x.boardId === pick.b) || {}).name : null;
+  $('#pubPickSlotA').textContent = nameA || t('cmp.pubSlotA');
+  $('#pubPickSlotA').classList.toggle('filled', !!nameA);
+  $('#pubPickSlotB').textContent = nameB || t('cmp.pubSlotB');
+  $('#pubPickSlotB').classList.toggle('filled', !!nameB);
+  $('#pubPickGoBtn').disabled = !(nameA && nameB);
+  $('#pubPickHint').textContent = !nameA ? t('cmp.pubPickHintA')
+    : !nameB ? t('cmp.pubPickHintB')
+    : t('cmp.pubPickHintGo');
+  show(bar);
+}
+
+/* load BOTH picked boards (live via the relay) and open the pub compare view */
+async function openPubPickCompareDashboard() {
+  const pick = pubState.pickCompare;
+  if (!pick || pick.a == null || pick.b == null) return;
+  const boards = pubBoardsList();
+  const boardA = boards.find((x) => x.boardId === pick.a);
+  const boardB = boards.find((x) => x.boardId === pick.b);
+  if (!boardA || !boardB) return;
+
+  /* leave pick mode first (bar hidden, cards clickable normally again) */
+  pubState.pickCompare = null;
+  updatePubPickBar();
+
+  toast(tReplace('cmp.pubLoading', { a: boardA.name, b: boardB.name }));
+  const genAtStart = pubState.compareGen || 0;
+  const isStale = () => (pubState.compareGen || 0) !== genAtStart;
+
+  $('#pubBoardsList').innerHTML = `<div class="card glass chart-card wide" style="text-align:center;padding:42px;color:var(--muted)"><span class="spinner spinner-lg"></span><div style="margin-top:14px">${escapeHtml(tReplace('cmp.pubLoading', { a: boardA.name, b: boardB.name }))}</div></div>`;
+
+  let recA = null, recB = null;
+  try {
+    [recA, recB] = await Promise.all([
+      pubLoadBoardLive(boardA.boardId, 'full'),
+      pubLoadBoardLive(boardB.boardId, 'full'),
+    ]);
+  } catch (e) {
+    if (isStale()) return;
+    const failed = !recA ? boardA.name : boardB.name;
+    toast(tReplace('cmp.pubLoadFailed', { b: failed }), 'warn');
+    logDiag('error', 'Pub compare load failed', { boardA: boardA.boardId, boardB: boardB.boardId, message: e?.message });
+    renderPubContent();
+    return;
+  }
+  if (isStale()) return;   /* user exited / re-entered the share screen during the load */
+
+  pubState.compare = { a: boardA.boardId, b: boardB.boardId, nameA: boardA.name, nameB: boardB.name, recA, recB };
+  renderPubCompareView();
+}
+
+/* render the side-by-side compare dashboard inside the pub view */
+function renderPubCompareView() {
+  const cmp = pubState.compare;
+  if (!cmp) return;
+  destroyPubCharts();
+  $('#pubBoardsList').classList.add('hidden');
+  $('#pubChartsGrid').classList.add('hidden');
+  $('#pubBackBtn').dataset.fromAll = '';
+  $('#pubBackBtn').textContent = t('pub.back');
+  $('#pubTitle').textContent = t('cmp.pubPickTitle');
+  $('#pubSubtitle').textContent = tReplace('cmp.pubLoading', { a: cmp.nameA, b: cmp.nameB }).replace('…', '') + ' · ' + t('pub.liveSubtitle');
+  $('#pubHeadTitle').textContent = t('cmp.pubPickTitle');
+  $('#pubIssueCount').textContent = tReplace('cmp.badgeBoth', { a: cmp.recA.issuesCount ?? cmp.recA.metrics?.total ?? 0, b: cmp.recB.issuesCount ?? cmp.recB.metrics?.total ?? 0 });
+  $('#pubChangelogBadge').textContent = (cmp.recA.hasChangelog && cmp.recB.hasChangelog) ? t('badge.changelog') : t('badge.noChangelog');
+  $('#pubChangelogBadge').className = 'data-badge ' + ((cmp.recA.hasChangelog && cmp.recB.hasChangelog) ? 'ok' : 'missing');
+
+  show($('#pubCompareBar'));
+  $('#pubCmpNameA').textContent = cmp.nameA;
+  $('#pubCmpNameB').textContent = cmp.nameB;
+  $('#pubCmpSynced').textContent = tReplace('cmp.pubSynced', { x: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) });
+
+  const kpiGrid = $('#pubKpiGrid');
+  kpiGrid.classList.remove('hidden');
+  renderCompareDashboard({
+    metricsA: cmp.recA.metrics,
+    metricsB: cmp.recB.metrics,
+    nameA: cmp.nameA,
+    nameB: cmp.nameB,
+    gridEl: kpiGrid,
+    badgeEl: null,          /* the pub badge lives outside the dashboard chrome */
+    stripEl: $('#pubInsightsStrip'),   /* dedicated insights strip (charts grid is reused by chart cards) */
+  });
+
+  /* charts: overlay board B onto every chart via the shared compare engine */
+  const defs = pubChartDefs();
+  const grid = $('#pubChartsGrid');
+  if (!defs.length) {
+    grid.innerHTML = `<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">${escapeHtml(t('pub.noCharts'))}</div>`;
+    return;
+  }
+  grid.innerHTML = defs.map((d) => chartCardHTML(d, false)).join('');
+  const theme = chartTheme();
+  for (const def of defs) {
+    const canvasId = 'chart_' + def.id;
+    const data = buildCompareChartData(
+      def, cmp.recA.metrics, cmp.recA.issues, cmp.recA.hasChangelog,
+      cmp.recB.metrics, cmp.recB.issues, cmp.recB.hasChangelog, cmp.nameA, cmp.nameB,
+    );
+    const sub = document.getElementById('sub_' + def.id);
+    if (sub) {
+      const base = data.subtitle || def.subtitle || '';
+      sub.innerHTML = escapeHtml(base) + (data.extraSub ? ` <span class="sub-extra">· ${data.extraSub}</span>` : '');
+    }
+    if (data.empty) {
+      drawCanvasMessage(canvasId, Array.isArray(data.empty) ? data.empty : [data.empty]);
+      const card = grid.querySelector(`.chart-card[data-cid="${def.id}"]`);
+      if (card) card.classList.add('empty');
+      continue;
+    }
+    const card = grid.querySelector(`.chart-card[data-cid="${def.id}"]`);
+    if (card) card.classList.remove('empty');
+    mkPubChart(canvasId, chartConfigFor(def, data, theme, canvasId));
+  }
+}
+
+/* leave the pub compare view → back to the all-boards list */
+function exitPubCompare() {
+  pubState.compare = null;
+  pubState.compareGen = (pubState.compareGen || 0) + 1;
+  hide($('#pubCompareBar'));
+  hide($('#pubInsightsStrip'));
+  $('#pubKpiGrid').classList.add('hidden');
+  $('#pubKpiGrid').innerHTML = '';
+  renderPubContent();
+}
+
+/* ── compare-mode chart merging: overlay board B's data onto each chart ──
+   nameA/nameB are explicit params so the public share view can pass its own
+   board names (defaults fall back to the admin compare state). */
+function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB, nameAParam, nameBParam) {
   const dataA = buildChartData(def, mA, issuesA, hcA);
   const dataB = buildChartData(def, mB, issuesB, hcB);
   const emptyA = dataA.empty, emptyB = dataB.empty;
-  const nameB = state.compare?.board?.name || 'Board B';
-  const nameA = state.lastBoard?.name || 'Board A';
+  const nameB = nameBParam || state.compare?.board?.name || t('cmp.pubB');
+  const nameA = nameAParam || state.lastBoard?.name || t('cmp.pubA');
   const B_SERIES = { label: nameB, color: '#22d3ee', rgb: ACCENT_RGB.cyan };
-  if (emptyA && emptyB) return { empty: ['No data on either board', 'for this chart'] };
+  if (emptyA && emptyB) return { empty: [t('cmp.noDataEither1'), t('cmp.noDataEither2')] };
 
   /* doughnuts render a single ring on one canvas — a second board cannot be
      overlaid legibly. They stay board-A only; KPI pairs + the insight strip
      already carry board B's numbers. Everything else gets a true overlay. */
   if (def.type === 'doughnut') {
-    if (emptyA) return { empty: ['No data on board A for this chart'] };
+    if (emptyA) return { empty: [t('cmp.noDataA')] };
     return dataA;
   }
 
@@ -2432,13 +3752,13 @@ function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB) {
     const datasets = [];
     if (!emptyA) datasets.push(...dataA.datasets.map((ds) => relabel(ds, nameA)));
     if (!emptyB) datasets.push(...dataB.datasets.map((ds) => relabel({ ...ds, color: '#22d3ee', rgb: ACCENT_RGB.cyan }, nameB)));
-    if (!datasets.length) return { empty: ['No comparable data'] };
+    if (!datasets.length) return { empty: [t('cmp.noComparable')] };
     return {
       labels: labels,
       datasets,
       duration: false,
       subtitle: dataA.subtitle || dataB.subtitle || def.subtitle,
-      extraSub: `${escapeHtml(nameB)} shown in cyan`,
+      extraSub: `${escapeHtml(nameB)} ${t('cmp.shownCyan')}`,
     };
   }
 
@@ -2493,8 +3813,8 @@ function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB) {
 
   const base = emptyA ? dataB : dataA;
   const extraSub = (emptyA || emptyB)
-    ? `${emptyA ? escapeHtml(nameB) + ' only' : escapeHtml(nameA) + ' only'} · one board has no data here`
-    : `${escapeHtml(nameB)} shown in cyan`;
+    ? `${emptyA ? escapeHtml(nameB) : escapeHtml(nameA)} ${t('cmp.only')} · ${t('cmp.oneBoardNoData')}`
+    : `${escapeHtml(nameB)} ${t('cmp.shownCyan')}`;
 
   return {
     labels,
@@ -2506,7 +3826,7 @@ function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB) {
     centerValue: isDuration
       ? fmtDuration(avgOf(dsA.concat(dsB)) * DAY)
       : Math.round(dsA.concat(dsB).reduce((s, v) => s + (v || 0), 0)),
-    centerLabel: isDuration ? 'avg' : 'issues',
+    centerLabel: isDuration ? t('cmp.avg') : t('cmp.issues'),
   };
 }
 
@@ -2553,6 +3873,50 @@ const RANGE_OPTIONS = [
   [30, 'Last 30 days'], [90, 'Last 90 days'], [182, 'Last 6 months'],
   [365, 'Last 12 months'], [0, 'All time'],
 ];
+
+/* i18n keys for the chart-constant labels above (resolved at render time via t()) */
+const METRIC_I18N = {
+  flow: 'metric.flow', created: 'metric.created', resolved: 'metric.resolved', netflow: 'metric.netflow',
+  count: 'metric.count', blockedCount: 'metric.blockedCount', avgCycle: 'metric.avgCycle',
+  openAge: 'metric.openAge', avgStatusTime: 'metric.avgStatusTime',
+};
+const GROUP_I18N = {
+  time: 'group.time', status: 'group.status', assignee: 'group.assignee', type: 'group.type',
+  priority: 'group.priority', label: 'group.label', bottleneck: 'group.bottleneck',
+  stage: 'group.stage', ageBucket: 'group.ageBucket', assigneeState: 'group.assigneeState',
+};
+const RANGE_I18N = ['range.30', 'range.90', 'range.182', 'range.365', 'range.0'];
+const AGE_BUCKET_I18N = ['age.le2d', 'age.3_7d', 'age.1_2w', 'age.2_4w', 'age.1_3mo', 'age.3_6mo', 'age.6moPlus'];
+const STATUS_TIME_TITLE_I18N = 'chart.title.statusTime';
+const BUILTIN_TITLE_I18N = {
+  pipeline: 'chart.title.pipeline', throughput: 'chart.title.throughput', createdTrend: 'chart.title.createdTrend',
+  resolvedTrend: 'chart.title.resolvedTrend', backlogGrowth: 'chart.title.backlogGrowth', blockedDist: 'chart.title.blockedDist',
+  bottlenecks: 'chart.title.bottlenecks', statusDist: 'chart.title.statusDist', statusTime: 'chart.title.statusTime',
+  phaseDelays: 'chart.title.phaseDelays', typeDist: 'chart.title.typeDist', assigneeLoad: 'chart.title.assigneeLoad',
+  priorityDist: 'chart.title.priorityDist', ageDist: 'chart.title.ageDist', ageBuckets: 'chart.title.ageBuckets',
+  unassigned: 'chart.title.unassigned', assigneeCycle: 'chart.title.assigneeCycle',
+};
+const BUILTIN_SUB_I18N = {
+  pipeline: 'chart.sub.pipeline', throughput: 'chart.sub.throughput', createdTrend: 'chart.sub.createdTrend',
+  resolvedTrend: 'chart.sub.resolvedTrend', backlogGrowth: 'chart.sub.backlogGrowth', blockedDist: 'chart.sub.blockedDist',
+  bottlenecks: 'chart.sub.bottlenecks', statusDist: 'chart.sub.statusDist', statusTime: 'chart.sub.statusTime',
+  phaseDelays: 'chart.sub.phaseDelays', typeDist: 'chart.sub.typeDist', assigneeLoad: 'chart.sub.assigneeLoad',
+  priorityDist: 'chart.sub.priorityDist', ageDist: 'chart.sub.ageDist', ageBuckets: 'chart.sub.ageBuckets',
+  unassigned: 'chart.sub.unassigned', assigneeCycle: 'chart.sub.assigneeCycle',
+};
+/* translated view of a chart def (built-ins only; custom defs keep their own titles) */
+function defTitle(def) { return def.builtin ? t(BUILTIN_TITLE_I18N[def.id], def.title) : def.title; }
+function defSubtitle(def) { return def.builtin ? t(BUILTIN_SUB_I18N[def.id], def.subtitle) : def.subtitle; }
+function metricLabel(m) { return t(METRIC_I18N[m], METRIC_DEFS[m]?.label || m); }
+function groupLabel(g) { return t(GROUP_I18N[g], GROUP_LABELS[g] || g); }
+function rangeLabel(days) {
+  const i = RANGE_OPTIONS.findIndex(([d]) => d === days);
+  return i >= 0 ? t(RANGE_I18N[i], RANGE_OPTIONS[i][1]) : String(days);
+}
+function ageBucketLabel(label) {
+  const i = AGE_BUCKETS.findIndex(([l]) => l === label);
+  return i >= 0 ? t(AGE_BUCKET_I18N[i], label) : label;
+}
 
 const ACCENT_RGB = {
   indigo: '99,102,241', cyan: '34,211,238', green: '52,211,153',
@@ -2719,18 +4083,28 @@ function groupKeyOf(def, f) {
   }
 }
 
+function stageLabel(k) {
+  if (k === 'Stakeholder gates') return t('stage.stakeholder');
+  if (k === 'Team phases') return t('stage.team');
+  return k;
+}
+
+/* display label for a raw group key — data values (names) pass through, constant keys translate */
+function groupKeyLabel(def, k) {
+  if (def.groupBy === 'ageBucket') return ageBucketLabel(k);
+  if (def.groupBy === 'bottleneck') return bottleneckLabel(k);
+  if (def.groupBy === 'stage') return stageLabel(k);
+  if (def.groupBy === 'assigneeState') {
+    if (k === 'Unassigned') return t('group.unassigned');
+    if (k === 'Assigned') return t('group.assigned');
+  }
+  return k;
+}
+
 function filterPool(def, issues) {
   if (def.filter === 'open') return issues.filter((i) => !statusIsDone(i.fields || {}));
   if (def.filter === 'done') return issues.filter((i) => statusIsDone(i.fields || {}));
   return issues;
-}
-
-function rangeLabel(days) {
-  if (!days) return 'all time';
-  if (days <= 30) return 'last 30 days';
-  if (days <= 90) return 'last 90 days';
-  if (days <= 200) return 'last 6 months';
-  return 'last 12 months';
 }
 
 /* build time-bucketed series for created / resolved / flow */
@@ -2812,18 +4186,18 @@ function buildTimeSeries(def, issues) {
     /* cumulative net flow: created − resolved, running total → open-backlog shape */
     let acc = 0;
     net = createdCounts.map((c, i) => (acc += c - resolvedCounts[i]));
-    datasets.push({ label: 'Open backlog', data: net, color: '#8b5cf6', rgb: ACCENT_RGB.violet });
+    datasets.push({ label: t('series.openBacklog'), data: net, color: '#8b5cf6', rgb: ACCENT_RGB.violet });
   } else {
-    if (wantCreated) datasets.push({ label: 'Registered', data: createdCounts, color: '#6366f1', rgb: ACCENT_RGB.indigo });
-    if (wantResolved) datasets.push({ label: 'Completed', data: resolvedCounts, color: '#34d399', rgb: ACCENT_RGB.green });
+    if (wantCreated) datasets.push({ label: t('series.registered'), data: createdCounts, color: '#6366f1', rgb: ACCENT_RGB.indigo });
+    if (wantResolved) datasets.push({ label: t('series.completed'), data: resolvedCounts, color: '#34d399', rgb: ACCENT_RGB.green });
   }
 
   const parts = [];
-  if (isNet) parts.push('cumulative open backlog (created − resolved)');
-  else if (wantCreated && wantResolved) parts.push('registered vs completed');
-  else if (wantCreated) parts.push('created');
-  else parts.push('resolved');
-  const subtitle = `${parts.join(' · ')} · per ${bucket} · ${rangeLabel(def.range)}`;
+  if (isNet) parts.push(t('series.netflowDesc'));
+  else if (wantCreated && wantResolved) parts.push(t('series.createdVsResolved'));
+  else if (wantCreated) parts.push(t('series.created'));
+  else parts.push(t('series.resolved'));
+  const subtitle = `${parts.join(' · ')} · ${tReplace('series.perBucket', { b: bucket })} · ${rangeLabel(def.range)}`;
 
   const total = isNet
     ? (net && net.length ? net[net.length - 1] : 0)
@@ -2831,7 +4205,7 @@ function buildTimeSeries(def, issues) {
   return {
     labels, datasets, duration: false,
     subtitle,
-    centerValue: total, centerLabel: isNet ? 'open now' : 'issues',
+    centerValue: total, centerLabel: isNet ? t('series.openNow') : t('cmp.issues'),
   };
 }
 
@@ -2862,7 +4236,7 @@ function buildCategoryData(def, issues) {
     rec.sum += val; rec.n++;
     map.set(key, rec);
   }
-  if (!map.size) return { empty: def.metric === 'avgCycle' ? 'No resolved issues to measure yet' : 'No issues match this chart yet' };
+  if (!map.size) return { empty: def.metric === 'avgCycle' ? t('cat.noResolved') : t('cat.noIssues') };
 
   let rows = [...map.entries()].map(([k, r]) => ({
     k, v: metric.duration ? r.sum / r.n : r.sum, n: r.n,
@@ -2883,6 +4257,8 @@ function buildCategoryData(def, issues) {
   else if (def.groupBy === 'assigneeState') colors = labels.map((k) => (k === 'Unassigned' ? '#f87171' : '#34d399'));
   else if (def.groupBy === 'stage') colors = labels.map((k) => (k === 'Stakeholder gates' ? '#fbbf24' : '#22d3ee'));
   else colors = labels.map((_, i) => PALETTE[i % PALETTE.length]);
+  /* translate display labels only after color mapping (which matches on raw keys) */
+  labels = rows.map((r) => groupKeyLabel(def, r.k));
 
   /* topN: doughnuts fold the tail into "Other", bars simply cut */
   const topN = def.topN || 0;
@@ -2890,7 +4266,7 @@ function buildCategoryData(def, issues) {
     if (def.type === 'doughnut') {
       const headL = labels.slice(0, topN - 1), headV = values.slice(0, topN - 1);
       const rest = values.slice(topN - 1).reduce((a, b) => a + b, 0);
-      labels = headL.concat(['Other']);
+      labels = headL.concat([t('group.other')]);
       values = headV.concat([rest]);
       colors = colors.slice(0, topN - 1).concat(['#64748b']);
     } else {
@@ -2903,8 +4279,8 @@ function buildCategoryData(def, issues) {
     ? [...map.values()].reduce((a, r) => a + r.sum, 0) / [...map.values()].reduce((a, r) => a + r.n, 0)
     : values.reduce((a, b) => a + b, 0);
 
-  const filterTxt = def.filter === 'open' ? ' · open only' : def.filter === 'done' ? ' · done only' : '';
-  const subtitle = `${metric.duration ? 'avg' : 'count'} by ${GROUP_LABELS[def.groupBy] || def.groupBy}${metric.duration ? '' : filterTxt}`;
+  const filterTxt = def.filter === 'open' ? ` · ${t('filter.openOnly')}` : def.filter === 'done' ? ` · ${t('filter.doneOnly')}` : '';
+  const subtitle = `${metric.duration ? t('series.avg') : t('series.count')} ${tReplace('series.byGroup', { g: groupLabel(def.groupBy) || GROUP_LABELS[def.groupBy] || def.groupBy })}${metric.duration ? '' : filterTxt}`;
   return {
     labels,
     datasets: [{ label: def.title, data: values, color: ACCENT_HEX[def.color] || ACCENT_HEX.indigo, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.indigo }],
@@ -2919,11 +4295,11 @@ function buildCategoryData(def, issues) {
 /* status-time aggregation from changelog (avgStatusTime metric) */
 function buildStatusTimeData(def, m, hasChangelog) {
   const hc = hasChangelog != null ? hasChangelog : state.hasChangelog;
-  if (!hc || !m || !m.statusTime) return { empty: ['Changelog unavailable on this board', '— status-time charts need it'] };
+  if (!hc || !m || !m.statusTime) return { empty: [t('statusTime.noChangelog1'), t('statusTime.noChangelog2')] };
 
   let rows = [...m.statusTime.entries()]
     .map(([k, v]) => ({ k, avg: v.sum / v.n, side: classifySide(k), sum: v.sum, n: v.n }));
-  if (!rows.length) return { empty: ['No status transition data found'] };
+  if (!rows.length) return { empty: [t('statusTime.noTransitions')] };
 
   let extraSub = '';
   let labels, values, colors;
@@ -2936,14 +4312,14 @@ function buildStatusTimeData(def, m, hasChangelog) {
       agg[t].sum += r.sum; agg[t].n += r.n;
     }
     rows = Object.entries(agg).filter(([, r]) => r.n).map(([k, r]) => ({ k, avg: r.sum / r.n }));
-    if (!rows.length) return { empty: ['No stakeholder / team stage transitions detected'] };
+    if (!rows.length) return { empty: [t('statusTime.noStages')] };
     rows.sort((a, b) => b.avg - a.avg);
-    labels = rows.map((r) => r.k);
+    labels = rows.map((r) => stageLabel(r.k));
     values = rows.map((r) => +(r.avg / DAY).toFixed(2));
-    colors = labels.map((k) => (k === 'Stakeholder gates' ? '#fbbf24cc' : '#22d3eecc'));
+    colors = rows.map((r) => (r.k === 'Stakeholder gates' ? '#fbbf24cc' : '#22d3eecc'));
   } else if (def.split === 'stage') {
     const picked = rows.filter((r) => r.side).sort((a, b) => b.avg - a.avg).slice(0, def.topN || 8);
-    if (!picked.length) return { empty: ['No stakeholder / team stage transitions detected'] };
+    if (!picked.length) return { empty: [t('statusTime.noStages')] };
     const sh = [], tm = [];
     picked.forEach((r) => {
       const d = +(r.avg / DAY).toFixed(1);
@@ -2956,16 +4332,16 @@ function buildStatusTimeData(def, m, hasChangelog) {
     if (sN) shAvg = sS / sN;
     if (tN) tmAvg = tS / tN;
     extraSub =
-      `<span style="color:#fcd34d">●</span> Stakeholder gates avg <b>${shAvg != null ? fmtDuration(shAvg) : '—'}</b>` +
-      ` &nbsp;·&nbsp; <span style="color:#67e8f9">●</span> Team phases avg <b>${tmAvg != null ? fmtDuration(tmAvg) : '—'}</b>`;
+      `<span style="color:#fcd34d">●</span> ${t('statusTime.stakeholderAvg')} <b>${shAvg != null ? fmtDuration(shAvg) : '—'}</b>` +
+      ` &nbsp;·&nbsp; <span style="color:#67e8f9">●</span> ${t('statusTime.teamAvg')} <b>${tmAvg != null ? fmtDuration(tmAvg) : '—'}</b>`;
     return {
       labels,
       datasets: [
-        { label: 'Stakeholder gate', data: sh.reverse(), color: '#fbbf24', rgb: ACCENT_RGB.amber },
-        { label: 'Team phase', data: tm.reverse(), color: '#22d3ee', rgb: ACCENT_RGB.cyan },
+        { label: t('stage.stakeholder'), data: sh.reverse(), color: '#fbbf24', rgb: ACCENT_RGB.amber },
+        { label: t('stage.team'), data: tm.reverse(), color: '#22d3ee', rgb: ACCENT_RGB.cyan },
       ],
       duration: true,
-      subtitle: 'avg days parked per stage · changelog',
+      subtitle: t('statusTime.subSplit'),
       extraSub,
     };
   } else {
@@ -2981,7 +4357,7 @@ function buildStatusTimeData(def, m, hasChangelog) {
     datasets: [{ label: def.title, data: values, color: ACCENT_HEX[def.color] || ACCENT_HEX.violet, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.violet }],
     colors,
     duration: true,
-    subtitle: def.groupBy === 'stage' ? 'avg days · stakeholder vs team · changelog' : 'avg days per status · lifetime · changelog',
+    subtitle: def.groupBy === 'stage' ? t('statusTime.subStage') : t('statusTime.subStatus'),
     extraSub,
   };
 }
@@ -2990,7 +4366,7 @@ function buildChartData(def, m, issues, hasChangelog) {
   const metric = METRIC_DEFS[def.metric];
   const iss = issues || state.issues;
   const hc = hasChangelog != null ? hasChangelog : state.hasChangelog;
-  if (!metric) return { empty: ['Unknown metric'] };
+  if (!metric) return { empty: [t('err.unknownMetric')] };
   if (metric.kind === 'time') return buildTimeSeries(def, iss);
   if (metric.kind === 'statusTime') return buildStatusTimeData(def, m, hc);
   return buildCategoryData(def, iss);
@@ -3003,20 +4379,20 @@ function chartCardHTML(def, overridden) {
   const scopeClass = def.scope === 'global' ? ' global' : '';
   const scopeChip = def.builtin
     ? ''
-    : `<span class="scope-chip${scopeClass}">${def.scope === 'global' ? 'all boards' : 'this board'}</span>`;
+    : `<span class="scope-chip${scopeClass}">${escapeHtml(def.scope === 'global' ? t('chart.scopeGlobal') : t('chart.scopeBoard'))}</span>`;
   const actions = canModify()
     ? (def.builtin
-        ? `<button class="chart-btn" data-act="edit" data-id="${def.id}" title="Configure this chart">✎</button>` +
-          (overridden ? `<button class="chart-btn" data-act="reset" data-id="${def.id}" title="Reset to default">↺</button>` : '') +
-          `<button class="chart-btn" data-act="hide" data-id="${def.id}" title="Hide this chart">✕</button>`
-        : `<button class="chart-btn" data-act="edit" data-id="${def.id}" title="Configure this chart">✎</button>` +
-          `<button class="chart-btn" data-act="del" data-id="${def.id}" title="Delete this chart">🗑</button>`)
+        ? `<button class="chart-btn" data-act="edit" data-id="${def.id}" title="${escapeHtml(t('chart.btnEdit'))}">✎</button>` +
+          (overridden ? `<button class="chart-btn" data-act="reset" data-id="${def.id}" title="${escapeHtml(t('chart.btnReset'))}">↺</button>` : '') +
+          `<button class="chart-btn" data-act="hide" data-id="${def.id}" title="${escapeHtml(t('chart.btnHide'))}">✕</button>`
+        : `<button class="chart-btn" data-act="edit" data-id="${def.id}" title="${escapeHtml(t('chart.btnEdit'))}">✎</button>` +
+          `<button class="chart-btn" data-act="del" data-id="${def.id}" title="${escapeHtml(t('chart.btnDelete'))}">🗑</button>`)
     : '';
   return `<div class="card glass chart-card${def.wide ? ' wide' : ''}" data-cid="${def.id}">
     <div class="chart-head">
       <div class="chart-titles">
-        <h3>${escapeHtml(def.title)} ${scopeChip}</h3>
-        <span class="chart-sub" id="sub_${def.id}">${escapeHtml(def.subtitle || '')}</span>
+        <h3>${escapeHtml(defTitle(def))} ${scopeChip}</h3>
+        <span class="chart-sub" id="sub_${def.id}">${escapeHtml(defSubtitle(def) || '')}</span>
       </div>
       <div class="chart-actions">${actions}</div>
     </div>
@@ -3228,7 +4604,7 @@ function renderCharts(defs, m) {
       s.hidden = s.hidden.filter((id) => id !== btn.dataset.restore);
       saveChartStore(s);
       rerenderDashboard();
-      toast('Chart restored.', 'ok');
+      toast(t('chart.restored'), 'ok');
     });
   });
 }
@@ -3238,19 +4614,19 @@ function getDataAvailabilityBadge(def, data, m) {
   if (data.empty) {
     if (def.metric === 'avgStatusTime' || def.split === 'stage') {
       if (!state.hasChangelog) {
-        return `<span class="data-badge missing" title="Changelog not available for this board">⚠ No changelog</span>`;
+        return `<span class="data-badge missing" title="${escapeHtml(t('badge.noChangelogTitle'))}">⚠ ${escapeHtml(t('badge.noChangelog'))}</span>`;
       }
     }
     if (def.metric === 'openAge' || def.filter === 'open') {
-      if (!m.wip) return `<span class="data-badge missing" title="No open issues on this board">⚠ No open issues</span>`;
+      if (!m.wip) return `<span class="data-badge missing" title="${escapeHtml(t('badge.noOpenTitle'))}">⚠ ${escapeHtml(t('badge.noOpen'))}</span>`;
     }
-    return `<span class="data-badge warn" title="No data matches the current filters">⚠ No data</span>`;
+    return `<span class="data-badge warn" title="${escapeHtml(t('badge.noDataTitle'))}">⚠ ${escapeHtml(t('badge.noData'))}</span>`;
   }
   if (def.metric === 'avgStatusTime' || def.split === 'stage') {
     if (!state.hasChangelog) {
-      return `<span class="data-badge missing" title="Changelog not available for this board">⚠ No changelog</span>`;
+      return `<span class="data-badge missing" title="${escapeHtml(t('badge.noChangelogTitle'))}">⚠ ${escapeHtml(t('badge.noChangelog'))}</span>`;
     }
-    return `<span class="data-badge ok" title="Changelog data available">✓ Changelog</span>`;
+    return `<span class="data-badge ok" title="${escapeHtml(t('badge.changelogOkTitle'))}">✓ ${escapeHtml(t('badge.changelog'))}</span>`;
   }
   return '';
 }
@@ -3266,20 +4642,20 @@ function onChartAction(act, id) {
     store.hidden = [...new Set([...store.hidden, id])];
     saveChartStore(store);
     rerenderDashboard();
-    toast('Chart hidden — restore it from the link below the grid.');
+    toast(t('toast.hiddenChart'));
   } else if (act === 'reset') {
     delete store.overrides[id];
     store.hidden = store.hidden.filter((x) => x !== id);
     saveChartStore(store);
     rerenderDashboard();
-    toast('Chart reset to default.', 'ok');
+    toast(t('toast.chartReset'), 'ok');
   } else if (act === 'del') {
     if (!custom) return;
-    if (!confirm(`Delete chart "${custom.title}"?`)) return;
+    if (!confirm(tReplace('confirm.deleteChart', { title: custom.title }))) return;
     store.custom = store.custom.filter((c) => c.id !== id);
     saveChartStore(store);
     rerenderDashboard();
-    toast('Chart deleted.', 'ok');
+    toast(t('toast.chartDeleted'), 'ok');
   }
 }
 
@@ -3305,17 +4681,16 @@ function buildSeg(el, options, value) {
 function openChartModal(def, meta) {
   state.chartEditing = { ...meta, def: { ...def } };
   $('#chartModalTitle').textContent =
-    meta.mode === 'new' ? 'New chart' :
-    meta.mode === 'builtin' ? `Configure “${def.title}”` : `Configure “${def.title}”`;
+    meta.mode === 'new' ? t('chart.newTitle') : tReplace('chart.configureTitle', { title: def.title });
 
   $('#cTitle').value = def.title || '';
-  buildSeg($('#cType'), [['line', 'Line'], ['bar', 'Bars'], ['hbar', 'Horizontal'], ['doughnut', 'Donut']], def.type || 'bar');
-  buildSeg($('#cScope'), [['board', 'This board only'], ['global', 'All boards']], def.scope === 'global' ? 'global' : 'board');
+  buildSeg($('#cType'), [['line', t('chart.segLine')], ['bar', t('chart.segBar')], ['hbar', t('chart.segHbar')], ['doughnut', t('chart.segDoughnut')]], def.type || 'bar');
+  buildSeg($('#cScope'), [['board', t('chart.segBoard')], ['global', t('chart.segGlobal')]], def.scope === 'global' ? 'global' : 'board');
 
   $('#cMetric').innerHTML = Object.entries(METRIC_DEFS)
-    .map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
+    .map(([k, v]) => `<option value="${k}">${escapeHtml(metricLabel(k))}</option>`).join('');
   $('#cMetric').value = def.metric || 'count';
-  $('#cRange').innerHTML = RANGE_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  $('#cRange').innerHTML = RANGE_OPTIONS.map(([v, l], i) => `<option value="${v}">${escapeHtml(t(RANGE_I18N[i], l))}</option>`).join('');
   $('#cRange').value = String(def.range ?? 90);
   $('#cBucket').value = def.bucket || 'week';
   $('#cFilter').value = def.filter || 'all';
@@ -3343,7 +4718,7 @@ function syncChartForm() {
   if (kind !== 'time') {
     const opts = GROUPS_FOR_KIND[kind] || GROUPS_FOR_KIND.category;
     const cur = $('#cGroup').value;
-    $('#cGroup').innerHTML = opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    $('#cGroup').innerHTML = opts.map(([v, l]) => `<option value="${v}">${escapeHtml(groupLabel(v) || l)}</option>`).join('');
     if (opts.some(([v]) => v === cur)) $('#cGroup').value = cur;
   }
 
@@ -3414,7 +4789,7 @@ function saveChartFromForm() {
   const title = $('#cTitle').value.trim();
   if (!title) {
     $('#cTitle').focus();
-    toast('Please enter a chart title.', 'warn');
+    toast(t('chart.titleRequired'), 'warn');
     return;
   }
 
@@ -3427,13 +4802,13 @@ function saveChartFromForm() {
     });
     if (def.scope === 'global') def.boardId = null;
     store.custom.push(def);
-    toast('Chart added to ' + (def.scope === 'global' ? 'all boards' : 'this board') + '.', 'ok');
+    toast(def.scope === 'global' ? t('chart.addedAll') : t('chart.addedBoard'), 'ok');
   } else if (edit.mode === 'custom') {
     const def = chartDefFromForm(edit.def);
     def.scope = segGet($('#cScope')) === 'global' ? 'global' : 'board';
     def.boardId = def.scope === 'global' ? null : state.boardId;
     store.custom = store.custom.map((c) => (c.id === def.id ? def : c));
-    toast('Chart updated.', 'ok');
+    toast(t('chart.updated'), 'ok');
   } else if (edit.mode === 'builtin') {
     const def = chartDefFromForm(edit.def);
     const override = {};
@@ -3442,7 +4817,7 @@ function saveChartFromForm() {
     }
     store.overrides[edit.def.id] = override;
     store.hidden = store.hidden.filter((x) => x !== edit.def.id);
-    toast('Chart updated for all boards.', 'ok');
+    toast(t('chart.updatedAll'), 'ok');
   }
   saveChartStore(store);
   hide($('#chartModal'));
@@ -3460,7 +4835,7 @@ function resetChartFromModal() {
   hide($('#chartModal'));
   state.chartEditing = null;
   rerenderDashboard();
-  toast('Chart reset to default.', 'ok');
+  toast(t('toast.chartReset'), 'ok');
 }
 
 function deleteChartFromModal() {
@@ -3472,7 +4847,7 @@ function deleteChartFromModal() {
   hide($('#chartModal'));
   state.chartEditing = null;
   rerenderDashboard();
-  toast('Chart deleted.', 'ok');
+  toast(t('toast.chartDeleted'), 'ok');
 }
 
 /* ── rendering ───────────────────────────────────────────────────── */
@@ -3513,6 +4888,11 @@ function bottleneckColor(cat) {
   return hit ? hit.color : '#64748b';
 }
 const BOTTLENECK_ORDER = ['Pending Review', 'Technical Analysis', 'In Development', 'Testing', 'Other'];
+const BOTTLENECK_I18N = {
+  'Pending Review': 'bn.pendingReview', 'Technical Analysis': 'bn.techAnalysis',
+  'In Development': 'bn.inDevelopment', 'Testing': 'bn.testing', 'Other': 'group.other',
+};
+function bottleneckLabel(cat) { return t(BOTTLENECK_I18N[cat], cat); }
 
 /* draws a big number + label inside doughnut holes */
 const centerTextPlugin = {
@@ -3575,26 +4955,26 @@ function buildInsights(m) {
   const out = [];
   if (m.bottlenecks.size) {
     const [cat, n] = [...m.bottlenecks.entries()].sort((a, b) => b[1] - a[1])[0];
-    out.push({ icon: '⛔', cls: 'ins-warn', html: `<b>${n}</b> open issue${n !== 1 ? 's' : ''} currently sitting in <b>${escapeHtml(cat)}</b>` });
+    out.push({ icon: '⛔', cls: 'ins-warn', html: tReplace('ins.bottleneck', { n, cat: escapeHtml(cat) }) });
   }
   if (m.phaseDelays.length) {
     const w = m.phaseDelays[0];
-    out.push({ icon: '⏳', cls: 'ins-warn', html: `Slowest stage right now: <b>${escapeHtml(titleize(w.status))}</b> · ${fmtDuration(w.avg)} average` });
+    out.push({ icon: '⏳', cls: 'ins-warn', html: tReplace('ins.slowest', { s: escapeHtml(titleize(w.status)), d: fmtDuration(w.avg) }) });
   }
   const thr = pctDelta(m.resolvedPrev30, m.resolved30);
   if (thr !== null) {
-    out.push({ icon: thr >= 0 ? '📈' : '📉', cls: thr >= 0 ? 'ins-good' : 'ins-bad', html: `Throughput <b>${thr >= 0 ? '+' : ''}${thr}%</b> vs the previous 30 days` });
+    out.push({ icon: thr >= 0 ? '📈' : '📉', cls: thr >= 0 ? 'ins-good' : 'ins-bad', html: tReplace('ins.throughput', { p: (thr >= 0 ? '+' : '') + thr }) });
   }
   const aged = m.slow.filter((r) => r.age > 14 * DAY).length;
   if (aged) {
-    out.push({ icon: '🧊', cls: 'ins-bad', html: `<b>${aged}</b> open issue${aged !== 1 ? 's' : ''} stuck longer than 14 days` });
+    out.push({ icon: '🧊', cls: 'ins-bad', html: tReplace('ins.aged', { n: aged }) });
   }
   if (m.created30 || m.resolved30) {
     const net = m.resolved30 - m.created30;
     out.push({
       icon: net >= 0 ? '✅' : '📥',
       cls: net >= 0 ? 'ins-good' : 'ins-warn',
-      html: `Net flow <b>${net >= 0 ? '+' : ''}${net}</b> issues in 30 days — backlog ${net >= 0 ? 'shrinking' : 'growing'}`,
+      html: tReplace('ins.netFlow', { n: (net >= 0 ? '+' : '') + net, w: net >= 0 ? t('ins.shrinking') : t('ins.growing') }),
     });
   }
   return out.slice(0, 4);
@@ -3604,40 +4984,42 @@ function buildInsights(m) {
    This prevents the PREVIOUS board's charts/KPIs from lingering on screen during
    the (sometimes slow) fetch — the user never sees stale data from another board. */
 function showDashLoading(boardName) {
+  restoreKpiGrid();   /* compare layout may still own the grid — restore the real KPI cards first */
   ['kpiTotal', 'kpiCreated', 'kpiDone', 'kpiResolved', 'kpiCycle', 'kpiWip'].forEach((id) => ($('#' + id).textContent = '…'));
-  ['kpiTotalSub', 'kpiCreatedSub', 'kpiDoneSub', 'kpiResolvedSub', 'kpiCycleSub', 'kpiWipSub'].forEach((id) => { const el = $('#' + id); if (el) el.textContent = 'syncing…'; });
-  $('#issueCountBadge').textContent = 'syncing…';
-  $('#slowTableBody').innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:26px"><span class="spinner spinner-sm"></span> Loading ${escapeHtml(boardName || 'this board')}…</td></tr>`;
+  ['kpiTotalSub', 'kpiCreatedSub', 'kpiDoneSub', 'kpiResolvedSub', 'kpiCycleSub', 'kpiWipSub'].forEach((id) => { const el = $('#' + id); if (el) el.textContent = t('dash.syncing'); });
+  $('#issueCountBadge').textContent = t('dash.syncing');
+  $('#slowTableBody').innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:26px"><span class="spinner spinner-sm"></span> ${escapeHtml(tReplace('dash.loadingBoard', { b: boardName || t('dash.thisBoard') }))}…</td></tr>`;
   hide($('#insightsStrip'));
   hide($('#changelogNotice'));
   /* destroy current chart canvases + replace the grid with a loading placeholder */
   Object.values(state.charts).forEach((c) => c && c.destroy());
   state.charts = {};
-  $('#chartsGrid').innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:42px;color:var(--muted)"><span class="spinner spinner-lg"></span><div style="margin-top:14px">Syncing your dashboard…</div></div>';
+  $('#chartsGrid').innerHTML = `<div class="card glass chart-card wide" style="text-align:center;padding:42px;color:var(--muted)"><span class="spinner spinner-lg"></span><div style="margin-top:14px">${escapeHtml(t('dash.syncingDash'))}</div></div>`;
 }
 
 function renderDashboard(board, m) {
+  restoreKpiGrid();   /* safety net: never render into the compare layout */
   /* KPIs (animated) */
   animateValue($('#kpiTotal'), m.total);
-  $('#kpiTotalSub').textContent = 'issues on this board';
+  $('#kpiTotalSub').textContent = t('dash.issuesOnBoard');
   animateValue($('#kpiCreated'), m.created30);
-  $('#kpiCreatedSub').innerHTML = trendBadge(m.createdPrev30, m.created30, 'vs prior 30d', 'neutral');
+  $('#kpiCreatedSub').innerHTML = trendBadge(m.createdPrev30, m.created30, t('dash.vsPrior30d'), 'neutral');
   animateValue($('#kpiDone'), m.done);
-  $('#kpiDoneSub').textContent = m.doneRate + '% completion rate';
+  $('#kpiDoneSub').textContent = tReplace('dash.completionRate', { p: m.doneRate });
   animateValue($('#kpiResolved'), m.resolved30);
-  $('#kpiResolvedSub').innerHTML = trendBadge(m.resolvedPrev30, m.resolved30, 'vs prior 30d', 'up-good');
+  $('#kpiResolvedSub').innerHTML = trendBadge(m.resolvedPrev30, m.resolved30, t('dash.vsPrior30d'), 'up-good');
   $('#kpiCycle').textContent = m.cycleAvg != null ? fmtDuration(m.cycleAvg) : '—';
   $('#kpiCycle').classList.toggle('muted', m.cycleAvg == null);
   if (m.cycleRecentAvg != null && m.cyclePrevAvg != null) {
     const d = pctDelta(m.cyclePrevAvg, m.cycleRecentAvg);
     $('#kpiCycleSub').innerHTML = d === null
-      ? '<span class="muted">create → resolve</span>'
-      : `<span class="trend ${d <= 0 ? 'trend-good' : 'trend-bad'}">${d <= 0 ? '▼' : '▲'} ${Math.abs(d)}%</span> <span class="muted">${Math.abs(d)}% ${d <= 0 ? 'faster' : 'slower'} than prior 30d</span>`;
+      ? `<span class="muted">${escapeHtml(t('dash.createResolve'))}</span>`
+      : `<span class="trend ${d <= 0 ? 'trend-good' : 'trend-bad'}">${d <= 0 ? '▼' : '▲'} ${Math.abs(d)}%</span> <span class="muted">${escapeHtml(d <= 0 ? tReplace('dash.fasterThan', { p: Math.abs(d) }) : tReplace('dash.slowerThan', { p: Math.abs(d) }))}</span>`;
   } else {
-    $('#kpiCycleSub').innerHTML = '<span class="muted">create → resolve</span>';
+    $('#kpiCycleSub').innerHTML = `<span class="muted">${escapeHtml(t('dash.createResolve'))}</span>`;
   }
   animateValue($('#kpiWip'), m.wip);
-  $('#issueCountBadge').textContent = `${m.total} issues analyzed`;
+  $('#issueCountBadge').textContent = tReplace('dash.issuesAnalyzed', { n: m.total });
 
   /* auto-insights */
   const strip = $('#insightsStrip');
@@ -3655,7 +5037,7 @@ function renderDashboard(board, m) {
   const changelogNotice = $('#changelogNotice');
   if (!state.hasChangelog) {
     const extraNote = state.boardLoadMeta?.note ? ` ${state.boardLoadMeta.note}` : '';
-    changelogNotice.textContent = `⚠ Status-time analytics unavailable — this board may be team-managed or your token lacks changelog permissions. Showing core metrics only.${extraNote}`;
+    changelogNotice.textContent = t('dash.changelogNotice') + extraNote;
     show(changelogNotice);
   } else {
     hide(changelogNotice);
@@ -3713,9 +5095,9 @@ async function copyDiagnostics() {
   const text = formatDebugLog();
   try {
     await navigator.clipboard.writeText(text);
-    toast('Diagnostics copied.', 'ok');
+    toast(t('debug.copied'), 'ok');
   } catch (_) {
-    toast('Could not copy diagnostics.', 'err');
+    toast(t('debug.copyFailed'), 'err');
   }
 }
 
@@ -3742,7 +5124,7 @@ async function saveSettings() {
     }
   }
   hide($('#settingsModal'));
-  toast(hasSession ? 'Settings saved.' : 'Relay settings saved. Now connect to Jira.', 'ok');
+  toast(hasSession ? t('settings.saved') : t('settings.savedRelay'), 'ok');
   if (hasSession) goBoards();
 }
 
@@ -3756,6 +5138,10 @@ function setBtnBusy(btn, busy) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  /* snapshot the pristine KPI grid markup once — renderCompareDashboard() replaces
+     it in compare mode and restoreKpiGrid() swaps it back on exit */
+  const kpiGridEl = document.querySelector('.kpi-grid');
+  if (kpiGridEl) KPI_GRID_ORIGINAL = kpiGridEl.innerHTML;
   $('#connectForm').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const btn = $('#connectBtn');
@@ -3765,7 +5151,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       await connect($('#inDomain').value, $('#inEmail').value, $('#inToken').value);
     } catch (e) {
-      errBox.textContent = '⚠️ ' + (e?.message || 'Connection failed.');
+      errBox.textContent = '⚠️ ' + (e?.message || t('err.connectFailed'));
       show(errBox);
     } finally {
       setBtnBusy(btn, false);
@@ -3792,7 +5178,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const pickToggle = $('#pickCompareBtn');
   if (pickToggle) pickToggle.addEventListener('click', togglePickCompareMode);
   $('#pickCancelBtn').addEventListener('click', togglePickCompareMode);
-  $('#pickGoBtn').addEventListener('click', () => { openPickCompareDashboard().catch((e) => { toast(e?.message || 'Compare failed to load.', 'warn'); logDiag('error', 'Pick-compare failed', { message: e?.message }); }); });
+  $('#pickGoBtn').addEventListener('click', () => { openPickCompareDashboard().catch((e) => { toast(e?.message || t('cmp.failed'), 'warn'); logDiag('error', 'Pick-compare failed', { message: e?.message }); }); });
   $('#brandBtn').addEventListener('click', () => { location.hash = '#/'; showAllBoards(); });
   $('#brandBtn').addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); location.hash = '#/'; showAllBoards(); }
@@ -3801,7 +5187,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#openDebugBtn').addEventListener('click', openDiagnostics);
   $('#refreshBtn').addEventListener('click', () => {
     const b = state.boards.find((x) => x.id === state.boardId);
-    if (b) { selectBoard(b); toast('Refreshing board data…'); }
+    if (b) { selectBoard(b); toast(t('toast.refreshing')); }
   });
 
   $('#settingsBtn').addEventListener('click', openSettings);
@@ -3814,7 +5200,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#clearDebugBtn').addEventListener('click', () => {
     state.debugLog = [];
     renderDebugLog();
-    toast('Diagnostics cleared.', 'ok');
+    toast(t('toast.diagCleared'), 'ok');
   });
   $('#debugModal').addEventListener('click', (ev) => {
     if (ev.target === $('#debugModal')) hide($('#debugModal'));
@@ -3854,8 +5240,8 @@ document.addEventListener('DOMContentLoaded', () => {
   /* "Publish all" opens the same config-only publish modal pre-set to "all boards" —
      publishing is instant (config POST), data is always live for viewers. */
   $('#publishAllBtn').addEventListener('click', async () => {
-    if (!state.conn) { toast('Connect to Jira first.', 'warn'); return; }
-    if (!state.boards.length) { toast('No boards loaded yet.', 'warn'); return; }
+    if (!state.conn) { toast(t('toast.noConn'), 'warn'); return; }
+    if (!state.boards.length) { toast(t('toast.boardsLoading'), 'warn'); return; }
     await openPublishModal();
     /* pre-select the "All boards" scope so one click on "Publish to organization" finishes */
     const allBtn = $('#pubScope')?.querySelector('button[data-v="all"]');
@@ -3884,26 +5270,44 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('#pubCopyLinkBtn').addEventListener('click', () => {
     const val = $('#pubLinkInput').value;
-    if (val) navigator.clipboard.writeText(val).then(() => toast('Share link copied.', 'ok')).catch(() => toast('Could not copy.', 'warn'));
+    if (val) navigator.clipboard.writeText(val).then(() => toast(t('pub.copied'), 'ok')).catch(() => toast(t('toast.copyFail'), 'warn'));
   });
   $('#pubBackBtn').addEventListener('click', () => {
+    /* an active compare view is exited first — Back leaves compare, not the share */
+    if (pubState.compare) { exitPubCompare(); return; }
+    /* leaving pick mode is the second Back level */
+    if (pubState.pickCompare) { togglePubPickCompareMode(); return; }
     /* if we drilled into a board from an all-boards snapshot, go back to the list */
     if ($('#pubBackBtn').dataset.fromAll === '1' && pubState.snapshot.scope === 'board' && pubState.allSnapshot) {
       pubState.snapshot = pubState.allSnapshot;
       pubState.currentBoard = null;
       pubState.allSnapshot = null;
       $('#pubBackBtn').dataset.fromAll = '';
-      $('#pubBackBtn').textContent = '← Back';
+      $('#pubBackBtn').textContent = t('pub.back');
       renderPubContent();
       return;
     }
     hidePubScreen();
   });
+  /* compare for users (feature 1): header button + pick bar + exit button */
+  const pubCmpToggle = $('#pubCompareBtn');
+  if (pubCmpToggle) pubCmpToggle.addEventListener('click', togglePubPickCompareMode);
+  $('#pubPickGoBtn').addEventListener('click', () => {
+    openPubPickCompareDashboard().catch((e) => logDiag('error', 'Pub compare open failed', { message: e?.message }));
+  });
+  $('#pubPickCancelBtn').addEventListener('click', togglePubPickCompareMode);
+  $('#pubCmpExitBtn').addEventListener('click', exitPubCompare);
   $('#pubEmail').addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') pubSendCode();
   });
   $('#pubCode').addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') pubVerifyCode();
+  });
+
+  /* language switcher: one handler covers every .lang-btn on the page
+     (topbar + share-view topbar, both screens) */
+  document.querySelectorAll('.lang-btn').forEach((b) => {
+    b.addEventListener('click', () => setLang(b.dataset.lang));
   });
 
   /* route on hash change (back/forward navigation) — but not when opening a share link */

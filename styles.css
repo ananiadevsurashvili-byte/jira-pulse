@@ -593,6 +593,19 @@ body {
 .seg button.active { background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4); }
 .seg-label { display: block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #8b93ad; margin-bottom: 5px; }
 
+/* ── language switcher ── */
+.lang-switch {
+  display: inline-flex; align-items: center; gap: 2px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 2px;
+}
+.lang-btn {
+  padding: 5px 10px; border-radius: 7px; border: none; background: transparent;
+  color: var(--muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em; cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease; line-height: 1;
+}
+.lang-btn:hover { background: var(--panel-strong); color: var(--text); }
+.lang-btn.active { background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4); }
+
 /* ── form grid ── */
 .form-row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
 .form-col { display: flex; flex-direction: column; gap: 6px; }
@@ -974,3 +987,29 @@ body.pick-mode .board-card .board-open { color: #a5b4fc; }
   .pick-actions { margin-left: 0; }
   .pick-slot { min-width: 110px; }
 }
+
+/* ══════════ PICK-COMPARE MODE (public share view) ══════════
+   The share view reuses the same pick-bar / pick-slot / board-card classes as the
+   admin page — only the bar's sticky offset differs (the pub topbar is taller). */
+#pubScreen .pick-bar { top: 86px; }
+#pubScreen .board-card.pick-sel {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35), 0 12px 34px rgba(0, 0, 0, 0.4);
+  transform: translateY(-2px);
+}
+#pubScreen .board-card.pick-sel .board-open { color: #c7d2fe; font-weight: 700; }
+#pubScreen .board-card.pick-a { border-color: rgba(99, 102, 241, 0.85); }
+#pubScreen .board-card.pick-b { border-color: rgba(34, 211, 238, 0.85); }
+#pubScreen .board-card.pick-a::after,
+#pubScreen .board-card.pick-b::after {
+  position: absolute; top: 10px; right: 12px;
+  font-size: 0.64rem; font-weight: 800; letter-spacing: 0.08em;
+  padding: 2px 8px; border-radius: 999px; content: '';
+}
+#pubScreen .board-card.pick-a::after { content: 'A'; background: #6366f1; color: #fff; box-shadow: 0 0 12px rgba(99, 102, 241, 0.8); }
+#pubScreen .board-card.pick-b::after { content: 'B'; background: #22d3ee; color: #04202a; box-shadow: 0 0 12px rgba(34, 211, 238, 0.8); }
+body.pick-mode #pubScreen .board-card .board-open { color: #a5b4fc; }
+
+/* pub compare bar (board A vs B header inside the share view) */
+#pubScreen .compare-bar { margin-bottom: 18px; }
+#pubScreen .cmp-name { color: #a5b4fc; }
