@@ -294,7 +294,7 @@ const I18N = {
     'chart.title.createdTrend': 'Issues Created', 'chart.sub.createdTrend': 'Weekly creation trend',
     'chart.title.resolvedTrend': 'Issues Resolved', 'chart.sub.resolvedTrend': 'Monthly completion trend',
     'chart.title.backlogGrowth': 'Backlog Trend', 'chart.sub.backlogGrowth': 'Cumulative open work (created − resolved)',
-    'chart.title.blockedDist': 'Blocked & Canceled', 'chart.sub.blockedDist': 'Work sitting on blocked/canceled/rejected statuses',
+    'chart.title.blockedDist': 'Blocked & Canceled', 'chart.sub.blockedDist': 'Work sitting on blocked/canceled/rejected statuses · all time',
     'chart.title.bottlenecks': 'Active Bottlenecks', 'chart.sub.bottlenecks': 'Where open work is parked',
     'chart.title.statusDist': 'Status Distribution', 'chart.sub.statusDist': 'All issues by current status',
     'chart.title.statusTime': 'Avg Time in Status', 'chart.sub.statusTime': 'Lifetime average per status · changelog',
@@ -382,7 +382,6 @@ const I18N = {
     'pub.publishToOrg': 'Publish to organization',
     'pub.publishing': 'Publishing…',
     'pub.restricted': 'Access is restricted to @{d} accounts.',
-    'pub.googleVerified': 'Verified via Google. Loading snapshot…',
     'pub.googleLoading': 'Google sign-in is still loading… try again in a few seconds.',
     'pub.googleFailed': 'Google sign-in could not start. Use your @{d} email instead.',
     'pub.sendCode': 'Send code',
@@ -390,7 +389,6 @@ const I18N = {
     'pub.sending': 'Sending your code to {email}…',
     'pub.sentTo': 'Code sent to {email}. Check your inbox, then enter it below.',
     'pub.sendFailed': 'Could not email the code ({m}). Use Sign in with Google instead.',
-    'pub.verified': 'Verified. Loading snapshot…',
     'pub.wrongCode': 'Wrong code. Please try again.',
     'pub.invalidEmail': 'Please enter a valid @{d} email.',
     'pub.signinAll': 'Sign in with your @{d} email to view the published board stats.',
@@ -540,6 +538,8 @@ const I18N = {
     'series.completed': 'Completed',
     'series.openBacklog': 'Open backlog',
     'series.netflowDesc': 'cumulative open backlog (created − resolved)',
+    'series.pBacklog': 'Backlog (Bug / Backlog / System Improvements)',
+    'series.pNetflowDesc': 'cumulative backlog — Bug, Backlog & System Improvements statuses (created − resolved)',
     'series.createdVsResolved': 'registered vs completed',
     'series.created': 'created',
     'series.resolved': 'resolved',
@@ -595,7 +595,7 @@ const I18N = {
     'nav.disconnect': 'გათიშვა',
     'nav.toBoards': 'ყველა დაფაზე გადასვლა',
     'setup.title': 'შენი Jira,<br /><span class="grad-text">ლამაზად ვიზუალიზებული.</span>',
-    'setup.lead': 'დაუკავშირდით Jira-ს API ტოკენით და მიიღეთ მყისიერი ანალიტიკა — რამდენ ხანს დგას დავალება თითოეულ სტატუსში, რა გაეგზავნა ბოლო 30&nbsp;დღეში, გუნდის პროდუქტივობა და სხვა. თქვენი მონაცემები ბრაუზერს არ ტოვებს.',
+    'setup.lead': 'დაუკავშირდით Jira-ს API ტოკენით და მიიღეთ მყისიერი ანალიტიკა — რამდენ ხანს დგას დავალება თითოეულ სტატუსში, რა გაეგზავნა ბოლო 30&nbsp;დღეში, გუნდის პროდუქტიულობა და სხვა. თქვენი მონაცემები ბრაუზერს არ ტოვებს.',
     'setup.site': 'Jira-ს საიტი',
     'setup.email': 'ელფოსტა',
     'setup.token': 'API ტოკენი',
@@ -758,7 +758,7 @@ const I18N = {
     'cmp.prompt': 'შედარების რეჟიმი — აირჩიეთ მეორე დაფა ზემოთა ზოლში, რომ ყველა გრაფიკი და მეტრიკა გადაფარვით ნახოთ.',
     'cmp.even': 'თანაბარი', 'cmp.identical': 'ორივე დაფაზე იდენტურია', 'cmp.noData': 'შედარების მონაცემები არ არის',
     'cmp.vsQ': '{a} vs ? — აირჩიეთ დაფა B ზემოთ',
-    'insight.throughput': 'პროდუქტივობა', 'insight.speed': 'სიჩქარე', 'insight.load': 'ღია დავალებები',
+    'insight.throughput': 'პროდუქტიულობა', 'insight.speed': 'სიჩქარე', 'insight.load': 'ღია დავალებები',
     'insight.completion': 'დასრულება', 'insight.blocked': 'დაბლოკილი სამუშაო', 'insight.intake': 'შემოდინების სხვაობა',
     'kpi.syncing': 'სინქრონიზაცია…',
     'dash.noWip': 'მიმდინარე სამუშაო არ არის — ყველაფერი მზადაა 🎉',
@@ -803,22 +803,22 @@ const I18N = {
     'age.le2d': '≤ 2 დღე', 'age.3_7d': '3–7 დღე', 'age.1_2w': '1–2 კვირა', 'age.2_4w': '2–4 კვირა',
     'age.1_3mo': '1–3 თვე', 'age.3_6mo': '3–6 თვე', 'age.6moPlus': '6 თვე+',
     'chart.title.pipeline': 'შემოსვლა vs დასრულება', 'chart.sub.pipeline': 'შექმნა vs დახურვა დროში',
-    'chart.title.throughput': 'თვიური პროდუქტივობა', 'chart.sub.throughput': 'დასრულებული დავალებები თვეში (Done/Approved/Babysitting/Released)',
+    'chart.title.throughput': 'თვიური პროდუქტიულობა', 'chart.sub.throughput': 'დასრულებული დავალებები თვეში (Done/Approved/Babysitting/Released)',
     'chart.title.createdTrend': 'შექმნილი დავალებები', 'chart.sub.createdTrend': 'კვირაში შექმნის ტენდენცია',
     'chart.title.resolvedTrend': 'დახურული დავალებები', 'chart.sub.resolvedTrend': 'თვიური დასრულების ტენდენცია',
     'chart.title.backlogGrowth': 'ბექლოგის ტენდენცია', 'chart.sub.backlogGrowth': 'კუმულაციური ღია სამუშაო (შექმნა − დახურვა)',
-    'chart.title.blockedDist': 'დაბლოკილი და გაუქმებული', 'chart.sub.blockedDist': 'სამუშაო, რომელიც დაბლოკილ/გაუქმებულ/უარყოფილ სტატუსებში დგას',
+    'chart.title.blockedDist': 'დაბლოკილი და გაუქმებული', 'chart.sub.blockedDist': 'სამუშაო, რომელიც დაბლოკილ/გაუქმებულ/უარყოფილ სტატუსებში დგას · მთელი ისტორია',
     'chart.title.bottlenecks': 'აქტიური გამავრობის შემზღუდავი ეტაპები', 'chart.sub.bottlenecks': 'სად გროვდება ღია სამუშაო',
     'chart.title.statusDist': 'სტატუსების განაწილება', 'chart.sub.statusDist': 'ყველა დავალება მიმდინარე სტატუსით',
     'chart.title.statusTime': 'საშ. დრო სტატუსში', 'chart.sub.statusTime': 'საშუალო დრო თითოეულ სტატუსში · ჟურნალი',
     'chart.title.phaseDelays': 'სტეიკჰოლდერი vs გუნდის დაგვიანებები', 'chart.sub.phaseDelays': 'საშ. დღეები ეტაპზე · სტეიკჰოლდერის კარიბჭეები vs გუნდის სამუშაო · ჟურნალი',
     'chart.title.typeDist': 'ტიპების განაწილება', 'chart.sub.typeDist': 'ღია დავალებები ტიპებად',
-    'chart.title.assigneeLoad': 'შემსრულებლების დატვირთვა', 'chart.sub.assigneeLoad': 'ღია დავალებები შემსრულებლებად',
+    'chart.title.assigneeLoad': 'შემსრულებლების დატვირთვა', 'chart.sub.assigneeLoad': 'ღია დავალებები შემსრულებლებთან',
     'chart.title.priorityDist': 'პრიორიტეტების განაწილება', 'chart.sub.priorityDist': 'ღია დავალებები პრიორიტეტებად',
     'chart.title.ageDist': 'ღია დავალებების ასაკი', 'chart.sub.ageDist': 'რამდენ ხანსაა დავალებები ღიაა',
     'chart.title.ageBuckets': 'ასაკი vs მოთხოვნილება', 'chart.sub.ageBuckets': 'რამდენ ხანს ელოდება ღია ბექლოგი',
     'chart.title.unassigned': 'დანიშვნის ხარვეზები', 'chart.sub.unassigned': 'ვინ ფლობს ღია სამუშაოს — დატვირთვის დისბალანსის აღმოჩენა',
-    'chart.title.assigneeCycle': 'ციკლის დროის ლიდერბორდი', 'chart.sub.assigneeCycle': 'საშ. შექმნა → დასრულება შემსრულებლებად · მხოლოდ დახურული',
+    'chart.title.assigneeCycle': 'ციკლის დროის ლიდერბორდი', 'chart.sub.assigneeCycle': 'საშ. შექმნა → დასრულება შემსრულებლებთან · მხოლოდ დახურული',
     /* auth · connect · publish · misc dynamic strings — Georgian */
     'auth.sending': 'იგზავნება…',
     'auth.codeSent': 'კოდი გაიგზავნა {email}-ზე — შეამოწმეთ შემოსულები (და სპამი).',
@@ -895,7 +895,6 @@ const I18N = {
     'pub.publishToOrg': 'ორგანიზაციისთვის გამოქვეყნება',
     'pub.publishing': 'მიმდინარეობს გამოქვეყნება…',
     'pub.restricted': 'წვდომა შეზღუდულია @{d} ანგარიშებზე.',
-    'pub.googleVerified': 'დადასტურებულია Google-ით. იტვირთება მონაცემები…',
     'pub.googleLoading': 'Google-ით შესვლა ჯერ იტვირთება… სცადეთ რამდენიმე წამში.',
     'pub.googleFailed': 'Google-ით შესვლა ვერ დაიწყო. გამოიყენეთ თქვენი @{d} ფოსტა.',
     'pub.sendCode': 'კოდის გაგზავნა',
@@ -903,7 +902,6 @@ const I18N = {
     'pub.sending': 'კოდი იგზავნება {email} მისამართზე…',
     'pub.sentTo': 'კოდი გაიგზავნა {email} მისამართზე. შეამოწმეთ შემომავალი და შეიყვანეთ ქვემოთ.',
     'pub.sendFailed': 'კოდის გაგზავნა ვერ მოხერხდა ({m}). გამოიყენეთ Google-ით შესვლა.',
-    'pub.verified': 'დადასტურებულია. იტვირთება მონაცემები…',
     'pub.wrongCode': 'კოდი არასწორია. სცადეთ ხელახლა.',
     'pub.invalidEmail': 'გთხოვთ, შეიყვანეთ სწორი @{d} ფოსტა.',
     'pub.signinAll': 'შედით თქვენი @{d} ფოსტით გამოქვეყნებული დაფების სტატისტიკის სანახავად.',
@@ -1053,6 +1051,8 @@ const I18N = {
     'series.completed': 'დასრულებული',
     'series.openBacklog': 'ღია ბექლოგი',
     'series.netflowDesc': 'დაგროვილი ღია ბექლოგი (შექმნა − დახურვა)',
+    'series.pBacklog': 'ბექლოგი (Bug / Backlog / System Improvements)',
+    'series.pNetflowDesc': 'დაგროვილი ბექლოგი — Bug, Backlog და System Improvements სტატუსები (შექმნა − დახურვა)',
     'series.createdVsResolved': 'შექმნილი vs დასრულებული',
     'series.created': 'შექმნა',
     'series.resolved': 'დახურვა',
@@ -1360,8 +1360,8 @@ function handleGoogleCredential(resp) {
   pubState.email = email;
   pubState.verified = true;
   pubState.isAdmin = isAdminEmail(email);
-  $('#pubStatus').textContent = t('pub.googleVerified');
-  $('#pubStatus').className = 'ok';
+  /* no "verified · loading" message here — the charts appearing IS the feedback;
+     the status line is reserved for errors only */
   $('#pubContent').classList.remove('hidden');
   $('#pubAuthBox').classList.add('hidden');
   updatePubUserChip();
@@ -1589,8 +1589,7 @@ function pubVerifyCode() {
   if (entered === expected) {
     pubState.verified = true;
     pubState.isAdmin = isAdminEmail(pubState.email);
-    $('#pubStatus').textContent = t('pub.verified');
-    $('#pubStatus').className = 'ok';
+    /* success = charts appearing; status line stays reserved for errors */
     $('#pubContent').classList.remove('hidden');
     $('#pubAuthBox').classList.add('hidden');
     updatePubUserChip();
@@ -1651,9 +1650,15 @@ function mkPubChart(canvasId, cfg) {
 }
 
 /* the chart defs the admin published (with this viewer's local overrides applied
-   when the viewer is also connected) — falls back to the built-in set */
+   when the viewer is also connected) — falls back to the built-in set.
+   Old snapshots may still reference charts removed from BUILTIN_DEFS (e.g. the
+   'unassigned' Assignment Gaps doughnut) — filter those out at render time.
+   Custom charts ('c'+base36 ids) always pass through untouched. */
+const REMOVED_BUILTIN_IDS = new Set(['unassigned']);
 function pubChartDefs() {
-  return (pubState.snapshot?.chartDefs || []).map((d) => ({ ...d }));
+  return (pubState.snapshot?.chartDefs || [])
+    .filter((d) => !REMOVED_BUILTIN_IDS.has(d.id))
+    .map((d) => ({ ...d }));
 }
 
 /* ---------- chart click → issue list modal ---------- */
@@ -4138,7 +4143,8 @@ const BUILTIN_DEFS = [
   { id: 'priorityDist', title: 'Priority Distribution', subtitle: 'Open issues by priority', type: 'doughnut', metric: 'count', groupBy: 'priority', bucket: 'week', range: 0, filter: 'open', topN: 8, split: 'none', color: 'amber', wide: false, centerTotal: true },
   { id: 'ageDist', title: 'Open Issue Age', subtitle: 'How long issues have been open', type: 'hbar', metric: 'openAge', groupBy: 'assignee', bucket: 'week', range: 0, filter: 'open', topN: 10, split: 'none', color: 'green', wide: false, centerTotal: false },
   { id: 'ageBuckets', title: 'Age vs Demand', subtitle: 'How long the open backlog has been waiting', type: 'hbar', metric: 'count', groupBy: 'ageBucket', bucket: 'week', range: 0, filter: 'open', topN: 0, split: 'none', color: 'amber', wide: false, centerTotal: false },
-  { id: 'unassigned', title: 'Assignment Gaps', subtitle: 'Who owns the open work — spot the load imbalance', type: 'doughnut', metric: 'count', groupBy: 'assigneeState', bucket: 'week', range: 0, filter: 'open', topN: 0, split: 'none', color: 'pink', wide: false, centerTotal: true },
+  /* 'unassigned' (Assignment Gaps) removed — it left a solo chart in the last
+     grid row; the remaining 14 standard charts pair up evenly */
   { id: 'assigneeCycle', title: 'Cycle Time Leaderboard', subtitle: 'Avg create → resolve per assignee · resolved issues only', type: 'hbar', metric: 'avgCycle', groupBy: 'assignee', bucket: 'week', range: 182, filter: 'done', topN: 10, split: 'none', color: 'cyan', wide: false, centerTotal: false },
 ];
 
@@ -4189,6 +4195,15 @@ const COMPLETED_RE = /^(done approved|released|babysitting|done|closed|resolved|
    and flagged separately as "stuck/removed" work (Blocked / Canceled / Rejected…). */
 const BLOCKED_STATUSES = ['Blocked', 'Canceled', 'Cancelled', 'Rejected', 'Declined', 'Discarded', 'Stuck', 'On Hold'];
 const BLOCKED_RE = /^(blocked|canceled|cancelled|rejected|declined|discarded|stuck|on hold)$/i;
+
+/* [P] org boards: the intake/backlog lanes. On these boards "the backlog" is NOT
+   "everything open" — it is work parked in one of these three statuses (bugs,
+   planned backlog items, system improvements). The Backlog Trend chart counts
+   only issues sitting in these statuses when the viewed board is a [P] board. */
+const P_BACKLOG_STATUSES = ['Bug', 'Backlog', 'System Improvements'];
+function isPBacklogStatus(f) {
+  return P_BACKLOG_STATUSES.includes(String(f?.status?.name || '').trim());
+}
 
 /* does a status name represent a completed delivery?
    allowCategory: also accept statuses Jira classifies as statusCategory=done
@@ -4302,11 +4317,16 @@ function filterPool(def, issues) {
 }
 
 /* build time-bucketed series for created / resolved / flow */
-function buildTimeSeries(def, issues) {
+function buildTimeSeries(def, issues, ctx) {
   const NOW = Date.now();
   const isNet = def.metric === 'netflow';
   const wantCreated = def.metric !== 'resolved' || isNet;
   const wantResolved = def.metric !== 'created' || isNet;
+  /* [P] boards: the backlog = work parked in the Bug / Backlog / System Improvements
+     statuses — not "everything open". When the chart is being built for such a board,
+     both the "created" inflow and the netflow line count only those issues. */
+  const isP = isPBoard({ name: ctx?.boardName || '' });
+  const inScope = isNet && isP ? (f) => isPBacklogStatus(f) : () => true;
   let rangeDays = def.range || 0;
 
   let oldest = Infinity;
@@ -4339,6 +4359,7 @@ function buildTimeSeries(def, issues) {
 
   for (const iss of issues) {
     const f = iss.fields || {};
+    if (!inScope(f)) continue;   /* [P]-board backlog scope: only Bug / Backlog / System Improvements */
     if (wantCreated && f.created) {
       const ts = Date.parse(f.created);
       let idx;
@@ -4380,17 +4401,19 @@ function buildTimeSeries(def, issues) {
   const datasets = [];
   let net = null;
   if (isNet) {
-    /* cumulative net flow: created − resolved, running total → open-backlog shape */
+    /* cumulative net flow: created − resolved, running total → open-backlog shape.
+       On [P] boards the series is scoped to the Bug / Backlog / System Improvements
+       statuses, so the labels say "backlog" instead of "open backlog". */
     let acc = 0;
     net = createdCounts.map((c, i) => (acc += c - resolvedCounts[i]));
-    datasets.push({ label: t('series.openBacklog'), data: net, color: '#8b5cf6', rgb: ACCENT_RGB.violet, __keys: createdKeys, __src: issues });
+    datasets.push({ label: t(isP ? 'series.pBacklog' : 'series.openBacklog'), data: net, color: '#8b5cf6', rgb: ACCENT_RGB.violet, __keys: createdKeys, __src: issues });
   } else {
     if (wantCreated) datasets.push({ label: t('series.registered'), data: createdCounts, color: '#6366f1', rgb: ACCENT_RGB.indigo, __keys: createdKeys, __src: issues });
     if (wantResolved) datasets.push({ label: t('series.completed'), data: resolvedCounts, color: '#34d399', rgb: ACCENT_RGB.green, __keys: resolvedKeys, __src: issues });
   }
 
   const parts = [];
-  if (isNet) parts.push(t('series.netflowDesc'));
+  if (isNet) parts.push(t(isP ? 'series.pNetflowDesc' : 'series.netflowDesc'));
   else if (wantCreated && wantResolved) parts.push(t('series.createdVsResolved'));
   else if (wantCreated) parts.push(t('series.created'));
   else parts.push(t('series.resolved'));
@@ -4572,12 +4595,24 @@ function buildStatusTimeData(def, m, hasChangelog, issues) {
   };
 }
 
+/* which board is the chart currently being built for?
+   - public share view: the snapshot's board (or the clicked board inside an 'all' snapshot)
+   - admin app: the currently selected dashboard board
+   Used by the netflow metric to apply [P]-board backlog semantics. */
+function currentChartBoardName() {
+  if (state.inShareScreen) {
+    return pubState.currentBoard?.name || pubState.snapshot?.boardName || '';
+  }
+  const b = state.boards.find((x) => x.id === state.boardId);
+  return b?.name || '';
+}
+
 function buildChartData(def, m, issues, hasChangelog) {
   const metric = METRIC_DEFS[def.metric];
   const iss = issues || state.issues;
   const hc = hasChangelog != null ? hasChangelog : state.hasChangelog;
   if (!metric) return { empty: [t('err.unknownMetric')] };
-  if (metric.kind === 'time') return buildTimeSeries(def, iss);
+  if (metric.kind === 'time') return buildTimeSeries(def, iss, { boardName: currentChartBoardName() });
   if (metric.kind === 'statusTime') return buildStatusTimeData(def, m, hc, iss);
   return buildCategoryData(def, iss);
 }
