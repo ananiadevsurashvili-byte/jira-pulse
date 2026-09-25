@@ -681,6 +681,83 @@ body {
 #pubScreen .data-badge { font-size: 0.68rem; padding: 4px 10px; }
 #pubScreen #pubChartsGrid { margin-top: 4px; }
 
+/* ── pub hero header: gradient-accented title, live pulse, count chip ──
+   Replaces the plain h2+paragraph header with a small visual composition:
+   the title carries a gradient accent on its second word, the subtitle sits
+   under a short gradient rule, and the meta row gets pill-shaped stats. */
+#pubScreen .pub-hero { display: block; min-width: 260px; }
+#pubScreen .pub-hero-title {
+  font-size: 1.7rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 4px;
+  line-height: 1.25;
+}
+/* gradient accent word — markup is rebuilt by setPubTitleAccent() */
+#pubScreen .pub-hero-title .grad-accent {
+  background: linear-gradient(90deg, #818cf8, #22d3ee);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+#pubScreen .pub-hero-sub { position: relative; padding-left: 14px; margin: 0; font-size: 0.86rem; }
+/* short gradient tick before the subtitle — echoes board-group-title::after */
+#pubScreen .pub-hero-sub::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 22px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #818cf8, #22d3ee);
+}
+/* meta row: count chip + live badge (+ back button pushed right) */
+#pubScreen .pub-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+#pubScreen .pub-count-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+/* tiny brand-gradient diamond inside the count chip */
+#pubScreen .pub-count-chip::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  transform: rotate(45deg);
+  background: linear-gradient(135deg, #818cf8, #22d3ee);
+}
+/* pulsing live dot inside the changelog/live badge */
+#pubScreen .data-badge .live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+  animation: pubLivePulse 1.8s ease-in-out infinite;
+}
+@keyframes pubLivePulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.45); }
+  50% { opacity: 0.55; box-shadow: 0 0 0 5px rgba(52, 211, 153, 0); }
+}
+
 /* ── share-view topbar: same chrome as the admin dashboard ──
    The brand block, center title and layout are identical; the only difference
    is the right side, which shows the signed-in user's profile instead of the

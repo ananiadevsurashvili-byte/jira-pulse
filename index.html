@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-<link rel="stylesheet" href="styles.css?v=8241314" />
+<link rel="stylesheet" href="styles.css?v=8241315" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -480,9 +480,9 @@
   </header>
   <div class="dash-wrap">
     <div class="screen-head dash-head">
-      <div>
-        <h2 id="pubTitle" style="font-size:1.7rem;font-weight:800;margin-bottom:6px" data-i18n="pub.title">Published stats</h2>
-        <p id="pubSubtitle" class="muted" data-i18n="pub.subtitle">Sign in with your @caucasusauto.com email to view this board snapshot.</p>
+      <div class="pub-hero">
+        <h2 id="pubTitle" class="pub-hero-title" data-i18n="pub.title">Published stats</h2>
+        <p id="pubSubtitle" class="muted pub-hero-sub" data-i18n="pub.subtitle">Sign in with your @caucasusauto.com email to view this board snapshot.</p>
         <p id="pubStatus" class="muted" style="margin-top:8px"></p>
       </div>
       <div id="pubAdminBar" class="hidden dash-head-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
@@ -520,10 +520,10 @@
     </div>
 
     <div id="pubContent" class="hidden" style="margin-top:20px">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-        <span id="pubIssueCount" class="muted"></span>
+      <div class="pub-meta-row">
+        <span id="pubIssueCount" class="pub-count-chip"></span>
         <span id="pubChangelogBadge" class="data-badge ok" data-i18n="pub.changelog">✓ changelog</span>
-        <button id="pubBackBtn" class="btn btn-ghost" style="margin-left:auto" data-i18n="pub.back">← Back</button>
+        <button id="pubBackBtn" class="btn btn-ghost hidden" style="margin-left:auto" data-i18n="pub.back">← Back</button>
       </div>
 
       <div id="pubLinkBox" class="hidden glass" style="padding:14px 18px;margin-bottom:16px">
@@ -579,6 +579,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=8241314"></script>
+<script src="app.js?v=8241315"></script>
 </body>
 </html>

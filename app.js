@@ -363,9 +363,9 @@ const I18N = {
     'pub.subtitleAll': 'Live delivery analytics for your organization.',
     'pub.subtitleBoard': 'Live stats for this board, refreshed from Jira.',
     'pub.orgTitle': 'Organization board stats',
-    'pub.orgSubtitle': 'All published boards · live data',
-    'pub.liveSubtitle': 'Live data · real-time from Jira',
-    'pub.liveBadge': '⟳ live',
+    'pub.orgSubtitle': 'Every published board · streaming live from Jira',
+    'pub.liveSubtitle': 'Live metrics · streaming from Jira in real time',
+    'pub.liveBadge': 'live',
     'pub.noBoardsPublished': 'No boards published yet — the admin can publish the board list from the admin panel.',
     'pub.nBoards': '{n} boards',
     'pub.zeroBoards': '0 boards',
@@ -876,9 +876,9 @@ const I18N = {
     'pub.subtitleAll': 'მიწოდების ანალიტიკა თქვენი ორგანიზაციისთვის.',
     'pub.subtitleBoard': 'ამ დაფის მიმდინარე სტატისტიკა, განახლებული Jira-დან.',
     'pub.orgTitle': 'ორგანიზაციის დაფების სტატისტიკა',
-    'pub.orgSubtitle': 'ყველა გამოქვეყნებული დაფა · პირდაპირი მონაცემები',
-    'pub.liveSubtitle': 'პირდაპირი მონაცემები · რეალურ დროში Jira-დან',
-    'pub.liveBadge': '⟳ პირდაპირი',
+    'pub.orgSubtitle': 'ყველა გამოქვეყნებული დაფა ერთ სივრცეში · პირდაპირი ნაკადი Jira-დან',
+    'pub.liveSubtitle': 'ცოცხალი მეტრიკები · პირდაპირ Jira-დან, რეალურ დროში',
+    'pub.liveBadge': 'პირდაპირი',
     'pub.noBoardsPublished': 'დაფები ჯერ არ არის გამოქვეყნებული — ადმინისტრატორს შეუძლია დაფების სიის გამოქვეყნება ადმინისტრატორის პანელიდან.',
     'pub.nBoards': '{n} დაფა',
     'pub.zeroBoards': '0 დაფა',
@@ -1458,11 +1458,11 @@ function showPubScreen(snapshot) {
 
   /* title depends on scope */
   if (snapshot.scope === 'all') {
-    $('#pubTitle').textContent = t('pub.orgTitle');
+    setPubTitleAccent(t('pub.orgTitle'));
     $('#pubSubtitle').textContent = tReplace('pub.signinAll', { d: PUBLISH_DOMAIN });
     $('#pubHeadTitle').textContent = t('pub.allTitle');
   } else {
-    $('#pubTitle').textContent = tReplace('pub.boardTitle', { b: snapshot.boardName });
+    setPubTitleAccent(tReplace('pub.boardTitle', { b: snapshot.boardName }));
     $('#pubSubtitle').textContent = tReplace('pub.signinBoard', { d: PUBLISH_DOMAIN });
     $('#pubHeadTitle').textContent = snapshot.boardName || t('pub.headBoard');
   }
@@ -1760,6 +1760,22 @@ function wireIssueListModal() {
   $('#issueListModal').addEventListener('click', (ev) => { if (ev.target === ev.currentTarget) hide($('#issueListModal')); });
 }
 
+/* hero title with a gradient-accented trailing word — the last word (or the
+   part after the last '·') gets the indigo→cyan gradient, echoing the brand */
+function setPubTitleAccent(text) {
+  const el = $('#pubTitle');
+  const s = String(text || '');
+  const m = s.match(/^(.*?)(\S+)$/);   /* last word */
+  if (m && m[1]) el.innerHTML = escapeHtml(m[1]) + '<span class="grad-accent">' + escapeHtml(m[2]) + '</span>';
+  else el.textContent = s;
+}
+
+/* live badge with a pulsing dot — replaces the static ⟳ glyph */
+function setPubLiveBadge(text) {
+  const el = $('#pubChangelogBadge');
+  el.innerHTML = '<span class="live-dot" aria-hidden="true"></span>' + escapeHtml(text);
+}
+
 async function renderPubContent() {
   const snap = pubState.snapshot;
   if (!snap) return;
@@ -1797,17 +1813,28 @@ async function renderPubContent() {
   /* title/subtitle — data is LIVE now, so the subtitle reflects freshness, not a date.
      The topbar center title mirrors the admin app's "All boards" header. */
   if (snap.scope === 'all') {
-    $('#pubTitle').textContent = t('pub.orgTitle');
+    setPubTitleAccent(t('pub.orgTitle'));
     $('#pubSubtitle').textContent = t('pub.orgSubtitle');
     $('#pubHeadTitle').textContent = t('pub.allTitle');
   } else {
-    $('#pubTitle').textContent = snap.boardName || 'Board';
+    setPubTitleAccent(snap.boardName || 'Board');
     $('#pubSubtitle').textContent = t('pub.liveSubtitle');
     $('#pubHeadTitle').textContent = snap.boardName || 'Board';
   }
 
-  $('#pubChangelogBadge').textContent = t('pub.liveBadge');
+  setPubLiveBadge(t('pub.liveBadge'));
   $('#pubChangelogBadge').className = 'data-badge ok';
+
+  /* Back button: hidden on the main all-boards page (nothing to go back to);
+     shown on every sub-page — single board, drilled-in board, pick mode.
+     The compare view manages its own visibility in renderPubCompareView(). */
+  const pubBackBtn = $('#pubBackBtn');
+  if (pubBackBtn) {
+    const onMainPage = snap.scope === 'all' && !pubState.pickCompare;
+    pubBackBtn.classList.toggle('hidden', onMainPage);
+    /* label follows the drill-in state so language switches stay in sync */
+    if (!onMainPage) pubBackBtn.textContent = pubBackBtn.dataset.fromAll === '1' ? t('pub.backAll') : t('pub.back');
+  }
 
   /* compare button in the pub header — available to EVERY viewer on the
      all-boards view (feature 1: compare for users, not only admins) */
@@ -1979,8 +2006,8 @@ function openBoardSnapshot(boardRec) {
     domain: snap.domain || '',
   };
   pubState.snapshot = sub;
+  $('#pubBackBtn').dataset.fromAll = '1';   /* set BEFORE render so the label logic sees it */
   renderPubContent();
-  $('#pubBackBtn').dataset.fromAll = '1';
   $('#pubBackBtn').textContent = t('pub.backAll');
 }
 
@@ -3806,7 +3833,8 @@ function renderPubCompareView() {
   $('#pubChartsGrid').classList.add('hidden');
   $('#pubBackBtn').dataset.fromAll = '';
   $('#pubBackBtn').textContent = t('pub.back');
-  $('#pubTitle').textContent = t('cmp.pubPickTitle');
+  $('#pubBackBtn').classList.remove('hidden');   /* compare is a sub-page — Back always shows */
+  setPubTitleAccent(t('cmp.pubPickTitle'));
   $('#pubSubtitle').textContent = tReplace('cmp.pubLoading', { a: cmp.nameA, b: cmp.nameB }).replace('…', '') + ' · ' + t('pub.liveSubtitle');
   $('#pubHeadTitle').textContent = t('cmp.pubPickTitle');
   $('#pubIssueCount').textContent = tReplace('cmp.badgeBoth', { a: cmp.recA.issuesCount ?? cmp.recA.metrics?.total ?? 0, b: cmp.recB.issuesCount ?? cmp.recB.metrics?.total ?? 0 });
