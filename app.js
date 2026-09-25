@@ -384,6 +384,9 @@ const I18N = {
     'pub.restricted': 'Access is restricted to @{d} accounts.',
     'pub.googleLoading': 'Google sign-in is still loading… try again in a few seconds.',
     'pub.googleFailed': 'Google sign-in could not start. Use your @{d} email instead.',
+    'pub.signOut': '⎋ Sign out',
+    'pub.signOutTitle': 'Sign out and return to the login screen',
+    'pub.signedOut': 'Signed out — see you soon!',
     'pub.sendCode': 'Send code',
     'pub.resendCode': 'Resend code',
     'pub.sending': 'Sending your code to {email}…',
@@ -468,6 +471,12 @@ const I18N = {
     'cmp.insDone': '{a}% done vs {b}%',
     'cmp.insLess': 'has less ({a} vs {b})',
     'cmp.insIntake': '{n} created {a} vs {b} ({p}%)',
+    'cmp.chartWinsA': 'A leads by {p}%',
+    'cmp.chartWinsB': 'B leads by {p}%',
+    'cmp.scoreTitle': 'Score',
+    'cmp.scoreSub': 'head-to-head wins across all metrics',
+    'cmp.scoreLeads': 'leads {n} of {m} metrics',
+    'cmp.scoreTie': 'dead even — {n} : {n} metrics',
     'bc.measuring': 'measuring…',
     'bc.newTitle': 'New issues · last 30 days',
     'bc.new30': 'new 30D',
@@ -897,6 +906,9 @@ const I18N = {
     'pub.restricted': 'წვდომა შეზღუდულია @{d} ანგარიშებზე.',
     'pub.googleLoading': 'Google-ით შესვლა ჯერ იტვირთება… სცადეთ რამდენიმე წამში.',
     'pub.googleFailed': 'Google-ით შესვლა ვერ დაიწყო. გამოიყენეთ თქვენი @{d} ფოსტა.',
+    'pub.signOut': '⎋ გასვლა',
+    'pub.signOutTitle': 'გასვლა და დაბრუნება შესვლის ეკრანზე',
+    'pub.signedOut': 'გასულხართ სისტემიდან — ნახვამდის!',
     'pub.sendCode': 'კოდის გაგზავნა',
     'pub.resendCode': 'კოდის ხელახლა გაგზავნა',
     'pub.sending': 'კოდი იგზავნება {email} მისამართზე…',
@@ -981,6 +993,12 @@ const I18N = {
     'cmp.insDone': '{a}% მზადაა vs {b}%',
     'cmp.insLess': 'ნაკლები აქვს ({a} vs {b})',
     'cmp.insIntake': '{n} შექმნა {a} vs {b} ({p}%)',
+    'cmp.chartWinsA': 'A ლიდერობს {p}%-ით',
+    'cmp.chartWinsB': 'B ლიდერობს {p}%-ით',
+    'cmp.scoreTitle': 'ანგარიში',
+    'cmp.scoreSub': 'პირისპირ გამარჯვებები ყველა მეტრიკაზე',
+    'cmp.scoreLeads': 'ლიდერობს {m} მეტრიკადან {n}-ში',
+    'cmp.scoreTie': 'ტოლფასია — {n} : {n} მეტრიკა',
     'bc.measuring': 'იზომება…',
     'bc.newTitle': 'ახალი დავალებები · ბოლო 30 დღე',
     'bc.new30': 'ახალი',
@@ -1441,6 +1459,95 @@ function updatePubUserChip() {
   $('#pubUserName').textContent = email;
   chip.title = email;
   chip.classList.remove('hidden');
+}
+
+/* sign-out menu on the topbar identity chip: clicking the chip toggles a small
+   dropdown with a Sign out item. Signing out wipes the verified session and
+   returns the viewer to the login gate (Google 1-click + email code) — exactly
+   the state a fresh share-link visit shows. */
+function togglePubSignOut(ev) {
+  if (ev) ev.stopPropagation();
+  const chip = $('#pubUserChip');
+  const menu = $('#pubSignOutBtn');
+  if (!chip || !menu) return;
+  const open = !menu.classList.contains('hidden');
+  if (open) {
+    menu.classList.add('hidden');
+    chip.classList.remove('signout-open');
+  } else {
+    menu.classList.remove('hidden');
+    chip.classList.add('signout-open');
+  }
+}
+
+function closePubSignOut() {
+  const chip = $('#pubUserChip');
+  const menu = $('#pubSignOutBtn');
+  if (menu) menu.classList.add('hidden');
+  if (chip) chip.classList.remove('signout-open');
+}
+
+function pubSignOut() {
+  closePubSignOut();
+  /* stop any in-flight compare/board work and clear the whole viewer session */
+  pubState.compareGen = (pubState.compareGen || 0) + 1;
+  pubState.compare = null;
+  pubState.pickCompare = null;
+  pubState.currentBoard = null;
+  pubState.allSnapshot = null;
+  document.body.classList.remove('cmp-view');
+  pubState.verified = false;
+  pubState.email = '';
+  pubState.codeSent = false;
+  pubState.isAdmin = false;
+  /* let Google forget the chosen account so the next sign-in shows the chooser */
+  if (googleReady()) {
+    try { window.google.accounts.id.disableAutoSelect(); } catch { /* noop */ }
+  }
+  updatePubUserChip();          /* hides the chip (and its menu with it) */
+  renderPubAuthGate();          /* fresh login screen: Google button + email code */
+  toast(t('pub.signedOut'), 'ok');
+}
+
+/* reset the login gate to its pristine state without re-fetching the snapshot —
+   shared by sign-out and the initial screen reset */
+function renderPubAuthGate() {
+  const snap = pubState.snapshot;
+  if (!snap) return;
+  /* title depends on scope */
+  if (snap.scope === 'all') {
+    setPubTitleAccent(t('pub.orgTitle'));
+    $('#pubSubtitle').textContent = tReplace('pub.signinAll', { d: PUBLISH_DOMAIN });
+    $('#pubHeadTitle').textContent = t('pub.allTitle');
+  } else {
+    setPubTitleAccent(tReplace('pub.boardTitle', { b: snap.boardName }));
+    $('#pubSubtitle').textContent = tReplace('pub.signinBoard', { d: PUBLISH_DOMAIN });
+    $('#pubHeadTitle').textContent = snap.boardName || t('pub.headBoard');
+  }
+  $('#pubEmail').value = '';
+  $('#pubEmail').disabled = false;
+  $('#pubEmail').placeholder = 'you@' + PUBLISH_DOMAIN;
+  $('#pubCodeWrap').classList.add('hidden');
+  $('#pubCode').value = '';
+  $('#pubCode').disabled = false;
+  $('#pubSendBtn').textContent = t('pub.sendCode');
+  $('#pubSendBtn').disabled = false;
+  $('#pubVerifyBtn').textContent = t('pub.verify');
+  $('#pubVerifyBtn').classList.add('hidden');
+  $('#pubStatus').textContent = '';
+  $('#pubStatus').className = 'muted';
+  $('#pubContent').classList.add('hidden');
+  $('#pubAuthBox').classList.remove('hidden');
+  $('#pubAuthBox').classList.add('glass');
+  $('#pubAdminBar').classList.add('hidden');
+  $('#pubBoardsList').classList.add('hidden');
+  $('#pubChartsGrid').classList.add('hidden');
+  $('#pubCompareBar').classList.add('hidden');
+  $('#pubKpiGrid').classList.add('hidden');
+  $('#pubInsightsStrip').classList.add('hidden');
+  hide($('#pubPickBar'));
+  /* re-render Google's official button — GSI wipes it when the gate was hidden */
+  initGoogleButton();
 }
 
 function showPubScreen(snapshot) {
@@ -3608,6 +3715,32 @@ function renderCompareDashboard(opts = {}) {
     ? tReplace('cmp.badgeBoth', { a: A?.total ?? 0, b: B.total })
     : tReplace('dash.issuesAnalyzed', { n: A?.total ?? 0 });
 
+  /* head-to-head score: count the compare metrics each board wins and show it
+     as a live "3 : 1" tally inside the compare bar — the at-a-glance verdict */
+  const scoreEl = opts.scoreEl || $('#cmpScore');
+  if (scoreEl) {
+    if (B) {
+      let wA = 0, wB = 0;
+      for (const k of CMP_KPIS) {
+        const va = A ? A[k.key] : null, vb = B ? B[k.key] : null;
+        if (va == null || vb == null || !isFinite(va) || !isFinite(vb) || va === vb) continue;
+        if (k.winner === 'less' ? va < vb : va > vb) wA++; else wB++;
+      }
+      const sA = scoreEl.querySelector('.cmp-score-a');
+      const sB = scoreEl.querySelector('.cmp-score-b');
+      const sSub = scoreEl.querySelector('.cmp-score-sub');
+      if (sA) sA.textContent = String(wA);
+      if (sB) sB.textContent = String(wB);
+      if (sSub) sSub.textContent = wA === wB
+        ? tReplace('cmp.scoreTie', { n: wA })
+        : tReplace('cmp.scoreLeads', { n: Math.max(wA, wB), m: CMP_KPIS.length });
+      scoreEl.classList.toggle('cmp-score-tied', wA === wB);
+      show(scoreEl);
+    } else {
+      hide(scoreEl);
+    }
+  }
+
   /* insights strip → compare winners strip */
   const strip = stripEl;
   if (!strip) return;
@@ -3863,9 +3996,15 @@ function renderPubCompareView() {
     stripEl: $('#pubInsightsStrip'),   /* dedicated insights strip (charts grid is reused by chart cards) */
   });
 
-  /* charts: overlay board B onto every chart via the shared compare engine */
+  /* charts: overlay board B onto every chart via the shared compare engine.
+     The grid was hidden above — the compare view MUST re-show it, otherwise
+     the KPI cards render with no charts beneath them (the "empty compare page"
+     bug). Compare cards also get a colored left border + winner chip so the
+     side-by-side story reads at a glance. */
   const defs = pubChartDefs();
   const grid = $('#pubChartsGrid');
+  grid.classList.remove('hidden');
+  document.body.classList.add('cmp-view');
   if (!defs.length) {
     grid.innerHTML = `<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">${escapeHtml(t('pub.noCharts'))}</div>`;
     return;
@@ -3878,27 +4017,61 @@ function renderPubCompareView() {
       def, cmp.recA.metrics, cmp.recA.issues, cmp.recA.hasChangelog,
       cmp.recB.metrics, cmp.recB.issues, cmp.recB.hasChangelog, cmp.nameA, cmp.nameB,
     );
+    const card = grid.querySelector(`.chart-card[data-cid="${def.id}"]`);
     const sub = document.getElementById('sub_' + def.id);
     if (sub) {
       const base = data.subtitle || def.subtitle || '';
       sub.innerHTML = escapeHtml(base) + (data.extraSub ? ` <span class="sub-extra">· ${data.extraSub}</span>` : '');
     }
+    /* per-chart winner chip: which board "wins" this chart's headline number */
+    if (card) {
+      const chip = compareChartWinnerChip(def, data, cmp);
+      if (chip) card.querySelector('.chart-actions')?.insertAdjacentHTML('afterbegin', chip);
+    }
     if (data.empty) {
       drawCanvasMessage(canvasId, Array.isArray(data.empty) ? data.empty : [data.empty]);
-      const card = grid.querySelector(`.chart-card[data-cid="${def.id}"]`);
       if (card) card.classList.add('empty');
       continue;
     }
-    const card = grid.querySelector(`.chart-card[data-cid="${def.id}"]`);
     if (card) card.classList.remove('empty');
     mkPubChart(canvasId, chartConfigFor(def, data, theme, canvasId));
   }
+}
+
+/* winner chip for a compare-mode chart card: derived from the chart's headline
+   total (centerValue) — higher wins for counts, lower wins for durations.
+   Returns '' for doughnuts (board-A only) and empty charts. */
+function compareChartWinnerChip(def, data, cmp) {
+  if (def.type === 'doughnut' || data.empty || !cmp) return '';
+  const a = cmp.recA.metrics, b = cmp.recB.metrics;
+  if (!a || !b) return '';
+  /* pick the metric that matches this chart's headline number */
+  const MAP = {
+    pipeline: ['total', 'more'], throughput: ['resolved30', 'more'], createdTrend: ['created30', 'more'],
+    statusDist: ['total', 'more'], blockedDist: ['blockedCount', 'less'], backlogGrowth: ['wip', 'less'],
+    assigneeLoad: ['wip', 'less'], ageBuckets: ['wip', 'less'], assigneeCycle: ['cycleAvg', 'less'],
+    phaseDelays: ['cycleAvg', 'less'], statusTime: ['cycleAvg', 'less'],
+  };
+  const hit = MAP[def.id];
+  if (!hit) return '';
+  const [key, dir] = hit;
+  const va = a[key], vb = b[key];
+  if (va == null || vb == null || !isFinite(va) || !isFinite(vb) || va === vb) {
+    return `<span class="cmp-winner cmp-winner-even cmp-chart-winner">— ${escapeHtml(t('cmp.even'))}</span>`;
+  }
+  const aWins = dir === 'less' ? va < vb : va > vb;
+  const pct = pctDelta(vb, va);
+  const label = aWins
+    ? tReplace('cmp.chartWinsA', { p: Math.abs(pct) })
+    : tReplace('cmp.chartWinsB', { p: Math.abs(pct) });
+  return `<span class="cmp-winner ${aWins ? 'cmp-winner-a' : 'cmp-winner-b'} cmp-chart-winner">${aWins ? '▲' : '▼'} ${escapeHtml(label)}</span>`;
 }
 
 /* leave the pub compare view → back to the all-boards list */
 function exitPubCompare() {
   pubState.compare = null;
   pubState.compareGen = (pubState.compareGen || 0) + 1;
+  document.body.classList.remove('cmp-view');
   hide($('#pubCompareBar'));
   hide($('#pubInsightsStrip'));
   $('#pubKpiGrid').classList.add('hidden');
@@ -4858,6 +5031,14 @@ function renderCharts(defs, m) {
       }
     }
 
+    /* compare mode: per-chart winner chip — same overlay verdict as the pub view */
+    if (cmp && card) {
+      const chip = compareChartWinnerChip(def, data, {
+        recA: { metrics: m }, recB: { metrics: cmp.metrics },
+      });
+      if (chip) card.querySelector('.chart-actions')?.insertAdjacentHTML('afterbegin', chip);
+    }
+
     if (data.empty) {
       drawCanvasMessage(canvasId, Array.isArray(data.empty) ? data.empty : [data.empty]);
       if (card) card.classList.add('empty');
@@ -5574,6 +5755,20 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('#pubPickCancelBtn').addEventListener('click', togglePubPickCompareMode);
   $('#pubCmpExitBtn').addEventListener('click', exitPubCompare);
+  /* sign-out: click the identity chip to reveal the menu, click the item to sign
+     out; click anywhere else (or Escape) to close without signing out */
+  $('#pubUserChip').addEventListener('click', togglePubSignOut);
+  $('#pubSignOutBtn').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    pubSignOut();
+  });
+  document.addEventListener('click', (ev) => {
+    if (ev.target.closest && ev.target.closest('#pubUserChip')) return;
+    closePubSignOut();
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') closePubSignOut();
+  });
   $('#pubEmail').addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') pubSendCode();
   });
