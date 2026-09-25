@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-<link rel="stylesheet" href="../styles.css?v=8241316" />
+<link rel="stylesheet" href="../styles.css?v=8241317" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -536,10 +536,9 @@
         <div class="muted" style="font-size:0.72rem;margin-top:6px" data-i18n="pub.shareNote">Only you (admin) can see this link. Viewers authenticate with a @caucasusauto.com Google or email account.</div>
       </div>
 
-      <div id="pubBoardsList" class="pub-charts-grid"></div>
-      <div id="pubChartsGrid" class="pub-charts-grid hidden"></div>
-
-      <!-- pub compare mode: pick bar (all-boards view) + side-by-side dashboard -->
+      <!-- pub compare mode: pick bar (all-boards view) + side-by-side dashboard.
+           The pick bar sits ABOVE the boards list so it is visible immediately,
+           without scrolling to the bottom of the grid. -->
       <div id="pubPickBar" class="pick-bar glass hidden">
         <span class="pick-title" data-i18n="cmp.pubPickTitle">⇄ Compare boards</span>
         <span id="pubPickSlotA" class="pick-slot" data-i18n="cmp.pubSlotA">Pick board A</span>
@@ -551,6 +550,10 @@
           <button id="pubPickCancelBtn" class="btn btn-ghost" data-i18n="cmp.pubCancel">Cancel</button>
         </span>
       </div>
+
+      <div id="pubBoardsList" class="pub-charts-grid"></div>
+      <div id="pubChartsGrid" class="pub-charts-grid hidden"></div>
+
       <div id="pubCompareBar" class="compare-bar hidden">
         <div class="cmp-side cmp-side-a">
           <span class="cmp-dot"></span>
@@ -581,6 +584,6 @@
 <div id="toast" class="toast hidden"></div>
 
 <script>window.ADMIN_PANEL = true;</script>
-<script src="../app.js?v=8241316"></script>
+<script src="../app.js?v=8241317"></script>
 </body>
 </html>
