@@ -586,6 +586,8 @@ body {
 
 .chart-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s ease; flex-shrink: 0; }
 .chart-card:hover .chart-actions { opacity: 1; }
+/* in compare mode the winner chip must always be visible, not just on hover */
+body.cmp-view .chart-actions { opacity: 1; }
 .chart-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 8px;
@@ -962,7 +964,10 @@ body:not(.admin-body) .admin-hidden { display: none; }
 .cmp-val-num { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; }
 .cmp-val-a .cmp-val-num { color: #a5b4fc; }
 .cmp-val-b .cmp-val-num { color: #67e8f9; }
-.cmp-val-tag { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em; }
+.cmp-val-tag {
+  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.02em;
+  max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .cmp-val-a .cmp-val-tag { color: #6366f1; }
 .cmp-val-b .cmp-val-tag { color: #22d3ee; }
 .cmp-winner { display: inline-flex; align-items: center; gap: 4px; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.02em; padding: 3px 9px; border-radius: 999px; }
@@ -974,20 +979,63 @@ body:not(.admin-body) .admin-hidden { display: none; }
 .cmp-delta.down { color: #fca5a5; }
 .cmp-delta.even { color: var(--muted); }
 
-/* compare insights / winners strip */
+/* compare insights / winners strip — analyst-style cards */
 .cmp-insights-strip {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr));
   gap: 12px; margin-bottom: 18px;
 }
 .cmp-insight {
-  display: flex; align-items: center; gap: 11px; padding: 13px 16px;
-  font-size: 0.84rem; line-height: 1.4; color: #c7cde2;
+  display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px 13px;
   background: var(--panel); border: 1px solid rgba(99, 102, 241, 0.3);
   border-radius: 14px; animation: rise 0.45s ease both;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
-.cmp-insight:hover { border-color: rgba(99, 102, 241, 0.55); }
-.cmp-insight b { color: var(--text); }
-.cmp-insight .ins-icon { font-size: 1.05rem; flex-shrink: 0; }
+.cmp-insight:hover { border-color: rgba(99, 102, 241, 0.55); transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18); }
+.cmp-insight .ins-icon {
+  font-size: 1.15rem; flex-shrink: 0; line-height: 1;
+  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 10px; background: rgba(99, 102, 241, 0.12); margin-top: 1px;
+}
+.cmp-insight-verdict .ins-icon { background: rgba(245, 158, 11, 0.14); }
+.cmp-insight-momentum .ins-icon { background: rgba(34, 211, 238, 0.12); }
+.cmp-insight-flow .ins-icon { background: rgba(110, 231, 183, 0.12); }
+.cmp-insight-speed .ins-icon { background: rgba(167, 139, 250, 0.12); }
+.cmp-insight-risk .ins-icon { background: rgba(251, 113, 133, 0.12); }
+.cmp-ins-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.cmp-ins-title {
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.07em; text-transform: uppercase;
+  color: #a5b4fc; line-height: 1.25;
+}
+.cmp-insight-momentum .cmp-ins-title { color: #67e8f9; }
+.cmp-insight-flow .cmp-ins-title { color: #6ee7b7; }
+.cmp-insight-speed .cmp-ins-title { color: #c4b5fd; }
+.cmp-insight-risk .cmp-ins-title { color: #fda4af; }
+.cmp-ins-text { font-size: 0.83rem; line-height: 1.5; color: #c7cde2; }
+.cmp-ins-text b { color: var(--text); font-weight: 700; }
+.cmp-ins-stats {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px;
+  font-size: 0.68rem; font-weight: 600; color: var(--muted);
+  padding-top: 6px; border-top: 1px dashed rgba(148, 163, 184, 0.22);
+}
+.cmp-ins-stat { font-variant-numeric: tabular-nums; }
+.cmp-ins-stat.pos { color: #6ee7b7; }
+.cmp-ins-stat.neg { color: #fca5a5; }
+.cmp-ins-delta { font-weight: 800; font-variant-numeric: tabular-nums; }
+.cmp-ins-delta.pos { color: #6ee7b7; }
+.cmp-ins-delta.neg { color: #fca5a5; }
+.cmp-ins-board {
+  display: inline-flex; align-items: center; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 800; font-size: 0.8em; padding: 1px 7px; border-radius: 999px; vertical-align: 1px;
+}
+.cmp-ins-a { color: #a5b4fc; background: rgba(99, 102, 241, 0.16); border: 1px solid rgba(99, 102, 241, 0.35); }
+.cmp-ins-b { color: #67e8f9; background: rgba(34, 211, 238, 0.13); border: 1px solid rgba(34, 211, 238, 0.35); }
+.cmp-ins-chip {
+  display: inline-flex; align-items: center;
+  font-size: 0.66rem; font-weight: 700; padding: 1px 8px; border-radius: 999px;
+  vertical-align: 1px; white-space: nowrap;
+}
+.cmp-ins-chip.chip-a { color: #a5b4fc; background: rgba(99, 102, 241, 0.14); border: 1px solid rgba(99, 102, 241, 0.35); }
+.cmp-ins-chip.chip-b { color: #67e8f9; background: rgba(34, 211, 238, 0.12); border: 1px solid rgba(34, 211, 238, 0.35); }
 .cmp-good { color: #6ee7b7; font-weight: 700; }
 .cmp-bad { color: #fca5a5; font-weight: 700; }
 
@@ -1035,6 +1083,12 @@ body.cmp-view .chart-card::before {
   .cmp-vs { display: none; }
   .cmp-select { max-width: 100%; }
   .cmp-name { max-width: 180px; }
+  .cmp-insights-strip { grid-template-columns: 1fr; gap: 10px; }
+  .cmp-insight { padding: 12px 13px 11px; }
+  .cmp-insight .ins-icon { width: 30px; height: 30px; font-size: 1rem; }
+  .cmp-ins-text { font-size: 0.8rem; }
+  .cmp-ins-board { max-width: 120px; }
+  .cmp-val-tag { max-width: 90px; }
 }
 
 /* ══════════ BOARD-CARD STATS (main page) ══════════ */
@@ -1320,6 +1374,22 @@ body.light .cmp-winner-b { color: #0e7490; }
 body.light .cmp-winner-even { color: #64748b; }
 body.light .cmp-delta.up { color: #047857; }
 body.light .cmp-delta.down { color: #b91c1c; }
+body.light .cmp-ins-text { color: #3f4660; }
+body.light .cmp-ins-text b { color: #1e2540; }
+body.light .cmp-ins-title { color: #4f46e5; }
+body.light .cmp-insight-momentum .cmp-ins-title { color: #0e7490; }
+body.light .cmp-insight-flow .cmp-ins-title { color: #047857; }
+body.light .cmp-insight-speed .cmp-ins-title { color: #6d28d9; }
+body.light .cmp-insight-risk .cmp-ins-title { color: #be123c; }
+body.light .cmp-ins-stats { border-top-color: rgba(71, 85, 105, 0.25); }
+body.light .cmp-ins-stat.pos,
+body.light .cmp-ins-delta.pos { color: #047857; }
+body.light .cmp-ins-stat.neg,
+body.light .cmp-ins-delta.neg { color: #b91c1c; }
+body.light .cmp-ins-a { color: #4338ca; background: rgba(79, 70, 229, 0.08); border-color: rgba(79, 70, 229, 0.3); }
+body.light .cmp-ins-b { color: #0e7490; background: rgba(14, 116, 144, 0.08); border-color: rgba(14, 116, 144, 0.3); }
+body.light .cmp-ins-chip.chip-a { color: #4338ca; background: rgba(79, 70, 229, 0.07); border-color: rgba(79, 70, 229, 0.3); }
+body.light .cmp-ins-chip.chip-b { color: #0e7490; background: rgba(14, 116, 144, 0.07); border-color: rgba(14, 116, 144, 0.3); }
 body.light .pick-title { color: #4f46e5; }
 body.light .pick-slot.filled { color: #312e81; }
 body.light .board-card.pick-sel .board-open,

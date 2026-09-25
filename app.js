@@ -447,32 +447,54 @@ const I18N = {
     'cmp.kpiCycleSub': 'create → resolve',
     'cmp.kpiWip': 'Work in progress',
     'cmp.kpiWipSub': 'not yet done',
-    'cmp.badgeBoth': 'A: {a} issues · B: {b} issues',
+    'cmp.badgeBoth': '{na}: {a} issues · {nb}: {b} issues',
     'cmp.hintBar': 'Compare mode — pick a second board in the bar above to overlay every chart and metric.',
     'cmp.aFaster': '{n} is faster',
     'cmp.bFaster': '{n} is faster',
     'cmp.aHigher': '{n} higher',
     'cmp.bHigher': '{n} higher',
-    'cmp.aAbove': 'A is {p}% above B',
-    'cmp.aBelow': 'A is {p}% below B',
+    'cmp.aAbove': '{a} is {p}% above {b}',
+    'cmp.aBelow': '{a} is {p}% below {b}',
     'cmp.even': 'even',
     'cmp.identical': 'identical on both boards',
     'cmp.noData': 'no data to compare',
     'cmp.pickBHint': 'pick board B above',
+    'cmp.outerRing': 'outer ring',
     'cmp.lblThroughput': 'Throughput',
     'cmp.lblSpeed': 'Speed',
     'cmp.lblOpenLoad': 'Open load',
     'cmp.lblCompletion': 'Completion',
     'cmp.lblBlocked': 'Blocked work',
     'cmp.lblIntake': 'Intake gap',
-    'cmp.insShipped': 'shipped more in 30 days ({a} vs {b})',
-    'cmp.insCloses': 'closes work faster ({a} vs {b})',
-    'cmp.insWip': 'carries less WIP ({a} vs {b})',
-    'cmp.insDone': '{a}% done vs {b}%',
-    'cmp.insLess': 'has less ({a} vs {b})',
-    'cmp.insIntake': '{n} created {a} vs {b} ({p}%)',
-    'cmp.chartWinsA': 'A leads by {p}%',
-    'cmp.chartWinsB': 'B leads by {p}%',
+    'cmp.lblMomentum': 'Momentum',
+    'cmp.lblFlow': 'Flow balance',
+    'cmp.lblSpeedQuality': 'Speed & quality',
+    'cmp.lblRisk': 'Risk radar',
+    'cmp.insVerdictTitle': '{n} leads overall',
+    'cmp.insVerdictTieTitle': 'Dead-even duel',
+    'cmp.insVerdict': '{a} wins {w} of {m} cross-checks against {b} — stronger where it matters.',
+    'cmp.insVerdictTie': 'Both boards split {m} cross-checks evenly — no clear leader.',
+    'cmp.wins.throughput': 'throughput',
+    'cmp.wins.speed': 'speed',
+    'cmp.wins.completion': 'completion',
+    'cmp.wins.load': 'lean WIP',
+    'cmp.wins.blocked': 'fewer blocked',
+    'cmp.insMomentum': '{n} is accelerating faster — recent 30-day output grew more vs the prior 30 days.',
+    'cmp.insMomentumMixed': 'Momentum diverges — one board is speeding up while the other cools off.',
+    'cmp.insFlow': '{n} keeps flow balanced — intake exceeds delivery by only {a}, vs {b} on the other board.',
+    'cmp.insSpeed': '{n} closes work faster on average ({a} vs {b}) — pair that with completion below.',
+    'cmp.insRisk': '{n} carries less stalled work ({a} blocked vs {b}) — healthier delivery pipeline.',
+    'cmp.insRiskEven': 'Blocked work is level on both boards — risk sits elsewhere.',
+    'cmp.insStatsIssues': ' issues',
+    'cmp.insStatsShipped': ' shipped 30d',
+    'cmp.insStatsCycle': ' avg cycle',
+    'cmp.insStatsDone': ' done',
+    'cmp.insStatsBlocked': ' blocked',
+    'cmp.insStatsWip': ' WIP',
+    'cmp.insStatsInOut': ' in ▸ out 30d',
+    'cmp.insStatsNowPrev': ' now vs prior 30d',
+    'cmp.chartWinsA': '{n} leads by {p}%',
+    'cmp.chartWinsB': '{n} leads by {p}%',
     'cmp.scoreTitle': 'Score',
     'cmp.scoreSub': 'head-to-head wins across all metrics',
     'cmp.scoreLeads': 'leads {n} of {m} metrics',
@@ -969,32 +991,54 @@ const I18N = {
     'cmp.kpiCycleSub': 'შექმნა → დახურვა',
     'cmp.kpiWip': 'მიმდინარე სამუშაო',
     'cmp.kpiWipSub': 'ჯერ არ დასრულებულა',
-    'cmp.badgeBoth': 'A: {a} დავალება · B: {b} დავალება',
+    'cmp.badgeBoth': '{na}: {a} დავალება · {nb}: {b} დავალება',
     'cmp.hintBar': 'შედარების რეჟიმი — აირჩიეთ მეორე დაფა ზემოთა ზოლში, რომ ყველა გრაფიკი და მეტრიკა გადაფაროთ.',
     'cmp.aFaster': '{n} უფრო სწრაფია',
     'cmp.bFaster': '{n} უფრო სწრაფია',
     'cmp.aHigher': '{n} უფრო მაღალია',
     'cmp.bHigher': '{n} უფრო მაღალია',
-    'cmp.aAbove': 'A {p}%-ით მაღლაა B-ზე',
-    'cmp.aBelow': 'A {p}%-ით დაბლაა B-ზე',
+    'cmp.aAbove': '{a} {p}%-ით მაღლაა {b}-ზე',
+    'cmp.aBelow': '{a} {p}%-ით დაბლაა {b}-ზე',
     'cmp.even': 'თანაბარი',
     'cmp.identical': 'ორივე დაფაზე იდენტურია',
     'cmp.noData': 'შედარების მონაცემები არ არის',
     'cmp.pickBHint': 'აირჩიეთ დაფა B ზემოთ',
+    'cmp.outerRing': 'გარე რგოლი',
     'cmp.lblThroughput': 'გამტარუნარიანობა',
     'cmp.lblSpeed': 'სიჩქარე',
     'cmp.lblOpenLoad': 'ღია დატვირთვა',
     'cmp.lblCompletion': 'დასრულება',
     'cmp.lblBlocked': 'დაბლოკილი სამუშაო',
     'cmp.lblIntake': 'შემოდინების სხვაობა',
-    'cmp.insShipped': '30 დღეში მეტი დახურა ({a} vs {b})',
-    'cmp.insCloses': 'სამუშაოს უფრო სწრაფად ხურავს ({a} vs {b})',
-    'cmp.insWip': 'ნაკლებ WIP აქვს ({a} vs {b})',
-    'cmp.insDone': '{a}% მზადაა vs {b}%',
-    'cmp.insLess': 'ნაკლები აქვს ({a} vs {b})',
-    'cmp.insIntake': '{n} შექმნა {a} vs {b} ({p}%)',
-    'cmp.chartWinsA': 'A ლიდერობს {p}%-ით',
-    'cmp.chartWinsB': 'B ლიდერობს {p}%-ით',
+    'cmp.lblMomentum': 'დინამიკა',
+    'cmp.lblFlow': 'ნაკადის ბალანსი',
+    'cmp.lblSpeedQuality': 'სიჩქარე და ხარისხი',
+    'cmp.lblRisk': 'რისკის რადარი',
+    'cmp.insVerdictTitle': '{n} ლიდერობს ჯამში',
+    'cmp.insVerdictTieTitle': 'თანაბარი დუელი',
+    'cmp.insVerdict': '{a} გამარჯვებულია {m} ჯვარედინი შემოწმებიდან {w}-ში {b}-ს წინააღმდეგ — ძლიერია იქ, სადაც მნიშვნელოვანია.',
+    'cmp.insVerdictTie': 'ორივე დაფა {m} ჯვარედინ შემოწმებას თანაბრად ინაწილებს — მკვეთრი ლიდერი არ ჩანს.',
+    'cmp.wins.throughput': 'გამტარუნარიანობა',
+    'cmp.wins.speed': 'სიჩქარე',
+    'cmp.wins.completion': 'დასრულება',
+    'cmp.wins.load': 'მსუბუქი WIP',
+    'cmp.wins.blocked': 'ნაკლები ბლოკი',
+    'cmp.insMomentum': '{n} უფრო სწრაფად აჩქარებს — ბოლო 30 დღის გამომავალმა წინა 30 დღესთან შედარებით მეტი ზრდა აჩვენა.',
+    'cmp.insMomentumMixed': 'დინამიკა იშლება — ერთი დაფა აჩქარებს, მეორე კლებულობს.',
+    'cmp.insFlow': '{n} ნაკადს აბალანსებს — შემოდინება მიწოდებას მხოლოდ {a}-ით აღემატება, მეორე დაფაზე კი {b}-ით.',
+    'cmp.insSpeed': '{n} სამუშაოს საშუალოდ უფრო სწრაფად ხურავს ({a} vs {b}) — დასრულების მაჩვენებელთან ერთად შეაფასეთ.',
+    'cmp.insRisk': '{n} ნაკლებ გაჩერებულ სამუშაოს ატარებს ({a} დაბლოკილი vs {b}) — მიწოდების ჯანსაღი ხაზი.',
+    'cmp.insRiskEven': 'დაბლოკილი სამუშაო ორივე დაფაზე თანაბარია — რისკი სხვაგან ზის.',
+    'cmp.insStatsIssues': ' დავალება',
+    'cmp.insStatsShipped': ' დახურული 30დ',
+    'cmp.insStatsCycle': ' საშ. ციკლი',
+    'cmp.insStatsDone': ' მზადაა',
+    'cmp.insStatsBlocked': ' დაბლოკილი',
+    'cmp.insStatsWip': ' WIP',
+    'cmp.insStatsInOut': ' შემოსული ▸ გასული 30დ',
+    'cmp.insStatsNowPrev': ' ახლა vs წინა 30დ',
+    'cmp.chartWinsA': '{n} ლიდერობს {p}%-ით',
+    'cmp.chartWinsB': '{n} ლიდერობს {p}%-ით',
     'cmp.scoreTitle': 'ანგარიში',
     'cmp.scoreSub': 'პირისპირ გამარჯვებები ყველა მეტრიკაზე',
     'cmp.scoreLeads': 'ლიდერობს {m} მეტრიკადან {n}-ში',
@@ -3654,6 +3698,13 @@ function restoreKpiGrid() {
   grid.innerHTML = KPI_GRID_ORIGINAL;
 }
 
+/* compact board name for chips/tags/badges — full names overflow small pills */
+function shortBoardName(name) {
+  const s = String(name || '').trim();
+  if (!s) return s;
+  return s.length > 24 ? s.slice(0, 23).trimEnd() + '…' : s;
+}
+
 /* re-render the six KPI cards in compare layout (A value vs B value + winner + delta).
    All inputs are explicit params so BOTH the admin dashboard and the public share
    view can render the same compare layout: admin passes the live state values,
@@ -3667,6 +3718,9 @@ function renderCompareDashboard(opts = {}) {
   if (!grid) return;
   const badgeEl = opts.badgeEl || $('#issueCountBadge');
   const stripEl = opts.stripEl || $('#insightsStrip');
+  /* short names keep chips/tags/badges compact — full names overflow the pills */
+  const shortA = shortBoardName(nameA) || 'A';
+  const shortB = shortBoardName(nameB) || 'B';
 
   grid.classList.add('kpi-grid-compare');
   grid.innerHTML = CMP_KPIS.map((k) => {
@@ -3674,9 +3728,9 @@ function renderCompareDashboard(opts = {}) {
     const b = B ? B[k.key] : null;
     const valuesHtml = B
       ? `<div class="cmp-values">
-           <span class="cmp-val cmp-val-a"><span class="cmp-val-num">${k.fmt(a)}</span><span class="cmp-val-tag">A</span></span>
+           <span class="cmp-val cmp-val-a" title="${escapeHtml(nameA)}"><span class="cmp-val-num">${k.fmt(a)}</span><span class="cmp-val-tag">${escapeHtml(shortA)}</span></span>
            <span class="cmp-vs-inline">/</span>
-           <span class="cmp-val cmp-val-b"><span class="cmp-val-num">${k.fmt(b)}</span><span class="cmp-val-tag">B</span></span>
+           <span class="cmp-val cmp-val-b" title="${escapeHtml(nameB)}"><span class="cmp-val-num">${k.fmt(b)}</span><span class="cmp-val-tag">${escapeHtml(shortB)}</span></span>
          </div>`
       : `<div class="cmp-values"><span class="cmp-val-num" style="color:var(--muted)">—</span></div>`;
 
@@ -3687,11 +3741,9 @@ function renderCompareDashboard(opts = {}) {
       if (numA != null && numB != null && numA !== numB) {
         const aWins = k.winner === 'less' ? numA < numB : numA > numB;
         const d = pctDelta(numB, numA);
-        const label = k.winner === 'less'
-          ? (aWins ? tReplace('cmp.aFaster', { n: nameA }) : tReplace('cmp.bFaster', { n: nameB }))
-          : (aWins ? tReplace('cmp.aHigher', { n: nameA }) : tReplace('cmp.bHigher', { n: nameB }));
-        winnerHtml = `<span class="cmp-winner ${aWins ? 'cmp-winner-a' : 'cmp-winner-b'}">${aWins ? '▲' : '▼'} ${escapeHtml(label)}</span>`;
-        deltaHtml = `<div class="cmp-delta ${d > 0 ? 'up' : 'down'}">${escapeHtml(d > 0 ? tReplace('cmp.aAbove', { p: Math.abs(d) }) : tReplace('cmp.aBelow', { p: Math.abs(d) }))}</div>`;
+        const label = aWins ? tReplace('cmp.aHigher', { n: shortA }) : tReplace('cmp.bHigher', { n: shortB });
+        winnerHtml = `<span class="cmp-winner ${aWins ? 'cmp-winner-a' : 'cmp-winner-b'}" title="${escapeHtml(nameA)} vs ${escapeHtml(nameB)}">${aWins ? '▲' : '▼'} ${escapeHtml(label)}</span>`;
+        deltaHtml = `<div class="cmp-delta ${d > 0 ? 'up' : 'down'}">${escapeHtml(d > 0 ? tReplace('cmp.aAbove', { a: shortA, b: shortB, p: Math.abs(d) }) : tReplace('cmp.aBelow', { a: shortA, b: shortB, p: Math.abs(d) }))}</div>`;
       } else if (numA != null && numB != null) {
         winnerHtml = `<span class="cmp-winner cmp-winner-even">— ${escapeHtml(t('cmp.even'))}</span>`;
         deltaHtml = `<div class="cmp-delta even">${escapeHtml(t('cmp.identical'))}</div>`;
@@ -3710,9 +3762,9 @@ function renderCompareDashboard(opts = {}) {
     </div>`;
   }).join('');
 
-  /* keep the header badge informative */
+  /* keep the header badge informative — board names, not A/B */
   if (badgeEl) badgeEl.textContent = B
-    ? tReplace('cmp.badgeBoth', { a: A?.total ?? 0, b: B.total })
+    ? tReplace('cmp.badgeBoth', { a: A?.total ?? 0, b: B.total, na: shortA, nb: shortB })
     : tReplace('dash.issuesAnalyzed', { n: A?.total ?? 0 });
 
   /* head-to-head score: count the compare metrics each board wins and show it
@@ -3747,52 +3799,137 @@ function renderCompareDashboard(opts = {}) {
   if (B) {
     const ins = buildCompareInsights(A, B, nameA, nameB);
     strip.innerHTML = ins.map((x, i) =>
-      `<div class="cmp-insight" style="animation-delay:${i * 70}ms"><span class="ins-icon">${x.icon}</span><span>${x.html}</span></div>`
+      `<div class="cmp-insight cmp-insight-${x.kind}" style="animation-delay:${i * 70}ms">` +
+        `<span class="ins-icon">${x.icon}</span>` +
+        `<div class="cmp-ins-body">` +
+          `<div class="cmp-ins-title">${x.title}</div>` +
+          `<div class="cmp-ins-text">${x.html}</div>` +
+          (x.stats ? `<div class="cmp-ins-stats">${x.stats}</div>` : '') +
+        `</div>` +
+      `</div>`
     ).join('');
     show(strip);
   } else {
-    strip.innerHTML = `<div class="cmp-insight"><span class="ins-icon">⇄</span><span>${escapeHtml(t('cmp.hintBar'))}</span></div>`;
+    strip.innerHTML = `<div class="cmp-insight"><span class="ins-icon">⇄</span><div class="cmp-ins-body"><div class="cmp-ins-text">${escapeHtml(t('cmp.hintBar'))}</div></div></div>`;
     show(strip);
   }
 }
 
-/* "who wins what" summary for the compare strip */
+/* "who wins what" summary for the compare strip. Each card cross-references
+   SEVERAL datapoints (trend vs prior 30d, cycle-time trend, completion rate,
+   WIP vs throughput) so conclusions read like an analyst verdict, not a
+   single-number echo. Cards are structured: label → headline → supporting
+   stats row. */
 function buildCompareInsights(A, B, nameA, nameB) {
   const out = [];
-  const d = (x, y) => pctDelta(y, x); /* % A vs B */
-  const wA = (html) => `<span class="cmp-good">${escapeHtml(nameA)}</span> ${html}`;
-  const wB = (html) => `<span class="cmp-good">${escapeHtml(nameB)}</span> ${html}`;
+  const pct = (x, y) => pctDelta(y, x); /* % A vs B */
+  const sA = shortBoardName(nameA), sB = shortBoardName(nameB);
+  /* board-name span with its side color — used in headlines and verdict rows */
+  const tag = (who, full) => `<span class="cmp-ins-board cmp-ins-${who}" title="${escapeHtml(full)}">${escapeHtml(who === 'a' ? sA : sB)}</span>`;
+  const stat = (v, cls) => `<span class="cmp-ins-stat${cls ? ' ' + cls : ''}">${v}</span>`;
+  const delta = (a, b) => {
+    const d = pct(a, b);
+    return d == null ? '' : `<span class="cmp-ins-delta ${d > 0 ? 'pos' : 'neg'}">${d > 0 ? '+' : ''}${d}%</span>`;
+  };
 
-  /* throughput winner */
-  if (A.resolved30 !== B.resolved30) {
-    const aWins = A.resolved30 > B.resolved30;
-    out.push({ icon: '⚡', html: `${t('cmp.lblThroughput')} · ${aWins ? wA(tReplace('cmp.insShipped', { a: `<b>${A.resolved30}</b>`, b: `<b>${B.resolved30}</b>` })) : wB(tReplace('cmp.insShipped', { a: `<b>${B.resolved30}</b>`, b: `<b>${A.resolved30}</b>` }))}` });
+  /* ── 1. overall verdict: cross-reference size, throughput, speed, completion ── */
+  {
+    let wA = 0, wB = 0;
+    const wins = [];
+    const tally = (cond, onA, what) => { if (cond) { wA++; wins.push({ who: 'a', what }); } else { wB++; wins.push({ who: 'b', what }); } };
+    if (A.resolved30 !== B.resolved30) tally(A.resolved30 > B.resolved30, 'throughput');
+    if (A.cycleAvg != null && B.cycleAvg != null && Math.round(A.cycleAvg) !== Math.round(B.cycleAvg)) tally(A.cycleAvg < B.cycleAvg, 'speed');
+    if (A.doneRate !== B.doneRate) tally(A.doneRate > B.doneRate, 'completion');
+    if (A.wip !== B.wip) tally(A.wip < B.wip, 'load');
+    if (A.blockedCount !== B.blockedCount) tally(A.blockedCount < B.blockedCount, 'blocked');
+    if (wA || wB) {
+      const lead = wA === wB ? null : (wA > wB ? 'a' : 'b');
+      const verdict = lead
+        ? tReplace('cmp.insVerdict', { a: lead === 'a' ? sA : sB, b: lead === 'a' ? sB : sA, w: Math.max(wA, wB), m: wA + wB })
+        : tReplace('cmp.insVerdictTie', { m: wA + wB });
+      out.push({
+        icon: '🏆', kind: 'verdict',
+        title: lead ? tReplace('cmp.insVerdictTitle', { n: lead === 'a' ? sA : sB }) : t('cmp.insVerdictTieTitle'),
+        html: verdict + ' ' + wins.slice(0, 3).map((w) => `<span class="cmp-ins-chip ${w.who === 'a' ? 'chip-a' : 'chip-b'}">${escapeHtml(t('cmp.wins.' + w.what))}</span>`).join(''),
+        stats:
+          stat(`${A.total} / ${B.total}`, '') + t('cmp.insStatsIssues') +
+          stat(`${A.resolved30} / ${B.resolved30}`) + t('cmp.insStatsShipped') +
+          stat(`${A.cycleAvg != null ? fmtDuration(A.cycleAvg) : '—'} / ${B.cycleAvg != null ? fmtDuration(B.cycleAvg) : '—'}`) + t('cmp.insStatsCycle'),
+      });
+    }
   }
-  /* cycle time winner (lower is better) */
-  if (A.cycleAvg != null && B.cycleAvg != null && Math.round(A.cycleAvg) !== Math.round(B.cycleAvg)) {
+
+  /* ── 2. momentum: 30d throughput vs the prior 30d on BOTH boards ── */
+  {
+    const tA = A.resolvedPrev30 ? pctDelta(A.resolvedPrev30, A.resolved30) : null;
+    const tB = B.resolvedPrev30 ? pctDelta(B.resolvedPrev30, B.resolved30) : null;
+    if (tA != null || tB != null) {
+      const better = (x, y) => x == null ? false : (y == null ? true : x > y);
+      const aBetter = better(tA, tB);
+      const lead = tA == null || tB == null ? null : (aBetter ? 'a' : 'b');
+      out.push({
+        icon: '📈', kind: 'trend',
+        title: t('cmp.lblMomentum'),
+        html: lead
+          ? tReplace('cmp.insMomentum', { n: tag(lead, lead === 'a' ? nameA : nameB) })
+          : escapeHtml(t('cmp.insMomentumMixed')),
+        stats:
+          stat(`${A.resolved30} vs ${A.resolvedPrev30}`, tA != null && tA > 0 ? 'pos' : tA != null && tA < 0 ? 'neg' : '') + delta(A.resolvedPrev30, A.resolved30) + t('cmp.insStatsNowPrev') +
+          stat(`${B.resolved30} vs ${B.resolvedPrev30}`, tB != null && tB > 0 ? 'pos' : tB != null && tB < 0 ? 'neg' : '') + delta(B.resolvedPrev30, B.resolved30) + t('cmp.insStatsNowPrev'),
+      });
+    }
+  }
+
+  /* ── 3. flow balance: intake vs delivery + WIP pressure on both boards ── */
+  {
+    const balA = A.created30 - A.resolved30, balB = B.created30 - B.resolved30;
+    if (balA !== balB) {
+      const aHealthier = balA < balB;   /* smaller intake surplus = healthier */
+      const lead = aHealthier ? 'a' : 'b';
+      out.push({
+        icon: '⚖️', kind: 'flow',
+        title: t('cmp.lblFlow'),
+        html: tReplace('cmp.insFlow', { n: tag(lead, lead === 'a' ? nameA : nameB), a: Math.abs(balA), b: Math.abs(balB) }),
+        stats:
+          stat(`${A.created30} ▸ ${A.resolved30}`, balA > 0 ? 'neg' : 'pos') + t('cmp.insStatsInOut') +
+          stat(`${B.created30} ▸ ${B.resolved30}`, balB > 0 ? 'neg' : 'pos') + t('cmp.insStatsInOut') +
+          stat(`${A.wip} / ${B.wip}`) + t('cmp.insStatsWip'),
+      });
+    }
+  }
+
+  /* ── 4. speed + quality: cycle time vs completion rate combined ── */
+  if (A.cycleAvg != null && B.cycleAvg != null && (Math.round(A.cycleAvg) !== Math.round(B.cycleAvg) || A.doneRate !== B.doneRate)) {
     const aWins = A.cycleAvg < B.cycleAvg;
-    out.push({ icon: '⏱', html: `${t('cmp.lblSpeed')} · ${aWins ? wA(tReplace('cmp.insCloses', { a: fmtDuration(A.cycleAvg), b: fmtDuration(B.cycleAvg) })) : wB(tReplace('cmp.insCloses', { a: fmtDuration(B.cycleAvg), b: fmtDuration(A.cycleAvg) }))}` });
+    const lead = aWins ? 'a' : 'b';
+    out.push({
+      icon: '⏱️', kind: 'speed',
+      title: t('cmp.lblSpeedQuality'),
+      html: tReplace('cmp.insSpeed', { n: tag(lead, lead === 'a' ? nameA : nameB), a: fmtDuration(A.cycleAvg), b: fmtDuration(B.cycleAvg) }),
+      stats:
+        stat(fmtDuration(A.cycleAvg), aWins ? 'pos' : 'neg') + t('cmp.insStatsCycle') +
+        stat(`${A.doneRate}%`, A.doneRate >= B.doneRate ? 'pos' : 'neg') + t('cmp.insStatsDone') +
+        stat(`${A.blockedCount} / ${B.blockedCount}`, A.blockedCount <= B.blockedCount ? 'pos' : 'neg') + t('cmp.insStatsBlocked'),
+    });
   }
-  /* WIP (lower is healthier) */
-  if (A.wip !== B.wip) {
-    const aWins = A.wip < B.wip;
-    out.push({ icon: '📋', html: `${t('cmp.lblOpenLoad')} · ${aWins ? wA(tReplace('cmp.insWip', { a: A.wip, b: B.wip })) : wB(tReplace('cmp.insWip', { a: B.wip, b: A.wip }))}` });
+
+  /* ── 5. risk radar: blocked work + aging backlog together ── */
+  if (A.blockedCount !== B.blockedCount || (A.wip !== B.wip && (A.blockedCount || B.blockedCount))) {
+    const aSafer = A.blockedCount < B.blockedCount;
+    const lead = A.blockedCount === B.blockedCount ? null : (aSafer ? 'a' : 'b');
+    out.push({
+      icon: '🛡️', kind: 'risk',
+      title: t('cmp.lblRisk'),
+      html: lead
+        ? tReplace('cmp.insRisk', { n: tag(lead, lead === 'a' ? nameA : nameB), a: lead === 'a' ? A.blockedCount : B.blockedCount, b: lead === 'a' ? B.blockedCount : A.blockedCount })
+        : escapeHtml(t('cmp.insRiskEven')),
+      stats:
+        stat(`${A.blockedCount}`, A.blockedCount <= B.blockedCount ? 'pos' : 'neg') + t('cmp.insStatsBlocked') +
+        stat(`${A.wip}`, A.wip <= B.wip ? 'pos' : 'neg') + t('cmp.insStatsWip') +
+        stat(`${A.doneRate}% / ${B.doneRate}%`) + t('cmp.insStatsDone'),
+    });
   }
-  /* completion rate */
-  if (A.doneRate !== B.doneRate) {
-    const aWins = A.doneRate > B.doneRate;
-    out.push({ icon: '🏁', html: `${t('cmp.lblCompletion')} · ${aWins ? wA(tReplace('cmp.insDone', { a: A.doneRate, b: B.doneRate })) : wB(tReplace('cmp.insDone', { a: B.doneRate, b: A.doneRate }))}` });
-  }
-  /* blocked work */
-  if (A.blockedCount !== B.blockedCount) {
-    const aWins = A.blockedCount < B.blockedCount;
-    out.push({ icon: '⛔', html: `${t('cmp.lblBlocked')} · ${aWins ? wA(tReplace('cmp.insLess', { a: A.blockedCount, b: B.blockedCount })) : wB(tReplace('cmp.insLess', { a: B.blockedCount, b: A.blockedCount }))}` });
-  }
-  /* biggest divergence */
-  const dd = d(A.created30, B.created30);
-  if (dd !== null && Math.abs(dd) >= 25) {
-    out.push({ icon: '📥', cls: '', html: `${t('cmp.lblIntake')} · ${tReplace('cmp.insIntake', { n: nameA, a: A.created30, b: B.created30, p: (dd > 0 ? '+' : '') + dd })}` });
-  }
+
   return out.slice(0, 4);
 }
 
@@ -3975,7 +4112,11 @@ function renderPubCompareView() {
   setPubTitleAccent(t('cmp.pubPickTitle'));
   $('#pubSubtitle').textContent = tReplace('cmp.pubLoading', { a: cmp.nameA, b: cmp.nameB }).replace('…', '') + ' · ' + t('pub.liveSubtitle');
   $('#pubHeadTitle').textContent = t('cmp.pubPickTitle');
-  $('#pubIssueCount').textContent = tReplace('cmp.badgeBoth', { a: cmp.recA.issuesCount ?? cmp.recA.metrics?.total ?? 0, b: cmp.recB.issuesCount ?? cmp.recB.metrics?.total ?? 0 });
+  $('#pubIssueCount').textContent = tReplace('cmp.badgeBoth', {
+    a: cmp.recA.issuesCount ?? cmp.recA.metrics?.total ?? 0,
+    b: cmp.recB.issuesCount ?? cmp.recB.metrics?.total ?? 0,
+    na: shortBoardName(cmp.nameA), nb: shortBoardName(cmp.nameB),
+  });
   $('#pubChangelogBadge').textContent = (cmp.recA.hasChangelog && cmp.recB.hasChangelog) ? t('badge.changelog') : t('badge.noChangelog');
   $('#pubChangelogBadge').className = 'data-badge ' + ((cmp.recA.hasChangelog && cmp.recB.hasChangelog) ? 'ok' : 'missing');
 
@@ -4040,9 +4181,10 @@ function renderPubCompareView() {
 
 /* winner chip for a compare-mode chart card: derived from the chart's headline
    total (centerValue) — higher wins for counts, lower wins for durations.
-   Returns '' for doughnuts (board-A only) and empty charts. */
+   Doughnuts compare too (two-ring charts): open-work charts read "less = wins".
+   Returns '' for unmapped charts and empty charts. */
 function compareChartWinnerChip(def, data, cmp) {
-  if (def.type === 'doughnut' || data.empty || !cmp) return '';
+  if (data.empty || !cmp) return '';
   const a = cmp.recA.metrics, b = cmp.recB.metrics;
   if (!a || !b) return '';
   /* pick the metric that matches this chart's headline number */
@@ -4051,6 +4193,8 @@ function compareChartWinnerChip(def, data, cmp) {
     statusDist: ['total', 'more'], blockedDist: ['blockedCount', 'less'], backlogGrowth: ['wip', 'less'],
     assigneeLoad: ['wip', 'less'], ageBuckets: ['wip', 'less'], assigneeCycle: ['cycleAvg', 'less'],
     phaseDelays: ['cycleAvg', 'less'], statusTime: ['cycleAvg', 'less'],
+    /* two-ring doughnuts: open-work slices — the board with fewer parked issues wins */
+    typeDist: ['wip', 'less'], priorityDist: ['wip', 'less'], bottlenecks: ['wip', 'less'],
   };
   const hit = MAP[def.id];
   if (!hit) return '';
@@ -4061,10 +4205,13 @@ function compareChartWinnerChip(def, data, cmp) {
   }
   const aWins = dir === 'less' ? va < vb : va > vb;
   const pct = pctDelta(vb, va);
+  const shortA = shortBoardName(cmp.nameA || t('cmp.pubA'));
+  const shortB = shortBoardName(cmp.nameB || t('cmp.pubB'));
   const label = aWins
-    ? tReplace('cmp.chartWinsA', { p: Math.abs(pct) })
-    : tReplace('cmp.chartWinsB', { p: Math.abs(pct) });
-  return `<span class="cmp-winner ${aWins ? 'cmp-winner-a' : 'cmp-winner-b'} cmp-chart-winner">${aWins ? '▲' : '▼'} ${escapeHtml(label)}</span>`;
+    ? tReplace('cmp.chartWinsA', { n: shortA, p: Math.abs(pct) })
+    : tReplace('cmp.chartWinsB', { n: shortB, p: Math.abs(pct) });
+  const fullA = cmp.nameA || shortA, fullB = cmp.nameB || shortB;
+  return `<span class="cmp-winner ${aWins ? 'cmp-winner-a' : 'cmp-winner-b'} cmp-chart-winner" title="${escapeHtml(fullA)} vs ${escapeHtml(fullB)}">${aWins ? '▲' : '▼'} ${escapeHtml(label)}</span>`;
 }
 
 /* leave the pub compare view → back to the all-boards list */
@@ -4091,12 +4238,61 @@ function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB, nameAPar
   const B_SERIES = { label: nameB, color: '#22d3ee', rgb: ACCENT_RGB.cyan };
   if (emptyA && emptyB) return { empty: [t('cmp.noDataEither1'), t('cmp.noDataEither2')] };
 
-  /* doughnuts render a single ring on one canvas — a second board cannot be
-     overlaid legibly. They stay board-A only; KPI pairs + the insight strip
-     already carry board B's numbers. Everything else gets a true overlay. */
+  /* doughnuts compare BOTH boards as two concentric rings on a shared label
+     union: inner ring = board A, outer ring = board B. Each category keeps the
+     same hue in both rings (B softened) so slices stay comparable at a glance. */
   if (def.type === 'doughnut') {
-    if (emptyA) return { empty: [t('cmp.noDataA')] };
-    return dataA;
+    if (emptyA && emptyB) return { empty: [t('cmp.noDataEither1'), t('cmp.noDataEither2')] };
+    if (emptyA || emptyB) {
+      const only = emptyA ? dataB : dataA;
+      return { ...only, extraSub: `${escapeHtml(emptyA ? nameB : nameA)} ${t('cmp.only')} · ${t('cmp.oneBoardNoData')}` };
+    }
+    const rawLabels = [];
+    const seen = new Set();
+    const collect = (d) => (d.labels || []).forEach((l) => { if (!seen.has(l)) { seen.add(l); rawLabels.push(l); } });
+    collect(dataA); collect(dataB);
+    const aMap = new Map((dataA.labels || []).map((l, i) => [l, i]));
+    const bMap = new Map((dataB.labels || []).map((l, i) => [l, i]));
+    const aVals = dataA.datasets?.[0]?.data || [];
+    const bVals = dataB.datasets?.[0]?.data || [];
+    const aColors = dataA.colors || [];
+    const bColors = dataB.colors || [];
+    const alignV = (map, vals, l) => { const i = map.get(l); return i != null ? (vals[i] ?? 0) : 0; };
+    const scored = rawLabels.map((l) => {
+      const av = alignV(aMap, aVals, l), bv = alignV(bMap, bVals, l);
+      return { l, av, bv, score: Math.max(av, bv) };
+    });
+    /* ordered-ladder groupings keep their intrinsic order in compare mode too */
+    if (def.groupBy === 'ageBucket') scored.sort((x, y) => AGE_BUCKETS.findIndex(([b]) => b === x.l) - AGE_BUCKETS.findIndex(([b]) => b === y.l));
+    else scored.sort((x, y) => y.score - x.score);
+    const labels = scored.map((r) => r.l);
+    const dsA = scored.map((r) => r.av);
+    const dsB = scored.map((r) => r.bv);
+    /* per-label color: prefer board A's palette entry so a category keeps the
+       same hue in both rings; board B's ring is drawn softened */
+    const colors = labels.map((l) => {
+      const i = aMap.get(l);
+      if (i != null && aColors[i]) return aColors[i];
+      const j = bMap.get(l);
+      return (j != null && bColors[j]) || '#64748b';
+    });
+    const keysAraw = dataA.datasets?.[0]?.__keys || [];
+    const keysBraw = dataB.datasets?.[0]?.__keys || [];
+    const alignKeys = (map, keys, l) => { const i = map.get(l); return i != null ? (keys[i] || []) : []; };
+    return {
+      labels,
+      datasets: [
+        { label: nameA, data: dsA, __keys: labels.map((l) => alignKeys(aMap, keysAraw, l)), __src: issuesA },
+        { label: nameB, data: dsB, __keys: labels.map((l) => alignKeys(bMap, keysBraw, l)), __src: issuesB },
+      ],
+      colors,
+      duration: !!(dataA.duration || dataB.duration),
+      subtitle: dataA.subtitle || def.subtitle || '',
+      extraSub: `${escapeHtml(nameB)} ${t('cmp.outerRing')}`,
+      centerValue: Math.round(dsA.reduce((s, v) => s + v, 0)),
+      centerValueB: Math.round(dsB.reduce((s, v) => s + v, 0)),
+      centerLabel: dataA.centerLabel || 'issues',
+    };
   }
 
   /* time-series charts bucket from "now" backwards on both boards, so the
@@ -4843,23 +5039,32 @@ function chartConfigFor(def, data, theme, canvasId) {
   const chartOnHover = (evt, els) => { if (evt.native) evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; };
 
   if (def.type === 'doughnut') {
+    const twoBoards = data.datasets.length > 1;
+    const baseDs = (ds, i) => ({
+      data: ds.data,
+      borderColor: tc.edge,
+      borderWidth: 2,
+      hoverOffset: 10,
+      hoverBorderColor: tc.edgeHover,
+      __keys: ds.__keys,
+      __src: ds.__src,
+      /* ring 0 keeps the full palette; ring 1 (board B) is softened + outlined
+         so the two rings stay visually distinct without losing the hue match */
+      backgroundColor: twoBoards && i === 1
+        ? (data.colors || []).map((c) => c + 'b3')
+        : data.colors,
+      label: twoBoards ? (ds.label || '') : undefined,
+    });
     return {
       type: 'doughnut',
       data: {
         labels: data.labels,
-        datasets: [{
-          data: data.datasets[0].data,
-          backgroundColor: data.colors,
-          borderColor: tc.edge,
-          borderWidth: 2,
-          hoverOffset: 10,
-          hoverBorderColor: tc.edgeHover,
-          __keys: data.datasets[0].__keys,
-          __src: data.datasets[0].__src,
-        }],
+        datasets: twoBoards
+          ? [baseDs(data.datasets[0], 0), baseDs(data.datasets[1], 1)]
+          : [baseDs(data.datasets[0], 0)],
       },
       options: {
-        responsive: true, maintainAspectRatio: false, cutout: def.centerTotal ? '68%' : '62%',
+        responsive: true, maintainAspectRatio: false, cutout: def.centerTotal ? (twoBoards ? '44%' : '68%') : '62%',
         layout: { padding: 4 },
         onClick: chartOnClick,
         onHover: chartOnHover,
@@ -4871,11 +5076,15 @@ function chartConfigFor(def, data, theme, canvasId) {
               label: (c) => {
                 const tot = c.dataset.data.reduce((a, b) => a + b, 0);
                 const pct = tot ? Math.round(c.parsed / tot * 100) : 0;
-                return ` ${fmtV(c.parsed)} · ${pct}%`;
+                return twoBoards ? ` ${c.dataset.label}: ${fmtV(c.parsed)} · ${pct}%` : ` ${fmtV(c.parsed)} · ${pct}%`;
               },
             },
           },
-          centerText: def.centerTotal ? { enable: true, value: data.centerValue, label: data.centerLabel } : { enable: false },
+          centerText: def.centerTotal
+            ? (twoBoards
+              ? { enable: true, value: data.centerValue, valueB: data.centerValueB, label: data.centerLabel }
+              : { enable: true, value: data.centerValue, label: data.centerLabel })
+            : { enable: false },
         },
       },
     };
@@ -5035,6 +5244,7 @@ function renderCharts(defs, m) {
     if (cmp && card) {
       const chip = compareChartWinnerChip(def, data, {
         recA: { metrics: m }, recB: { metrics: cmp.metrics },
+        nameA: state.lastBoard?.name, nameB: cmp.board?.name,
       });
       if (chip) card.querySelector('.chart-actions')?.insertAdjacentHTML('afterbegin', chip);
     }
@@ -5348,7 +5558,9 @@ const BOTTLENECK_I18N = {
 };
 function bottleneckLabel(cat) { return t(BOTTLENECK_I18N[cat], cat); }
 
-/* draws a big number + label inside doughnut holes */
+/* draws a big number + label inside doughnut holes. In compare mode the hole
+   is wider, so both boards' totals are stacked: A (indigo) above the label,
+   B (cyan) below — one glance answers "which board holds more". */
 const centerTextPlugin = {
   id: 'centerText',
   afterDraw(chart) {
@@ -5361,12 +5573,25 @@ const centerTextPlugin = {
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '800 26px Inter, system-ui';
-    ctx.fillStyle = themeColors().text;
-    ctx.fillText(String(opts.value ?? ''), x, y - 7);
-    ctx.font = '700 10px Inter, system-ui';
-    ctx.fillStyle = themeColors().muted;
-    ctx.fillText(String(opts.label ?? '').toUpperCase(), x, y + 14);
+    if (opts.valueB != null && opts.valueB !== '') {
+      /* two-board center: A value / shared label / B value */
+      ctx.font = '800 20px Inter, system-ui';
+      ctx.fillStyle = '#a5b4fc';
+      ctx.fillText(String(opts.value ?? ''), x, y - 16);
+      ctx.font = '700 9px Inter, system-ui';
+      ctx.fillStyle = themeColors().muted;
+      ctx.fillText(String(opts.label ?? '').toUpperCase(), x, y);
+      ctx.font = '800 20px Inter, system-ui';
+      ctx.fillStyle = '#67e8f9';
+      ctx.fillText(String(opts.valueB), x, y + 16);
+    } else {
+      ctx.font = '800 26px Inter, system-ui';
+      ctx.fillStyle = themeColors().text;
+      ctx.fillText(String(opts.value ?? ''), x, y - 7);
+      ctx.font = '700 10px Inter, system-ui';
+      ctx.fillStyle = themeColors().muted;
+      ctx.fillText(String(opts.label ?? '').toUpperCase(), x, y + 14);
+    }
     ctx.restore();
   },
 };
