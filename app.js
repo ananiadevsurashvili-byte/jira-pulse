@@ -140,7 +140,7 @@ const I18N = {
     'cmp.pubPickHintA': 'click a card to slot it as A',
     'cmp.pubPickHintB': 'now click a second card as B',
     'cmp.pubPickHintGo': 'ready — open the side-by-side view',
-    'cmp.pubLoading': 'Loading "X" vs "Y"…',
+    'cmp.pubLoading': 'Loading {a} vs {b}…',
     'cmp.pubLoadFailed': 'Could not load "{b}" for comparison.',
     'cmp.pubSlotA': 'Pick board A',
     'cmp.pubSlotB': 'Pick board B',
@@ -236,7 +236,7 @@ const I18N = {
     'pub.backAll': '← All boards',
     'pub.changelog': '✓ changelog',
     /* dynamic (JS-built) strings — {a}/{b}/{x} are interpolated via tReplace() */
-    'cmp.loading': 'Loading "X" vs "Y"…',
+    'cmp.loading': 'Loading {a} vs {b}…',
     'cmp.failed': 'Could not start compare mode.',
     'cmp.bSyncing': 'syncing board B…',
     'cmp.bSynced': 'board B synced · {x}',
@@ -245,7 +245,6 @@ const I18N = {
     'cmp.prompt': 'Compare mode — pick a second board in the bar above to overlay every chart and metric.',
     'cmp.even': '— even', 'cmp.identical': 'identical on both boards', 'cmp.noData': 'no data to compare',
     'cmp.vsQ': '{a} vs ? — pick board B above',
-    'cmp.higher': '{x} higher', 'cmp.lower': '{x} faster', 'cmp.above': '{a} is {p}% above {b}', 'cmp.below': '{a} is {p}% below {b}',
     'insight.throughput': 'Throughput', 'insight.speed': 'Speed', 'insight.load': 'Open load',
     'insight.completion': 'Completion', 'insight.blocked': 'Blocked work', 'insight.intake': 'Intake gap',
     'kpi.syncing': 'syncing…',
@@ -255,14 +254,11 @@ const I18N = {
     'pub.bLoading': 'Loading…', 'pub.bFailed': 'Failed to load board B — try again.',
     'pub.cmpPrompt': 'Compare mode — pick a second board in the bar above to overlay every chart and metric.',
     'pub.cmpCount': 'A: {a} issues · B: {b} issues',
-    'pub.boardStats': '{i} issues · {a} active · {c} avg cycle · {n} net 30d',
     'pub.orgBoards': '[P] Org boards', 'pub.otherBoards': 'All other boards',
     'pub.openDash': 'Open dashboard →',
     'pub.cmpFrom': 'compare · {a} vs {b}',
     'board.pickA': 'click a card to slot it as A', 'board.pickB': 'now click a second card as B', 'board.pickReady': 'ready — open the side-by-side view',
     'health.healthy': 'healthy', 'health.watch': 'watch', 'health.atRisk': 'at risk',
-    'stat.issues': 'issues', 'stat.active': 'active', 'stat.cycle': 'cycle', 'stat.net': 'net 30d',
-    'bc.done': '{p}% done',
     'toast.noConn': 'Connect to Jira first.',
     'toast.boardsLoading': 'Board list is still loading — try again in a moment.',
     'toast.openBoard': 'Open a board first.',
@@ -438,12 +434,6 @@ const I18N = {
     'insight.completionText': '{p}% of all issues on this board are done.',
     'insight.blockedText': '{b} issues are blocked or canceled right now.',
     'insight.intakeText': 'Intake vs delivery: {c} created vs {r} resolved in 30 days.',
-    'cmp.insightThroughput': '{a}: {ra}/30d · {b}: {rb}/30d — {w} ships more.',
-    'cmp.insightSpeed': '{a}: {ca} avg · {b}: {cb} avg — {w} is faster.',
-    'cmp.insightLoad': '{a}: {wa} WIP · {b}: {wb} WIP — {w} carries more open work.',
-    'cmp.insightCompletion': '{a}: {pa}% done · {b}: {pb}% done.',
-    'cmp.insightBlocked': 'Blocked work — {a}: {ba} · {b}: {bb}.',
-    'cmp.insightIntake': 'Intake — {a}: {ca} created · {b}: {cb} created in 30 days.',
     'cmp.kpiTotal': 'Issues analyzed',
     'cmp.kpiTotalSub': 'on the board',
     'cmp.kpiCreated': 'Created · 30 days',
@@ -474,8 +464,8 @@ const I18N = {
     'cmp.lblCompletion': 'Completion',
     'cmp.lblBlocked': 'Blocked work',
     'cmp.lblIntake': 'Intake gap',
-    'cmp.insShipped': 'shipped {a} vs {b} in 30 days',
-    'cmp.insCloses': 'closes work in {a} vs {b}',
+    'cmp.insShipped': 'shipped more in 30 days ({a} vs {b})',
+    'cmp.insCloses': 'closes work faster ({a} vs {b})',
     'cmp.insWip': 'carries less WIP ({a} vs {b})',
     'cmp.insDone': '{a}% done vs {b}%',
     'cmp.insLess': 'has less ({a} vs {b})',
@@ -633,8 +623,8 @@ const I18N = {
     'pick.slotB': 'აირჩიეთ დაფა B',
     'pick.go': 'შედარება →',
     'pick.cancel': 'გაუქმება',
-    'pick.hintA': 'დააკლიკეთ ბარათს დაფა A-სთვის',
-    'pick.hintB': 'ახლა დააკლიკეთ მეორე ბარათს დაფა B-სთვის',
+    'pick.hintA': 'დააჭირეთ ბარათს დაფა A-სთვის',
+    'pick.hintB': 'ახლა დააჭირეთ მეორე ბარათს დაფა B-სთვის',
     'pick.hintGo': 'მზადაა — გახსენით გვერდით-გვერდ ხედი',
     'kpi.total': 'გაანალიზებული დავალებები',
     'kpi.totalSub': 'ამ დაფაზე',
@@ -660,20 +650,20 @@ const I18N = {
     'cmp.pubExit': '✕ შედარებიდან გასვლა',
     'cmp.pubExitTitle': 'დატოვეთ გვერდით-გვერდ შედარება და დაბრუნდით დაფების სიაში',
     'cmp.pubPickTitle': '⇄ დაფების შედარება',
-    'cmp.pubPickHintA': 'დააკლიკეთ ბარათს დაფა A-სთვის',
-    'cmp.pubPickHintB': 'ახლა დააკლიკეთ მეორე ბარათს დაფა B-სთვის',
+    'cmp.pubPickHintA': 'დააჭირეთ ბარათს დაფა A-სთვის',
+    'cmp.pubPickHintB': 'ახლა დააჭირეთ მეორე ბარათს დაფა B-სთვის',
     'cmp.pubPickHintGo': 'მზადაა — გახსენით გვერდით-გვერდ ხედი',
-    'cmp.pubLoading': 'იტვირთება „X" vs „Y"…',
+    'cmp.pubLoading': 'იტვირთება {a} vs {b}…',
     'cmp.pubLoadFailed': 'დაფა „{b}"-ის ჩატვირთვა შედარებისთვის ვერ მოხერხდა.',
     'cmp.pubSlotA': 'აირჩიეთ დაფა A',
     'cmp.pubSlotB': 'აირჩიეთ დაფა B',
-    'cmp.pubSelectedAs': 'არჩეულია როგორც {s} — დააკლიკეთ მოსაშორებლად',
-    'cmp.pubClickPickA': 'დააკლიკეთ A-დ ასარჩევად',
-    'cmp.pubClickPickB': 'დააკლიკეთ B-დ ასარჩევად',
+    'cmp.pubSelectedAs': 'არჩეულია როგორც {s} — დააჭირეთ მოსაშორებლად',
+    'cmp.pubClickPickA': 'აირჩიეთ A-დ',
+    'cmp.pubClickPickB': 'აირჩიეთ B-დ',
     'cmp.pubGo': 'შედარება →',
     'cmp.pubCancel': 'გაუქმება',
-    'cmp.pubSyncing': 'სინქრონიზაცია…',
-    'cmp.pubSynced': 'სინქრონიზებულია · {x}',
+    'cmp.pubSyncing': 'განახლება…',
+    'cmp.pubSynced': 'განახლდა · {x}',
     'cmp.pubA': 'დაფა A',
     'cmp.pubB': 'დაფა B',
     'table.title': 'ყველაზე დიდხანს დგას მიმდინარე სტატუსში',
@@ -685,8 +675,8 @@ const I18N = {
     'ilist.openJira': 'Jira-ში გახსნა',
     'ilist.noLink': 'დაუკავშირდით Jira-ს დავალებების გასახსნელად',
     'ilist.unassigned': 'დაუნიშნავი',
-    'footer': 'JiraPulse · კლიენტის მხარეს მოქმედი ანალიტიკა — თქვენი მონაცემები ბრაუზერს არ ტოვებს',
-    'footerAdmin': 'JiraPulse · ადმინისტრატორის პანელი — თქვენი მონაცემები ბრაუზერს არ ტოვებს',
+    'footer': 'JiraPulse · ანალიტიკა პირდაპირ თქვენს ბრაუზერში — თქვენი მონაცემები არსად მიდის',
+    'footerAdmin': 'JiraPulse · ადმინისტრატორის პანელი — თქვენი მონაცემები არსად მიდის',
     'proxyBadge': 'relay-ით',
     'proxyBadgeTitle': 'მოთხოვნები გადის JiraPulse-ის ჰოსტირებულ relay-ზე (100k მოთხოვნა/დღე, უფასო).',
     'pub.publish': '⟳ გამოქვეყნება',
@@ -759,16 +749,15 @@ const I18N = {
     'pub.backAll': '← ყველა დაფა',
     'pub.changelog': '✓ ცვლილებების ჟურნალი',
     /* dynamic strings — Georgian */
-    'cmp.loading': 'იტვირთება „X" vs „Y"…',
+    'cmp.loading': 'იტვირთება {a} vs {b}…',
     'cmp.failed': 'შედარების რეჟიმის გაშვება ვერ მოხერხდა.',
-    'cmp.bSyncing': 'ისინქრონება დაფა B…',
-    'cmp.bSynced': 'დაფა B სინქრონიზებულია · {x}',
-    'cmp.bFailed': '⚠ დაფა B ვერ სინქრონიზდა — აირჩიეთ სხვა',
+    'cmp.bSyncing': 'დაფა B განახლდება…',
+    'cmp.bSynced': 'დაფა B განახლდა · {x}',
+    'cmp.bFailed': '⚠ დაფა B ვერ განახლდა — აირჩიეთ სხვა',
     'cmp.count': 'A: {a} დავალება · B: {b} დავალება',
     'cmp.prompt': 'შედარების რეჟიმი — აირჩიეთ მეორე დაფა ზემოთა ზოლში, რომ ყველა გრაფიკი და მეტრიკა გადაფარვით ნახოთ.',
     'cmp.even': 'თანაბარი', 'cmp.identical': 'ორივე დაფაზე იდენტურია', 'cmp.noData': 'შედარების მონაცემები არ არის',
     'cmp.vsQ': '{a} vs ? — აირჩიეთ დაფა B ზემოთ',
-    'cmp.higher': '{x} უფრო მეტია', 'cmp.lower': '{x} უფრო სწრაფია', 'cmp.above': '{a} {p}%-ით აღემატება {b}-ს', 'cmp.below': '{a} {p}%-ით ჩამორჩება {b}-ს',
     'insight.throughput': 'პროდუქტივობა', 'insight.speed': 'სიჩქარე', 'insight.load': 'ღია დავალებები',
     'insight.completion': 'დასრულება', 'insight.blocked': 'დაბლოკილი სამუშაო', 'insight.intake': 'შემოდინების სხვაობა',
     'kpi.syncing': 'სინქრონიზაცია…',
@@ -778,14 +767,11 @@ const I18N = {
     'pub.bLoading': 'იტვირთება…', 'pub.bFailed': 'დაფა B ვერ ჩაიტვირთა — სცადეთ ხელახლა.',
     'pub.cmpPrompt': 'შედარების რეჟიმი — აირჩიეთ მეორე დაფა ზემოთა ზოლში, რომ ყველა გრაფიკი და მეტრიკა გადაფარვით ნახოთ.',
     'pub.cmpCount': 'A: {a} დავალება · B: {b} დავალება',
-    'pub.boardStats': '{i} დავალება · {a} აქტიური · {c} საშ. ციკლი · {n} ბოლო 30 დღე',
     'pub.orgBoards': '[P] ორგანიზაციის დაფები', 'pub.otherBoards': 'დანარჩენი დაფები',
     'pub.openDash': 'დაშბორდის გახსნა →',
     'pub.cmpFrom': 'შედარება · {a} vs {b}',
     'board.pickA': 'დააჭირეთ ბარათს, რომ დაფა A-დ ჩაიწეროს', 'board.pickB': 'ახლა დააჭირეთ მეორე ბარათს როგორც B', 'board.pickReady': 'მზადაა — გახსენით გვერდით-გვერდ ხედი',
     'health.healthy': 'ჯანმრთელი', 'health.watch': 'თვალყური', 'health.atRisk': 'რისკის ქვეშ',
-    'stat.issues': 'დავალება', 'stat.active': 'აქტიური', 'stat.cycle': 'ციკლი', 'stat.net': 'ბოლო 30 დღე',
-    'bc.done': '{p}% მზადაა',
     'toast.noConn': 'ჯერ Jira-სთან დაუკავშირდით.',
     'toast.boardsLoading': 'დაფების სია ჯერ იტვირთება — სცადეთ ცოტა ხანში.',
     'toast.openBoard': 'ჯერ გახსენით დაფა.',
@@ -961,12 +947,6 @@ const I18N = {
     'insight.completionText': 'ამ დაფაზე დავალებების {p}% მზადაა.',
     'insight.blockedText': '{b} დავალება ახლა დაბლოკილი ან გაუქმებულია.',
     'insight.intakeText': 'შემოდინება vs მიწოდება: 30 დღეში {c} შეიქმნა vs {r} დაიხურა.',
-    'cmp.insightThroughput': '{a}: {ra}/30 დღე · {b}: {rb}/30 დღე — {w} მეტს აგზავნის.',
-    'cmp.insightSpeed': '{a}: {ca} საშ. · {b}: {cb} საშ. — {w} სწრაფია.',
-    'cmp.insightLoad': '{a}: {wa} WIP · {b}: {wb} WIP — {w} მეტ ღია სამუშაოს ატარებს.',
-    'cmp.insightCompletion': '{a}: {pa}% მზადაა · {b}: {pb}% მზადაა.',
-    'cmp.insightBlocked': 'დაბლოკილი სამუშაო — {a}: {ba} · {b}: {bb}.',
-    'cmp.insightIntake': 'შემოდინება — {a}: {ca} შექმნილი · {b}: {cb} შექმნილი 30 დღეში.',
     'cmp.kpiTotal': 'დაანალიზებული დავალებები',
     'cmp.kpiTotalSub': 'დაფაზე',
     'cmp.kpiCreated': 'შექმნილი · 30 დღე',
@@ -997,28 +977,28 @@ const I18N = {
     'cmp.lblCompletion': 'დასრულება',
     'cmp.lblBlocked': 'დაბლოკილი სამუშაო',
     'cmp.lblIntake': 'შემოდინების სხვაობა',
-    'cmp.insShipped': '30 დღეში გაგზავნა {a} vs {b}',
-    'cmp.insCloses': 'სამუშაოს ხურავს {a}-ში vs {b}',
+    'cmp.insShipped': '30 დღეში მეტი დახურა ({a} vs {b})',
+    'cmp.insCloses': 'სამუშაოს უფრო სწრაფად ხურავს ({a} vs {b})',
     'cmp.insWip': 'ნაკლებ WIP აქვს ({a} vs {b})',
     'cmp.insDone': '{a}% მზადაა vs {b}%',
     'cmp.insLess': 'ნაკლები აქვს ({a} vs {b})',
     'cmp.insIntake': '{n} შექმნა {a} vs {b} ({p}%)',
     'bc.measuring': 'იზომება…',
     'bc.newTitle': 'ახალი დავალებები · ბოლო 30 დღე',
-    'bc.new30': 'ახალი 30დ',
+    'bc.new30': 'ახალი',
     'bc.wipTitle': 'მიმდინარე სამუშაო',
     'bc.active': 'აქტიური',
     'bc.netTitle': 'ნაკადი · ბოლო 30 დღე (დახურული − შექმნილი)',
-    'bc.net30d': 'ნაკადი 30დ',
+    'bc.net30d': 'ნაკადი',
     'bc.done': 'მზადაა',
     'bc.unavailable': 'სტატისტიკა მიუწვდომელია',
     'card.openDash': 'გახსენით დაშბორდი →',
     'card.copyLinkTitle': 'დაფის ლინკის კოპირება',
     'card.orgBoards': '[P] ორგანიზაციის დაფები',
     'card.otherBoards': 'დანარჩენი დაფები',
-    'pick.selectedAs': 'არჩეულია როგორც {s} — დააკლიკეთ მოსაშორებლად',
-    'pick.clickPickA': 'დააკლიკეთ A-დ ასარჩევად',
-    'pick.clickPickB': 'დააკლიკეთ B-დ ასარჩევად',
+    'pick.selectedAs': 'არჩეულია როგორც {s} — დააჭირეთ მოსაშორებლად',
+    'pick.clickPickA': 'აირჩიეთ A-დ',
+    'pick.clickPickB': 'აირჩიეთ B-დ',
     'hl.blocked': '{b} დაბლოკილია',
     'hl.allClear': 'ყველაფერი რიგზეა — არაფერი მიმდინარეობს',
     'hl.backlogGrowing': 'ბექლოგი იზრდება',
@@ -1076,7 +1056,7 @@ const I18N = {
     'series.createdVsResolved': 'შექმნილი vs დასრულებული',
     'series.created': 'შექმნა',
     'series.resolved': 'დახურვა',
-    'series.perBucket': '{b}-მიერ',
+    'series.perBucket': '{b}ში',
     'series.openNow': 'ახლა ღიაა',
     'series.avg': 'საშ. მნიშვნელობა',
     'series.count': 'რაოდენობა',
@@ -1870,7 +1850,6 @@ async function renderPubContent() {
         : t('card.openDash');
       return `
         <div class="board-card glass${pBoard ? ' p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}" data-bid="${b.boardId}" style="animation-delay:${Math.min(i * 35, 400)}ms">
-          ${pBoard ? '<span class="chip chip-p board-p-flag" title="[P]">[P]</span>' : ''}
           <div class="board-card-head">
             <div class="board-avatar" aria-hidden="true">${initial}</div>
             <div class="board-id-block">
@@ -1879,6 +1858,7 @@ async function renderPubContent() {
                 ${!pBoard && b.projectName ? `<span class="chip" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : ''}
               </div>
             </div>
+            ${pBoard ? '<span class="chip chip-p board-p-flag" title="[P]">[P]</span>' : ''}
             <div class="board-head-side">
               ${admin ? `<button class="link-btn board-copy-link" data-copyboard="${b.boardId}" data-i18n-title="pub.copyBoardLink" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>` : ''}
             </div>
@@ -2885,7 +2865,6 @@ function boardCardHTML(b, i) {
   const cached = cachedBoardStats(b.id);
   return `
     <div class="board-card glass${pBoard ? ' p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}" data-id="${b.id}" style="animation-delay:${Math.min(i * 35, 400)}ms">
-      ${pBoard ? '<span class="chip chip-p board-p-flag" title="[P]">[P]</span>' : ''}
       <div class="board-card-head">
         <div class="board-avatar" aria-hidden="true">${initial}</div>
         <div class="board-id-block">
@@ -2895,6 +2874,7 @@ function boardCardHTML(b, i) {
             ${b.location?.projectKey ? `<span class="chip">${escapeHtml(b.location.projectKey)}</span>` : ''}
           </div>
         </div>
+        ${pBoard ? '<span class="chip chip-p board-p-flag" title="[P]">[P]</span>' : ''}
         <div class="board-head-side">
           <button class="link-btn board-copy-link" data-copyboard="${b.id}" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>
         </div>
@@ -4386,7 +4366,7 @@ function buildTimeSeries(def, issues) {
   else if (wantCreated && wantResolved) parts.push(t('series.createdVsResolved'));
   else if (wantCreated) parts.push(t('series.created'));
   else parts.push(t('series.resolved'));
-  const subtitle = `${parts.join(' · ')} · ${tReplace('series.perBucket', { b: bucket })} · ${rangeLabel(def.range)}`;
+  const subtitle = `${parts.join(' · ')} · ${tReplace('series.perBucket', { b: t('bucket.' + bucket).toLowerCase() })} · ${rangeLabel(def.range)}`;
 
   const total = isNet
     ? (net && net.length ? net[net.length - 1] : 0)
