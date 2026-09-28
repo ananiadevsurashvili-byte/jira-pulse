@@ -4680,7 +4680,15 @@ function groupKeyLabel(def, k) {
 }
 
 function filterPool(def, issues) {
-  if (def.filter === 'open') return issues.filter((i) => !statusIsDone(i.fields || {}));
+  if (def.filter === 'open') {
+    /* "open" = genuinely active work only: exclude Jira-done (statusCategory=done),
+       org-flow completed statuses (Released / Babysitting / Done Approved… — no
+       resolutiondate, recognised by name) and blocked/canceled/rejected work. */
+    return issues.filter((i) => {
+      const f = i.fields || {};
+      return !statusIsDone(f) && !isExcludedStatus(f);
+    });
+  }
   if (def.filter === 'done') return issues.filter((i) => statusIsDone(i.fields || {}));
   return issues;
 }
