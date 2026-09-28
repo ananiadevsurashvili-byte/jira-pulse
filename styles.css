@@ -353,7 +353,7 @@ body {
 /* ── charts ── */
 .charts-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
   margin-bottom: 18px;
 }
@@ -377,7 +377,7 @@ body {
 .chart-sub-block { display: block; margin: -6px 0 12px; }
 .chart-sub b { color: var(--text); }
 .wide { grid-column: span 2; }
-.canvas-wrap { position: relative; height: 280px; flex: 1 1 auto; min-height: 220px; }
+.canvas-wrap { position: relative; height: 280px; flex: 1 1 auto; min-height: 220px; min-width: 0; }
 .canvas-wrap canvas { width: 100% !important; height: 100% !important; }
 
 /* ── insights strip ── */
@@ -672,7 +672,7 @@ body.cmp-view .chart-actions { opacity: 1; }
     radial-gradient(1000px 600px at -10% 110%, rgba(34, 211, 238, 0.10), transparent 60%),
     linear-gradient(160deg, var(--bg-1), var(--bg-0));
 }
-#pubScreen .dash-wrap { max-width: 1240px; margin: 0 auto; padding: 32px 24px 60px; }
+#pubScreen .dash-wrap { max-width: 1340px; margin: 0 auto; padding: 32px 24px 60px; }
 #pubScreen .glass { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 28px; }
 #pubScreen h2 { font-size: 1.7rem; font-weight: 800; }
 #pubScreen .input { padding: 12px; font-size: 0.9rem; }
@@ -817,13 +817,16 @@ body.cmp-view .chart-actions { opacity: 1; }
    group titles get a slightly tighter rhythm to match the dashboard. */
 #pubScreen .board-group { margin-bottom: 26px; }
 #pubScreen .board-card { cursor: pointer; }
-#pubScreen .pub-charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px; }
-#pubScreen .pub-charts-grid .chart-card { min-height: 280px; height: 100%; }
+#pubScreen .pub-charts-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 18px; }
+/* grid children must be allowed to shrink below the canvas' intrinsic width,
+   otherwise a wide chart blows the track out past the container's right edge
+   (content stays left-anchored → asymmetric margins, seen on the KA board view) */
+#pubScreen .pub-charts-grid .chart-card { min-height: 280px; height: 100%; min-width: 0; overflow: hidden; }
 #pubScreen .pub-charts-grid .chart-card.wide { grid-column: span 2; }
 #pubScreen .pub-charts-grid .canvas-wrap { height: 280px; }
 /* public share screen responsive · matches the admin dashboard */
 @media (max-width: 920px) {
-  #pubScreen .pub-charts-grid { grid-template-columns: 1fr; }
+  #pubScreen .pub-charts-grid { grid-template-columns: minmax(0, 1fr); }
   #pubScreen .pub-charts-grid .chart-card.wide { grid-column: span 1; }
   #pubScreen .pub-charts-grid .canvas-wrap { height: 260px; }
 }
@@ -868,7 +871,7 @@ body.light #issueListModal .data-table a { color: #4f46e5; border-bottom-color: 
 body.light #issueListModal .data-table a:hover { color: #4338ca; }
 
 /* ── chart canvas wrapper ── */
-.canvas-wrap { position: relative; min-height: 220px; }
+.canvas-wrap { position: relative; min-height: 220px; min-width: 0; }
 .canvas-wrap canvas { width: 100% !important; height: 100% !important; }
 
 /* ── empty state ── */
