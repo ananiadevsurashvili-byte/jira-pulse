@@ -604,6 +604,8 @@ const I18N = {
     'bn.techAnalysis': 'Technical Analysis',
     'bn.inDevelopment': 'In Development',
     'bn.testing': 'Testing',
+    'bn.uat': 'UAT',
+    'bn.readyForRelease': 'Ready for Release',
     'lang.en': 'English',
     'lang.ka': 'ქართული',
     'lang.title': 'Switch language',
@@ -1150,6 +1152,8 @@ const I18N = {
     'bn.techAnalysis': 'ტექნიკური ანალიზი',
     'bn.inDevelopment': 'შემუშავებაში',
     'bn.testing': 'ტესტირება',
+    'bn.uat': 'UAT',
+    'bn.readyForRelease': 'მზადაა გამოსაშვებად',
     'lang.en': 'English',
     'lang.ka': 'ქართული',
     'lang.title': 'ენის გადამრთველი',
@@ -4787,7 +4791,7 @@ function buildTimeSeries(def, issues, ctx) {
       const back = nBuckets - 1 - i;
       const d = new Date(NOW);
       d.setMonth(d.getMonth() - back);
-      labels.push(d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }));
+      labels.push(d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }));
     } else {
       labels.push(fmtDate(NOW - (nBuckets - 1 - i) * bucketMs));
     }
@@ -5567,14 +5571,17 @@ function classifySide(name) {
   return null;
 }
 
-/* Bottleneck buckets for open work. First matching rule wins,
-   so order matters (e.g. "Internal IT Approval" → Technical Analysis). */
+/* Bottleneck buckets for open work. First matching rule wins, so order matters:
+   UAT before Testing (so "UAT"/"UAT Approved" don't lump into Testing), and
+   Ready-for-Release before the generic approval/review catch-all. */
 const BOTTLENECK_RULES = [
-  { cat: 'Testing',            color: '#22d3ee', re: /\b(uat|qa|test|verif|regression)/ },
-  { cat: 'In Development',     color: '#6366f1', re: /(ready\s*for\s*dev|\bdev|develop|\bbug|cod(e|ing)\b|in\s*progress|implement)/ },
-  { cat: 'Pending Review',     color: '#fbbf24', re: /(pre[\s-]*analys|business\s*owner|product\s*owner|\bbd\b)/ },
+  { cat: 'UAT',               color: '#f472b6', re: /\b(uat|user\s*acceptance)/ },
+  { cat: 'Testing',           color: '#22d3ee', re: /\b(qa|test|verif|regression)/ },
+  { cat: 'Ready for Release', color: '#34d399', re: /(ready\s*for\s*(release|deploy|prod)|awaiting\s*(release|deploy)|release\s*candidate|pre[\s-]*release|uat\s*(approved|passed))/ },
+  { cat: 'In Development',    color: '#6366f1', re: /(ready\s*for\s*dev|\bdev|develop|\bbug|cod(e|ing)\b|in\s*progress|implement)/ },
+  { cat: 'Pending Review',    color: '#fbbf24', re: /(pre[\s-]*analys|business\s*owner|product\s*owner|\bbd\b)/ },
   { cat: 'Technical Analysis', color: '#8b5cf6', re: /(technical|internal\s*it|analys|analyz|investigat|estimat|specificat|\bspec\b|solution|design)/ },
-  { cat: 'Pending Review',     color: '#fbbf24', re: /(approv|review|pending|waiting|hold|block)/ },
+  { cat: 'Pending Review',    color: '#fbbf24', re: /(approv|review|pending|waiting|hold|block)/ },
 ];
 
 function classifyBottleneck(name) {
@@ -5587,10 +5594,11 @@ function bottleneckColor(cat) {
   const hit = BOTTLENECK_RULES.find((r) => r.cat === cat);
   return hit ? hit.color : '#64748b';
 }
-const BOTTLENECK_ORDER = ['Pending Review', 'Technical Analysis', 'In Development', 'Testing', 'Other'];
+const BOTTLENECK_ORDER = ['Pending Review', 'Technical Analysis', 'In Development', 'Testing', 'UAT', 'Ready for Release', 'Other'];
 const BOTTLENECK_I18N = {
   'Pending Review': 'bn.pendingReview', 'Technical Analysis': 'bn.techAnalysis',
-  'In Development': 'bn.inDevelopment', 'Testing': 'bn.testing', 'Other': 'group.other',
+  'In Development': 'bn.inDevelopment', 'Testing': 'bn.testing',
+  'UAT': 'bn.uat', 'Ready for Release': 'bn.readyForRelease', 'Other': 'group.other',
 };
 function bottleneckLabel(cat) { return t(BOTTLENECK_I18N[cat], cat); }
 
