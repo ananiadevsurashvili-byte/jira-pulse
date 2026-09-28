@@ -590,6 +590,8 @@ const I18N = {
     'statusTime.teamAvg': 'Team phases avg',
     'stage.stakeholder': 'Stakeholder gates',
     'stage.team': 'Team phases',
+    'stage.it': 'IT Committee',
+    'statusTime.itAvg': 'IT Committee avg',
     'group.unassigned': 'Unassigned',
     'group.assigned': 'Assigned',
     'group.other': 'Other',
@@ -1134,6 +1136,8 @@ const I18N = {
     'statusTime.teamAvg': 'გუნდის ეტაპების საშ.',
     'stage.stakeholder': 'სტეიკჰოლდერის ეტაპები',
     'stage.team': 'გუნდის ეტაპები',
+    'stage.it': 'IT კომიტეტი',
+    'statusTime.itAvg': 'IT კომიტეტის საშ.',
     'group.unassigned': 'დაუნიშნავი',
     'group.assigned': 'დანიშნული',
     'group.other': 'სხვა',
@@ -3506,10 +3510,10 @@ function computeMetrics(issues) {
       m.blockedDist.set(statusName, (m.blockedDist.get(statusName) || 0) + 1);
     }
 
-    /* time-in-status from changelog. Excluded statuses (done/canceled/blocked) are
-       still recorded for the Status Distribution, but we DROP their contributions to
-       the active-work status-time / phase-delay maps so "Avg Time in Status" and
-       "Stakeholder vs Team Delays" reflect real flow time, not parked/finished states. */
+    /* time-in-status from changelog. Issues CURRENTLY in an excluded status
+       (done / canceled / blocked) are skipped entirely — their earlier statuses'
+       time must not inflate "Avg Time in Status" or "Stakeholder vs Team Delays"
+       (a blocked issue's Development days are not real flow time). */
     const evts = [];
     const excludedNow = isExcludedStatus(f);
     for (const h of iss.changelog?.histories || []) {
@@ -3523,7 +3527,7 @@ function computeMetrics(issues) {
     let prevTs = created ?? NOW;
     let prevName = evts.length ? (evts[0].from || statusName) : statusName;
     for (const ev of evts) {
-      if (ev.ts > prevTs && !isExcludedStatus({ status: { name: prevName } })) {
+      if (ev.ts > prevTs && !excludedNow && !isExcludedStatus({ status: { name: prevName } })) {
         addTime(m.statusTime, prevName, ev.ts - prevTs);
         addStatusKey(m.statusKeys, prevName, iss.key);
       }
@@ -3563,13 +3567,15 @@ function computeMetrics(issues) {
     .map(([k, v]) => ({ status: k, avg: v.sum / v.n, side: classifySide(k), sum: v.sum, n: v.n }))
     .filter((r) => r.side && !isExcludedStatus({ status: { name: r.status } }))
     .sort((a, b) => b.avg - a.avg);
-  let shSum = 0, shN = 0, tmSum = 0, tmN = 0;
+  let shSum = 0, shN = 0, tmSum = 0, tmN = 0, itSum = 0, itN = 0;
   for (const r of m.phaseDelays) {
     if (r.side === 'stakeholder') { shSum += r.sum; shN += r.n; }
+    else if (r.side === 'itcommittee') { itSum += r.sum; itN += r.n; }
     else { tmSum += r.sum; tmN += r.n; }
   }
   m.stakeholderAvgMs = shN ? shSum / shN : null;
   m.teamAvgMs = tmN ? tmSum / tmN : null;
+  m.itCommitteeAvgMs = itN ? itSum / itN : null;
 
   return m;
 }
@@ -4664,6 +4670,7 @@ function groupKeyOf(def, f) {
 function stageLabel(k) {
   if (k === 'Stakeholder gates') return t('stage.stakeholder');
   if (k === 'Team phases') return t('stage.team');
+  if (k === 'IT Committee') return t('stage.it');
   return k;
 }
 
@@ -4726,6 +4733,17 @@ function buildTimeSeries(def, issues, ctx) {
   if (bucket === 'week' && nBuckets > 104) { bucket = 'month'; nBuckets = Math.ceil(rangeDays / 30.4); }
   nBuckets = Math.min(nBuckets, 400);
   const bucketMs = bucket === 'day' ? DAY : 7 * DAY;
+  /* calendar-month alignment: months have uneven lengths, so a ceil(days/30.4)
+     bucket count misaligns counts vs labels (the oldest labeled month shows a
+     partial slice — e.g. Apr reads 0 while its issues land in an unlabeled
+     phantom bucket). Snap the window to full calendar months instead. */
+  if (bucket === 'month') {
+    const nowD = new Date(NOW);
+    const oldestD = new Date(oldest);
+    nBuckets = Math.max(1,
+      (nowD.getFullYear() * 12 + nowD.getMonth()) - (oldestD.getFullYear() * 12 + oldestD.getMonth()) + 1);
+    nBuckets = Math.min(nBuckets, 400);
+  }
 
   const createdCounts = Array(nBuckets).fill(0);
   const resolvedCounts = Array(nBuckets).fill(0);
@@ -4911,11 +4929,11 @@ function buildStatusTimeData(def, m, hasChangelog, issues) {
   let keys = [];                     /* per-bar/per-point issue keys (click → issue list) */
 
   if (def.groupBy === 'stage') {
-    const agg = { 'Stakeholder gates': { sum: 0, n: 0 }, 'Team phases': { sum: 0, n: 0 } };
-    const aggKeys = { 'Stakeholder gates': [], 'Team phases': [] };
+    const agg = { 'Stakeholder gates': { sum: 0, n: 0 }, 'Team phases': { sum: 0, n: 0 }, 'IT Committee': { sum: 0, n: 0 } };
+    const aggKeys = { 'Stakeholder gates': [], 'Team phases': [], 'IT Committee': [] };
     for (const r of rows) {
       if (!r.side) continue;
-      const t = r.side === 'stakeholder' ? 'Stakeholder gates' : 'Team phases';
+      const t = r.side === 'stakeholder' ? 'Stakeholder gates' : r.side === 'itcommittee' ? 'IT Committee' : 'Team phases';
       agg[t].sum += r.sum; agg[t].n += r.n;
       aggKeys[t].push(...r.keys);
     }
@@ -4924,30 +4942,34 @@ function buildStatusTimeData(def, m, hasChangelog, issues) {
     rows.sort((a, b) => b.avg - a.avg);
     labels = rows.map((r) => stageLabel(r.k));
     values = rows.map((r) => +(r.avg / DAY).toFixed(2));
-    colors = rows.map((r) => (r.k === 'Stakeholder gates' ? '#fbbf24cc' : '#22d3eecc'));
+    colors = rows.map((r) => (r.k === 'Stakeholder gates' ? '#fbbf24cc' : r.k === 'IT Committee' ? '#8b5cf6cc' : '#22d3eecc'));
     keys = rows.map((r) => aggKeys[r.k] || []);
   } else if (def.split === 'stage') {
     const picked = rows.filter((r) => r.side).sort((a, b) => b.avg - a.avg).slice(0, def.topN || 8);
     if (!picked.length) return { empty: [t('statusTime.noStages')] };
-    const sh = [], tm = [];
+    const sh = [], tm = [], it = [];
     picked.forEach((r) => {
       const d = +(r.avg / DAY).toFixed(1);
-      if (r.side === 'stakeholder') { sh.push(d); tm.push(null); }
-      else { tm.push(d); sh.push(null); }
+      if (r.side === 'stakeholder') { sh.push(d); tm.push(null); it.push(null); }
+      else if (r.side === 'itcommittee') { it.push(d); sh.push(null); tm.push(null); }
+      else { tm.push(d); sh.push(null); it.push(null); }
     });
     labels = picked.map((r) => titleize(r.k)).reverse();
-    let shAvg = null, tmAvg = null, sS = 0, sN = 0, tS = 0, tN = 0;
-    picked.forEach((r) => { if (r.side === 'stakeholder') { sS += r.sum; sN++; } else { tS += r.sum; tN++; } });
+    let shAvg = null, tmAvg = null, itAvg = null, sS = 0, sN = 0, tS = 0, tN = 0, iS = 0, iN = 0;
+    picked.forEach((r) => { if (r.side === 'stakeholder') { sS += r.sum; sN++; } else if (r.side === 'itcommittee') { iS += r.sum; iN++; } else { tS += r.sum; tN++; } });
     if (sN) shAvg = sS / sN;
     if (tN) tmAvg = tS / tN;
+    if (iN) itAvg = iS / iN;
     extraSub =
       `<span style="color:#fcd34d">●</span> ${t('statusTime.stakeholderAvg')} <b>${shAvg != null ? fmtDuration(shAvg) : '—'}</b>` +
-      ` &nbsp;·&nbsp; <span style="color:#67e8f9">●</span> ${t('statusTime.teamAvg')} <b>${tmAvg != null ? fmtDuration(tmAvg) : '—'}</b>`;
+      ` &nbsp;·&nbsp; <span style="color:#67e8f9">●</span> ${t('statusTime.teamAvg')} <b>${tmAvg != null ? fmtDuration(tmAvg) : '—'}</b>` +
+      (itAvg != null ? ` &nbsp;·&nbsp; <span style="color:#a78bfa">●</span> ${t('statusTime.itAvg')} <b>${fmtDuration(itAvg)}</b>` : '');
     return {
       labels,
       datasets: [
         { label: t('stage.stakeholder'), data: sh.reverse(), color: '#fbbf24', rgb: ACCENT_RGB.amber, __keys: picked.map((r) => r.keys).reverse(), __src: issues },
         { label: t('stage.team'), data: tm.reverse(), color: '#22d3ee', rgb: ACCENT_RGB.cyan, __keys: picked.map((r) => r.keys).reverse(), __src: issues },
+        { label: t('stage.it'), data: it.reverse(), color: '#8b5cf6', rgb: ACCENT_RGB.violet, __keys: picked.map((r) => r.keys).reverse(), __src: issues },
       ],
       duration: true,
       subtitle: t('statusTime.subSplit'),
@@ -5531,9 +5553,15 @@ const PALETTE = ['#6366f1', '#22d3ee', '#34d399', '#fbbf24', '#f472b6', '#a78bfa
 const RE_STAKEHOLDER = /(business\s*owner|internal\s*it|\bbd\b|business\s*development|approv|sign[\s-]?off|steering|compliance|\blegal\b|security\s*review|acceptance)/;
 const RE_TEAM = /(dev|cod(e|ing)|build|implement|\bbug|\bqa\b|test|uat|verif|integrat|refactor|deploy|release)/;
 
+/* IT-committee gate: "Internal IT Approval" and similar are the IT committee's
+   responsibility — neither the stakeholder's nor the team's delay. Checked BEFORE
+   the stakeholder regex (which would otherwise match 'internal it' + 'approv'). */
+const RE_IT_COMMITTEE = /(internal\s*it|\bit\s*committe)/;
+
 function classifySide(name) {
   const s = String(name || '').toLowerCase();
   if (!s) return null;
+  if (RE_IT_COMMITTEE.test(s)) return 'itcommittee';
   if (RE_STAKEHOLDER.test(s)) return 'stakeholder';
   if (RE_TEAM.test(s)) return 'team';
   return null;
