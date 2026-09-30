@@ -3003,7 +3003,19 @@ function showAllBoards() {
     }
     sel.value = '';
   }
-  loadBoards({ autoOpenLast: false }).catch((e) => handleAuthError(e));
+  /* Clicking the logo must ALWAYS land on the all-boards view. The list is
+     already on screen, so a failed refresh (e.g. an expired Jira session
+     answering 401/403) must never yank the user to the login/setup screen —
+     just toast the error and keep the cached cards. The login gate only
+     appears when there is genuinely nothing to show (no boards loaded). */
+  loadBoards({ autoOpenLast: false }).catch((e) => {
+    if (state.boards.length) {
+      logDiag('warn', 'Boards refresh failed — keeping the loaded list', { message: e?.message, status: e?.status });
+      toast(e?.message || t('err.generic'), 'err');
+    } else {
+      handleAuthError(e);
+    }
+  });
 }
 
 /* keep the topbar centered label + logo/Boards button in sync with the current view */
