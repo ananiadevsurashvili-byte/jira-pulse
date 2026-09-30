@@ -4991,9 +4991,11 @@ function exitPubCompare() {
    A first, then B, then C. Series colors follow the side convention:
    a=indigo, b=cyan, c=green. */
 const CMP_SERIES = [
-  { color: '#6366f1', rgb: ACCENT_RGB.indigo },
-  { color: '#22d3ee', rgb: ACCENT_RGB.cyan },
-  { color: '#34d399', rgb: ACCENT_RGB.green },
+  /* literals (not ACCENT_RGB refs) — this const sits earlier in the file than
+     ACCENT_RGB and a TDZ reference here would crash the whole script */
+  { color: '#6366f1', rgb: '99,102,241' },
+  { color: '#22d3ee', rgb: '34,211,238' },
+  { color: '#34d399', rgb: '52,211,153' },
 ];
 const CMP_RING_SUB = ['cmp.outerRing', 'cmp.outerRingC'];
 
