@@ -4888,7 +4888,13 @@ function renderPubCompareView() {
      the KPI cards render with no charts beneath them (the "empty compare page"
      bug). Compare cards also get a colored left border + winner chip so the
      side-by-side story reads at a glance. */
-  const defs = pubChartDefs();
+  /* viewer-local per-chart range overrides apply here too, so a picked range
+     survives language switches and other re-renders of the compare view */
+  const rStore = pubRangeStore();
+  const defs = pubChartDefs().map((d) => {
+    const o = rStore[d.id];
+    return o ? { ...d, ...o } : d;
+  });
   const grid = $('#pubChartsGrid');
   grid.classList.remove('hidden');
   document.body.classList.add('cmp-view');
@@ -4897,6 +4903,9 @@ function renderPubCompareView() {
     return;
   }
   grid.innerHTML = defs.map((d) => chartCardHTML(d, false)).join('');
+  /* per-chart time-range dropdowns — the compare view gets the same always-
+     visible control; a range change re-windows ONLY that one chart card */
+  wireChartRangeControls(grid, defs);
   const theme = chartTheme();
   for (const def of defs) {
     const canvasId = 'chart_' + def.id;
@@ -5935,13 +5944,157 @@ function pubRangeStore() {
   catch (_) { return {}; }
 }
 
-/* apply a range change to one chart and re-render the active view */
+/* ── targeted single-chart range update ─────────────────────────────
+   After a range change ONLY the affected chart is recomputed and redrawn,
+   in place — the rest of the charts grid is left completely untouched
+   (no destroy/rebuild of other charts, no scroll jump, no flicker).
+   How the range reflects per chart type:
+   • kind 'time' (flow/created/resolved/netflow) → buildTimeSeries re-windows
+     the series: preset N-day windows anchor at "now", custom windows anchor
+     at the picked end date; the bucket auto-upgrades (day→week→month) to
+     keep the axis readable for long spans.
+   • kind 'category' (count/blocked/avgCycle/openAge) → buildCategoryData
+     re-windows the issue pool: done-only charts filter on completion
+     timestamp, everything else on creation timestamp; issues outside the
+     window drop out of the bars/doughnut.
+   • kind 'statusTime' (avgStatusTime) → NOT range-capable by design: it
+     aggregates full-changelog stage durations, so the dropdown is hidden
+     for it (rangeCapable check in chartCardHTML).
+   In compare mode the overlay (boards B/C) is recomputed together with
+   board A and the winner chip is refreshed for that one card only. */
+function applyChartRangeUpdate(id) {
+  const card = document.querySelector(`.chart-card[data-cid="${id}"]`);
+  if (!card) return;   /* card not in the DOM (e.g. mid-navigation) — skip */
+  const canvasId = 'chart_' + id;
+  const theme = chartTheme();
+
+  /* resolve the effective def with the fresh override applied */
+  const resolveDef = () => {
+    if (state.inShareScreen) {
+      const rStore = pubRangeStore();
+      const base = pubChartDefs().find((d) => d.id === id);
+      if (!base) return null;
+      const o = rStore[id];
+      return o ? { ...base, ...o } : base;
+    }
+    const store = loadChartStore();
+    const base = BUILTIN_DEFS.find((b) => b.id === id)
+      || effectiveCharts().find((d) => d.id === id)
+      || null;
+    if (!base) return null;
+    const o = store.overrides[id];
+    return o ? { ...base, ...o } : base;
+  };
+  const def = resolveDef();
+  if (!def) return;
+
+  /* compare mode: rebuild the overlay for this one chart + refresh chip */
+  const cmpData = state.inShareScreen
+    ? (pubState.compare ? {
+      recA: pubState.compare.recA, recB: pubState.compare.recB, recC: pubState.compare.recC,
+      nameA: pubState.compare.nameA, nameB: pubState.compare.nameB, nameC: pubState.compare.nameC,
+    } : null)
+    : (state.compare && state.compare.metrics ? { recA: null, recB: state.compare, recC: state.compareC, nameA: state.lastBoard?.name, nameB: state.compare.board?.name, nameC: state.compareC?.board?.name } : null);
+
+  let data;
+  if (cmpData) {
+    if (state.inShareScreen) {
+      data = buildCompareChartData(
+        def,
+        { metrics: cmpData.recA.metrics, issues: cmpData.recA.issues, hasChangelog: cmpData.recA.hasChangelog, name: cmpData.nameA },
+        { metrics: cmpData.recB.metrics, issues: cmpData.recB.issues, hasChangelog: cmpData.recB.hasChangelog, name: cmpData.nameB },
+        ...(cmpData.recC ? [{ metrics: cmpData.recC.metrics, issues: cmpData.recC.issues, hasChangelog: cmpData.recC.hasChangelog, name: cmpData.nameC }] : []),
+      );
+    } else {
+      data = buildCompareChartData(
+        def,
+        { metrics: state.lastMetrics, issues: state.issues, hasChangelog: state.hasChangelog },
+        { metrics: cmpData.recB.metrics, issues: cmpData.recB.issues, hasChangelog: cmpData.recB.hasChangelog },
+        ...(cmpData.recC && cmpData.recC.metrics ? [{ metrics: cmpData.recC.metrics, issues: cmpData.recC.issues, hasChangelog: cmpData.recC.hasChangelog }] : []),
+      );
+    }
+    /* swap the winner chip in place (compareChartWinnerChip needs the cmp shape) */
+    const actions = card.querySelector('.chart-actions');
+    if (actions) {
+      actions.querySelectorAll('.cmp-chart-winner').forEach((n) => n.remove());
+      const chip = state.inShareScreen
+        ? compareChartWinnerChip(def, data, pubState.compare)
+        : compareChartWinnerChip(def, data, {
+          recA: { metrics: state.lastMetrics }, recB: cmpData.recB,
+          ...(cmpData.recC ? { recC: cmpData.recC } : {}),
+          nameA: cmpData.nameA, nameB: cmpData.nameB, nameC: cmpData.nameC,
+        });
+      if (chip) actions.insertAdjacentHTML('afterbegin', chip);
+    }
+  } else if (state.inShareScreen) {
+    /* pub single-board: rebuild from the cached live record (no refetch) */
+    const memoKey = pubState.currentBoard?.boardId + ':full';
+    const memo = _pubBoardCache.get(memoKey);
+    if (!memo) return;   /* nothing cached yet — the view is still loading */
+    const m = memo.rec.metrics || computeMetrics(memo.rec.issues || []);
+    data = buildChartData(def, m, memo.rec.issues || [], memo.rec.hasChangelog);
+  } else {
+    /* admin single-board: rebuild from the last computed metrics/issues */
+    if (!state.lastMetrics) return;
+    data = buildChartData(def, state.lastMetrics, state.issues, state.hasChangelog);
+  }
+
+  /* subtitle */
+  const sub = document.getElementById('sub_' + id);
+  if (sub) {
+    const base = data.subtitle || def.subtitle || '';
+    sub.innerHTML = escapeHtml(base) + (data.extraSub ? ` <span class="sub-extra">· ${data.extraSub}</span>` : '');
+  }
+
+  /* availability badge (admin views only — the pub views never render badges) */
+  if (!state.inShareScreen) {
+    const badgeBox = card.querySelector('.chart-titles');
+    if (badgeBox) {
+      badgeBox.querySelectorAll('.data-badge').forEach((n) => n.remove());
+      const badge = getDataAvailabilityBadge(def, data, state.lastMetrics || computeMetrics([]));
+      if (badge) badgeBox.insertAdjacentHTML('beforeend', badge);
+    }
+  }
+
+  /* range label + menu active states */
+  const label = card.querySelector('.chart-range-label');
+  if (label) label.textContent = rangeLabel(def.range);
+  card.querySelectorAll('.chart-range-opt').forEach((opt) => {
+    opt.classList.toggle('active', parseInt(opt.dataset.rv, 10) === def.range);
+  });
+
+  /* empty state vs chart redraw — only THIS canvas */
+  if (data.empty) {
+    const ch = state.inShareScreen ? null : state.charts[id];
+    if (ch) { ch.destroy(); delete state.charts[id]; }
+    if (state.inShareScreen) {
+      /* drop the dead pub instance so the canvas is clean for the message */
+      const live = (pubState._liveCharts || []).find((c) => c?.canvas?.id === canvasId);
+      if (live) { try { live.destroy(); } catch (_) { /* noop */ } pubState._liveCharts = pubState._liveCharts.filter((c) => c !== live); }
+    }
+    drawCanvasMessage(canvasId, Array.isArray(data.empty) ? data.empty : [data.empty]);
+    card.classList.add('empty');
+    return;
+  }
+  card.classList.remove('empty');
+  if (state.inShareScreen) {
+    /* replace just this pub chart instance */
+    const live = (pubState._liveCharts || []).find((c) => c?.canvas?.id === canvasId);
+    if (live) { try { live.destroy(); } catch (_) { /* noop */ } pubState._liveCharts = pubState._liveCharts.filter((c) => c !== live); }
+    mkPubChart(canvasId, chartConfigFor(def, data, theme, canvasId));
+  } else {
+    mkChart(canvasId, chartConfigFor(def, data, theme, canvasId));
+  }
+}
+
+/* apply a range change to one chart — persists the override, then updates
+   ONLY that chart in place (the rest of the grid never re-renders) */
 function setChartRange(id, patch) {
   if (state.inShareScreen) {
     const s = pubRangeStore();
     s[id] = { ...(s[id] || {}), ...patch };
     try { localStorage.setItem(PUB_RANGE_KEY, JSON.stringify(s)); } catch (_) { /* non-fatal */ }
-    renderPubContent();
+    applyChartRangeUpdate(id);
     return;
   }
   const store = loadChartStore();
@@ -5953,7 +6106,7 @@ function setChartRange(id, patch) {
     else store.overrides[id] = { ...(store.overrides[id] || {}), ...patch };
   }
   saveChartStore(store);
-  rerenderDashboard();
+  applyChartRangeUpdate(id);
 }
 
 /* close every open range menu (outside-click + re-open hygiene) */

@@ -589,12 +589,14 @@ body {
 .chart-titles h3 { font-size: 0.95rem; font-weight: 700; color: var(--text); margin: 0 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chart-sub { font-size: 0.72rem; color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.chart-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s ease; flex-shrink: 0; }
-.chart-card:hover .chart-actions { opacity: 1; }
-/* an open range menu must not fade when the pointer dips into the dropdown */
-.chart-card:has(.chart-range-menu:not(.hidden)) .chart-actions { opacity: 1; }
-/* in compare mode the winner chip must always be visible, not just on hover */
-body.cmp-view .chart-actions { opacity: 1; }
+/* the actions strip itself never fades — instead the individual edit/hide
+   buttons fade, so the per-chart time-range control (and the compare winner
+   chip) are ALWAYS visible without hovering the card */
+.chart-actions { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+.chart-actions .chart-btn { opacity: 0; transition: opacity 0.15s ease; }
+.chart-card:hover .chart-btn { opacity: 1; }
+/* an open range menu must not fade the buttons when the pointer dips into the dropdown */
+.chart-card:has(.chart-range-menu:not(.hidden)) .chart-btn { opacity: 1; }
 .chart-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 8px;
