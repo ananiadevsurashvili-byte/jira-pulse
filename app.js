@@ -6710,7 +6710,7 @@ function buildInsights(m) {
   const out = [];
   if (m.bottlenecks.size) {
     const [cat, n] = [...m.bottlenecks.entries()].sort((a, b) => b[1] - a[1])[0];
-    out.push({ icon: '⛔', cls: 'ins-warn', html: tReplace('ins.bottleneck', { n, cat: escapeHtml(cat) }) });
+    out.push({ icon: '⛔', cls: 'ins-warn', html: tReplace('ins.bottleneck', { n, cat: escapeHtml(cat), ns: n === 1 ? '' : 's' }) });
   }
   if (m.phaseDelays.length) {
     const w = m.phaseDelays[0];
@@ -6722,7 +6722,7 @@ function buildInsights(m) {
   }
   const aged = m.slow.filter((r) => r.age > 14 * DAY).length;
   if (aged) {
-    out.push({ icon: '🧊', cls: 'ins-bad', html: tReplace('ins.aged', { n: aged }) });
+    out.push({ icon: '🧊', cls: 'ins-bad', html: tReplace('ins.aged', { n: aged, ns: aged === 1 ? '' : 's' }) });
   }
   if (m.created30 || m.resolved30) {
     const net = m.resolved30 - m.created30;
@@ -6994,12 +6994,18 @@ document.addEventListener('DOMContentLoaded', () => {
   ['#cMetric', '#cGroup', '#cType'].forEach((sel) => {
     $(sel).addEventListener('change', syncChartForm);
   });
-  /* custom-range calendar fields in the chart modal */
-  $('#cRange').addEventListener('change', () => {
-    $('#cRangeCustomWrap').classList.toggle('hidden', $('#cRange').value !== String(RANGE_CUSTOM));
-  });
+  /* custom-range calendar fields in the chart modal — guard: admin/index.html
+     may lag behind; a missing element must never break the whole init chain */
+  const cRangeEl = $('#cRange');
+  if (cRangeEl) {
+    cRangeEl.addEventListener('change', () => {
+      const wrap = $('#cRangeCustomWrap');
+      if (wrap) wrap.classList.toggle('hidden', cRangeEl.value !== String(RANGE_CUSTOM));
+    });
+  }
   ['#cRangeFrom', '#cRangeTo'].forEach((sel) => {
-    $(sel).addEventListener('change', syncChartForm);
+    const el = $(sel);
+    if (el) el.addEventListener('change', syncChartForm);
   });
 
   /* publish modal wiring */
