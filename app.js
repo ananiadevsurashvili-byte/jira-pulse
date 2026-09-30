@@ -1837,7 +1837,7 @@ function pubVerifyCode() {
    The publish snapshot only carries the config (which boards, chart defs).
    Every render fetches fresh Jira data through the relay and computes the
    charts on the spot, so viewers always see real-time numbers. */
-const _pubBoardCache = new Map();   /* boardId → { rec, ts } per-session memo (30 s) */
+const _pubBoardCache = new Map();   /* boardId:mode → { rec, ts } per-session memo (30 s) */
 const PUB_LIVE_TTL = 30 * 1000;
 
 /* fetch live issues for a board + compute the full chart set.
@@ -1845,15 +1845,27 @@ const PUB_LIVE_TTL = 30 * 1000;
 async function pubLoadBoardLive(boardId, mode = 'full') {
   const memoKey = boardId + ':' + mode;
   const memo = _pubBoardCache.get(memoKey);
-  if (memo && Date.now() - memo.ts < PUB_LIVE_TTL) return memo.rec;
+  if (memo && Date.now() - memo.ts < PUB_LIVE_TTL) {
+    /* cache hit: the RAW fetch is memoized, but the chart set is rebuilt with
+       the current language (dataset labels/subtitles/empty messages are
+       translated at build time — a cached copy would mix languages). */
+    return _pubBuildBoardRec(memo.rec, boardId);
+  }
   logDiag('info', 'Publish view: fetching live board data', { boardId, mode });
   const rec = await pubFetchBoardLive(boardId, mode);
+  _pubBoardCache.set(memoKey, { rec, ts: Date.now() });
+  return _pubBuildBoardRec(rec, boardId);
+}
+
+/* assemble the render record from a raw fetch result: metrics + freshly
+   translated chart data (see pubLoadBoardLive — charts are never cached) */
+function _pubBuildBoardRec(rec, boardId) {
   const issues = Array.isArray(rec.issues) ? rec.issues : [];
   const m = computeMetrics(issues);
   rememberDoneStatuses(issues);                       /* learn custom done-status names */
   const defs = pubState.chartDefs;                    /* snapshot-configured chart defs */
   const charts = defs.map((def) => ({ def, data: buildChartData(def, m, issues, rec.hasChangelog) }));
-  const out = {
+  return {
     boardId,
     issues,
     metrics: m,
@@ -1863,8 +1875,6 @@ async function pubLoadBoardLive(boardId, mode = 'full') {
     source: rec.source || '',
     charts,
   };
-  _pubBoardCache.set(memoKey, { rec: out, ts: Date.now() });
-  return out;
 }
 
 /* destroy any live Chart.js instances before re-rendering a grid */
@@ -1935,6 +1945,8 @@ function jiraIssueBase() {
   if (!d) return '';
   return d.startsWith('http') ? d.replace(/\/+$/, '') : 'https://' + d.replace(/^\/+|\/+$/g, '');
 }
+
+/* ---------- pub insights (compare view) — also language-sensitive ---------- */
 
 /* resolve issue keys (or issue objects) into display rows, preferring the live
    pool (admin: state.issues · pub: per-board cache) for freshest field data */
