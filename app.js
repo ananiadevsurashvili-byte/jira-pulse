@@ -433,8 +433,8 @@ const I18N = {
     'dash.vsPrior30d': 'vs prior 30d',
     'dash.completionRate': '{p}% completion rate',
     'dash.createResolve': 'create → resolve',
-    'dash.fasterThan': '{p}% faster than prior 30d',
-    'dash.slowerThan': '{p}% slower than prior 30d',
+    'dash.fasterThan': 'faster than prior 30d',
+    'dash.slowerThan': 'slower than prior 30d',
     'dash.issuesAnalyzed': '{n} issues analyzed',
     'dash.changelogNotice': '⚠ Status-time analytics unavailable — this board may be team-managed or your token lacks changelog permissions. Showing core metrics only.',
     'insight.throughputText': '{r} resolved in the last 30 days ({d}/day avg).',
@@ -987,8 +987,8 @@ const I18N = {
     'dash.vsPrior30d': 'წინა 30 დღესთან შედარებით',
     'dash.completionRate': '{p}% დასრულების მაჩვენებელი',
     'dash.createResolve': 'შექმნა → დახურვა',
-    'dash.fasterThan': '{p}% უფრო სწრაფია წინა 30 დღესთან შედარებით',
-    'dash.slowerThan': '{p}% უფრო ნელია წინა 30 დღესთან შედარებით',
+    'dash.fasterThan': 'უფრო სწრაფია წინა 30 დღესთან შედარებით',
+    'dash.slowerThan': 'უფრო ნელია წინა 30 დღესთან შედარებით',
     'dash.issuesAnalyzed': '{n} დავალება ანალიზდება',
     'dash.changelogNotice': '⚠ სტატუსების დროის ანალიზი მიუწვდომელია — ეს დაფა შესაძლოა team-managed იყოს ან თქვენს ტოკენს არ აქვს changelog-ის უფლება. ნაჩვენებია მხოლოდ ძირითადი მეტრიკები.',
     'insight.throughputText': '{r} დახურულია ბოლო 30 დღეში ({d}/დღე საშ.).',
@@ -3787,7 +3787,11 @@ function computeMetrics(issues) {
       if (wkIdx >= 0 && wkIdx < 12) m.weekly[11 - wkIdx].count++;
       const pwIdx = WEEKS - 1 - Math.floor((NOW - resolved) / (7 * DAY));
       if (pwIdx >= 0 && pwIdx < WEEKS) m.pipelineWeekly[pwIdx].resolved++;
-      if (created) {
+      /* cycle time = real flow time only. Blocked/Canceled/On-Hold issues are
+         excluded — their months of parked time are not delivery speed and were
+         inflating the Avg cycle time KPI (canceled issues often carry a
+         resolutiondate, which made them look "resolved"). */
+      if (created && !isBlockedStatus(f)) {
         m.cycles.push(resolved - created);
         if (NOW - resolved < 30 * DAY) m.cycleRecent.push(resolved - created);
         else if (NOW - resolved < 60 * DAY) m.cyclePrev.push(resolved - created);
