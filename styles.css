@@ -824,6 +824,52 @@ body.cmp-view .chart-actions { opacity: 1; }
 #pubScreen .pub-charts-grid .chart-card { min-height: 280px; height: 100%; min-width: 0; overflow: hidden; }
 #pubScreen .pub-charts-grid .chart-card.wide { grid-column: span 2; }
 #pubScreen .pub-charts-grid .canvas-wrap { height: 280px; }
+
+/* ── pub single-board: KPI boxes + live task list ── */
+/* KPI grid reuses .kpi-grid/.kpi from the admin dashboard; keep its rhythm
+   consistent inside the pub container */
+#pubScreen .kpi-grid { margin-bottom: 18px; }
+#pubTaskListCard { margin-bottom: 18px; }
+#pubTaskListCard h3 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+/* filter bar: sort + assignee/status/type selects + search, one row (wraps on narrow) */
+.tl-filterbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin-bottom: 14px;
+}
+.tl-select {
+  appearance: none; -webkit-appearance: none;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit; font-size: 0.8rem;
+  padding: 8px 30px 8px 12px;
+  cursor: pointer;
+  max-width: 220px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b93ad' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+}
+.tl-select:hover { border-color: var(--border-strong); }
+.tl-select:focus { outline: none; border-color: var(--accent); }
+.tl-search {
+  flex: 1 1 200px; min-width: 160px; max-width: 320px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit; font-size: 0.8rem;
+  padding: 8px 12px;
+}
+.tl-search::placeholder { color: var(--muted); }
+.tl-search:focus { outline: none; border-color: var(--accent); }
+.tl-count { font-size: 0.76rem; white-space: nowrap; }
+/* the pub table shares .data-table, but summary/assignee should be allowed to flow */
+#pubTaskListCard .data-table { min-width: 760px; }
+#pubTaskListCard th, #pubTaskListCard td { white-space: nowrap; }
+#pubTaskListCard td:nth-child(2) { white-space: normal; min-width: 220px; }
+#pubTaskListCard td:nth-child(6) { white-space: normal; }
+
 /* public share screen responsive · matches the admin dashboard */
 @media (max-width: 920px) {
   #pubScreen .pub-charts-grid { grid-template-columns: minmax(0, 1fr); }
@@ -1323,6 +1369,11 @@ body.light .data-table tbody tr:hover { background: rgba(99, 102, 241, 0.06); }
 body.light .data-table a { color: #4f46e5; }
 body.light .status-pill { background: rgba(15, 23, 42, 0.05); }
 body.light .age-bar { background: rgba(15, 23, 42, 0.1); }
+
+/* pub task-list filter bar → light surfaces */
+body.light .tl-select,
+body.light .tl-search { background-color: rgba(255, 255, 255, 0.9); color: #1e2540; }
+body.light .tl-search::placeholder { color: #8b93ad; }
 
 /* badges / chips / accents → darker tints for light panels */
 body.light .badge { color: #4f46e5; }

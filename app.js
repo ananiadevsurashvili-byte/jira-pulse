@@ -158,6 +158,11 @@ const I18N = {
     'th.key': 'Key', 'th.summary': 'Summary', 'th.status': 'Status',
     'th.timeInStatus': 'Time in status', 'th.type': 'Type', 'th.assignee': 'Assignee', 'th.created': 'Created',
     'th.updated': 'Updated',
+    'tl.title': 'Last updated tasks', 'tl.titleSub': '· live from the board',
+    'tl.sortLast': 'Last updated first', 'tl.sortOldest': 'Oldest updated first',
+    'tl.sortTitle': 'Sort tasks', 'tl.filterTitle': 'Filter tasks',
+    'tl.any': 'All', 'tl.searchPh': 'Search tasks…',
+    'tl.count': '{n} tasks', 'tl.empty': 'No tasks match the current filters.',
     'ilist.empty': 'No issue data available for this selection.',
     'ilist.openJira': 'open in Jira',
     'ilist.noLink': 'connect to Jira to open issues',
@@ -302,7 +307,7 @@ const I18N = {
     'chart.title.typeDist': 'Issue Type Breakdown', 'chart.sub.typeDist': 'Open issues by type',
     'chart.title.assigneeLoad': 'Assignee Workload', 'chart.sub.assigneeLoad': 'Open issues per assignee',
     'chart.title.priorityDist': 'Priority Distribution', 'chart.sub.priorityDist': 'Open issues by priority',
-    'chart.title.ageDist': 'Open Issue Age', 'chart.sub.ageDist': 'How long issues have been open',
+    'chart.title.doneByAssignee': 'Done by Assignee', 'chart.sub.doneByAssignee': 'Completed tasks per assignee',
     'chart.title.ageBuckets': 'Age vs Demand', 'chart.sub.ageBuckets': 'How long each open issue has been waiting, grouped by wait time',
     'chart.title.unassigned': 'Assignment Gaps', 'chart.sub.unassigned': 'Who owns the open work — spot the load imbalance',
     'chart.title.assigneeCycle': 'Cycle Time Leaderboard', 'chart.sub.assigneeCycle': 'Avg create → resolve per assignee · resolved issues only',
@@ -706,6 +711,11 @@ const I18N = {
     'th.key': 'გასაღები', 'th.summary': 'დავალების სახელი', 'th.status': 'სტატუსი',
     'th.timeInStatus': 'დრო სტატუსში', 'th.type': 'ტიპი', 'th.assignee': 'შემსრულებელი', 'th.created': 'შექმნის თარიღი',
     'th.updated': 'განახლების თარიღი',
+    'tl.title': 'ბოლოს განახლებული დავალებები', 'tl.titleSub': '· პირდაპირ დაფიდან',
+    'tl.sortLast': 'ბოლო განახლებული წინ', 'tl.sortOldest': 'უძველესი განახლებული წინ',
+    'tl.sortTitle': 'დავალებების დალაგება', 'tl.filterTitle': 'დავალებების ფილტრი',
+    'tl.any': 'ყველა', 'tl.searchPh': 'დავალებების ძებნა…',
+    'tl.count': '{n} დავალება', 'tl.empty': 'ფილტრებს ვერცერთი დავალება არ ერგება.',
     'ilist.empty': 'ამ შერჩევისთვის დავალების მონაცემები არ არის.',
     'ilist.openJira': 'Jira-ში გახსნა',
     'ilist.noLink': 'დაუკავშირდით Jira-ს დავალებების გასახსნელად',
@@ -850,7 +860,7 @@ const I18N = {
     'chart.title.typeDist': 'ტიპების განაწილება', 'chart.sub.typeDist': 'ღია დავალებები ტიპებად',
     'chart.title.assigneeLoad': 'შემსრულებლების დატვირთვა', 'chart.sub.assigneeLoad': 'ღია დავალებები შემსრულებლებთან',
     'chart.title.priorityDist': 'პრიორიტეტების განაწილება', 'chart.sub.priorityDist': 'ღია დავალებები პრიორიტეტებად',
-    'chart.title.ageDist': 'ღია დავალებების ასაკი', 'chart.sub.ageDist': 'რამდენ ხანსაა დავალებები ღიაა',
+    'chart.title.doneByAssignee': 'შესრულებული შემსრულებლების მიხედვით', 'chart.sub.doneByAssignee': 'შესრულებული დავალებები შემსრულებლებთან',
     'chart.title.ageBuckets': 'ასაკი vs მოთხოვნილება', 'chart.sub.ageBuckets': 'რამდენ ხანს ელოდება თითოეული ღია დავალება — დაჯგუფებული ლოდინის დროის მიხედვით',
     'chart.title.unassigned': 'დანიშვნის ხარვეზები', 'chart.sub.unassigned': 'ვინ ფლობს ღია სამუშაოს — დატვირთვის დისბალანსის აღმოჩენა',
     'chart.title.assigneeCycle': 'ციკლის დროის ლიდერბორდი', 'chart.sub.assigneeCycle': 'საშუალოდ შექმნილი - დასრულებული შემსრულებლისგან · დახურული საკითხები',
@@ -1597,6 +1607,10 @@ function renderPubAuthGate() {
   $('#pubCompareBar').classList.add('hidden');
   $('#pubKpiGrid').classList.add('hidden');
   $('#pubInsightsStrip').classList.add('hidden');
+  $('#pubBoardKpis').classList.add('hidden');
+  $('#pubBoardKpis').innerHTML = '';
+  $('#pubTaskListCard').classList.add('hidden');
+  $('#pubTlBody').innerHTML = '';
   hide($('#pubPickBar'));
   /* re-render Google's official button — GSI wipes it when the gate was hidden */
   initGoogleButton();
@@ -1814,10 +1828,16 @@ function mkPubChart(canvasId, cfg) {
    'unassigned' Assignment Gaps doughnut) — filter those out at render time.
    Custom charts ('c'+base36 ids) always pass through untouched. */
 const REMOVED_BUILTIN_IDS = new Set(['unassigned']);
+/* the old 'ageDist' (Open Issue Age) builtin was replaced by 'doneByAssignee'
+   (Done by Assignee); published snapshots still carry the old def — upgrade it
+   in place so every board shows the new chart without re-publishing. */
+function upgradedBuiltinDef(id) {
+  return id === 'ageDist' ? BUILTIN_DEFS.find((d) => d.id === 'doneByAssignee') : null;
+}
 function pubChartDefs() {
   return (pubState.snapshot?.chartDefs || [])
     .filter((d) => !REMOVED_BUILTIN_IDS.has(d.id))
-    .map((d) => ({ ...d }));
+    .map((d) => (d.builtin && upgradedBuiltinDef(d.id) ? { ...upgradedBuiltinDef(d.id) } : { ...d }));
 }
 
 /* ---------- chart click → issue list modal ---------- */
@@ -1924,6 +1944,156 @@ function wireIssueListModal() {
   $('#issueListModal').addEventListener('click', (ev) => { if (ev.target === ev.currentTarget) hide($('#issueListModal')); });
 }
 
+/* ---------- single-board view: KPI stat boxes + live task list ---------- */
+
+/* the six admin-style KPI cards, rendered for the public board view from the
+   live board metrics (same data, same layout, same i18n keys as the admin app) */
+function pubBoardKpiHtml() {
+  const card = (icon, color, labelKey, valId, subId) => `
+    <div class="kpi glass">
+      <div class="kpi-top"><span class="kpi-icon ic-${color}">${icon}</span><span class="kpi-label" data-i18n="${labelKey}">${escapeHtml(t(labelKey))}</span></div>
+      <div class="kpi-value" id="${valId}">…</div>
+      <div class="kpi-sub muted" id="${subId}"></div>
+    </div>`;
+  return [
+    card('▦', 'indigo', 'kpi.total', 'pkpiTotal', 'pkpiTotalSub'),
+    card('＋', 'cyan', 'kpi.created', 'pkpiCreated', 'pkpiCreatedSub'),
+    card('✓', 'green', 'kpi.done', 'pkpiDone', 'pkpiDoneSub'),
+    card('↻', 'green', 'kpi.resolved', 'pkpiResolved', 'pkpiResolvedSub'),
+    card('⏱', 'violet', 'kpi.cycle', 'pkpiCycle', 'pkpiCycleSub'),
+    card('◔', 'amber', 'kpi.wip', 'pkpiWip', 'pkpiWipSub'),
+  ].join('');
+}
+
+/* fill the public board KPI boxes from live metrics (mirror of renderDashboard) */
+function fillPubBoardKpis(m) {
+  animateValue($('#pkpiTotal'), m.total);
+  $('#pkpiTotalSub').textContent = t('dash.issuesOnBoard');
+  animateValue($('#pkpiCreated'), m.created30);
+  $('#pkpiCreatedSub').innerHTML = trendBadge(m.createdPrev30, m.created30, t('dash.vsPrior30d'), 'neutral');
+  animateValue($('#pkpiDone'), m.done);
+  $('#pkpiDoneSub').textContent = tReplace('dash.completionRate', { p: m.doneRate });
+  animateValue($('#pkpiResolved'), m.resolved30);
+  $('#pkpiResolvedSub').innerHTML = trendBadge(m.resolvedPrev30, m.resolved30, t('dash.vsPrior30d'), 'up-good');
+  $('#pkpiCycle').textContent = m.cycleAvg != null ? fmtDuration(m.cycleAvg) : '—';
+  $('#pkpiCycle').classList.toggle('muted', m.cycleAvg == null);
+  if (m.cycleRecentAvg != null && m.cyclePrevAvg != null) {
+    const d = pctDelta(m.cyclePrevAvg, m.cycleRecentAvg);
+    $('#pkpiCycleSub').innerHTML = d === null
+      ? `<span class="muted">${escapeHtml(t('dash.createResolve'))}</span>`
+      : `<span class="trend ${d <= 0 ? 'trend-good' : 'trend-bad'}">${d <= 0 ? '▼' : '▲'} ${Math.abs(d)}%</span> <span class="muted">${escapeHtml(d <= 0 ? tReplace('dash.fasterThan', { p: Math.abs(d) }) : tReplace('dash.slowerThan', { p: Math.abs(d) }))}</span>`;
+  } else {
+    $('#pkpiCycleSub').innerHTML = `<span class="muted">${escapeHtml(t('dash.createResolve'))}</span>`;
+  }
+  animateValue($('#pkpiWip'), m.wip);
+}
+
+/* live task list state — reset whenever the viewer switches to another board */
+function pubTaskListState(boardId) {
+  if (!pubState.tl || pubState.tl.boardId !== boardId) {
+    pubState.tl = { boardId, sort: 'updated-desc', assignee: '', status: '', type: '', q: '' };
+  }
+  return pubState.tl;
+}
+
+/* filter bar: sort (last/oldest updated), assignee, status, type + free-text search */
+function pubTaskListFilters(issues, st) {
+  const uniq = (arr) => Array.from(new Set(arr)).filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  const assignees = uniq(issues.map((i) => i.fields?.assignee?.displayName || ''));
+  const statuses = uniq(issues.map((i) => i.fields?.status?.name || ''));
+  const types = uniq(issues.map((i) => i.fields?.issuetype?.name || ''));
+  const opt = (v, label, sel) => `<option value="${escapeHtml(v)}"${sel ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+  const sel = (id, arr, cur) => `
+    <select class="tl-select" id="${id}" title="${escapeHtml(t('tl.filterTitle'))}">
+      ${opt('', t('tl.any'), !cur)}
+      ${arr.map((v) => opt(v, v, cur === v)).join('')}
+    </select>`;
+  return `
+    <select class="tl-select" id="tlSort" title="${escapeHtml(t('tl.sortTitle'))}">
+      <option value="updated-desc"${st.sort === 'updated-desc' ? ' selected' : ''}>${escapeHtml(t('tl.sortLast'))}</option>
+      <option value="updated-asc"${st.sort === 'updated-asc' ? ' selected' : ''}>${escapeHtml(t('tl.sortOldest'))}</option>
+    </select>
+    ${sel('tlAssignee', assignees, st.assignee)}
+    ${sel('tlStatus', statuses, st.status)}
+    ${sel('tlType', types, st.type)}
+    <input id="tlSearch" class="tl-search" type="search" placeholder="${escapeHtml(t('tl.searchPh'))}" value="${escapeHtml(st.q)}" />`;
+}
+
+/* apply the active filters + sort to the board's issues */
+function pubTaskListFiltered(issues) {
+  const st = pubState.tl;
+  const q = String(st.q || '').trim().toLowerCase();
+  const rows = issues.filter((i) => {
+    const f = i.fields || {};
+    const assignee = f.assignee?.displayName || '';
+    const status = f.status?.name || '';
+    const type = f.issuetype?.name || '';
+    if (st.assignee && assignee !== st.assignee) return false;
+    if (st.status && status !== st.status) return false;
+    if (st.type && type !== st.type) return false;
+    if (q) {
+      const hay = `${i.key || ''} ${f.summary || ''} ${assignee} ${status} ${type}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const ts = (i) => Date.parse(i.fields?.updated || '') || 0;
+  rows.sort((a, b) => (st.sort === 'updated-asc' ? ts(a) - ts(b) : ts(b) - ts(a)));
+  return rows;
+}
+
+/* table rows for the filtered task list (capped so huge boards stay snappy) */
+function pubTaskListRows(issues) {
+  const MAX = 50;
+  const all = pubTaskListFiltered(issues);
+  const rows = all.slice(0, MAX);
+  const base = jiraIssueBase();
+  const html = rows.map((i) => {
+    const f = i.fields || {};
+    const assignee = f.assignee?.displayName || '';
+    const link = base
+      ? `<a href="${escapeHtml(base)}/browse/${encodeURIComponent(i.key)}" target="_blank" rel="noopener" title="${t('ilist.openJira')}">${escapeHtml(i.key)}<span class="ilist-ext" aria-hidden="true">↗</span></a>`
+      : `<span class="muted">${escapeHtml(i.key)}</span>`;
+    return `<tr>
+      <td>${link}</td>
+      <td>${escapeHtml(f.summary || '—')}</td>
+      <td><span class="status-pill">${escapeHtml(f.status?.name || '—')}</span></td>
+      <td class="muted">${fmtDateLong(f.updated)}</td>
+      <td><span class="type-chip">${escapeHtml(f.issuetype?.name || '—')}</span></td>
+      <td class="muted">${assignee ? escapeHtml(assignee) : `<span class="muted">${escapeHtml(t('ilist.unassigned'))}</span>`}</td>
+      <td class="muted">${fmtDateLong(f.created)}</td>
+    </tr>`;
+  }).join('');
+  return html || `<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('tl.empty'))}</td></tr>`;
+}
+
+function updatePubTlCount(issues) {
+  const el = $('#tlCount');
+  if (el) el.textContent = tReplace('tl.count', { n: pubTaskListFiltered(issues).length });
+}
+
+/* render + wire the task list card for the current board */
+function renderPubTaskList(issues) {
+  const st = pubTaskListState(pubState.snapshot?.boardId);
+  const bar = $('#pubTlFilterBar');
+  bar.innerHTML = pubTaskListFilters(issues, st) + `<span class="tl-count muted" id="tlCount"></span>`;
+  const rerenderRows = () => {
+    $('#pubTlBody').innerHTML = pubTaskListRows(issues);
+    updatePubTlCount(issues);
+  };
+  $('#tlSort').addEventListener('change', (e) => { st.sort = e.target.value; rerenderRows(); });
+  [['tlAssignee', 'assignee'], ['tlStatus', 'status'], ['tlType', 'type']].forEach(([id, k]) => {
+    $('#' + id).addEventListener('change', (e) => { st[k] = e.target.value; rerenderRows(); });
+  });
+  let deb;
+  $('#tlSearch').addEventListener('input', (e) => {
+    clearTimeout(deb);
+    deb = setTimeout(() => { st.q = e.target.value; rerenderRows(); }, 250);
+  });
+  rerenderRows();
+}
+
 /* hero title with a gradient-accented trailing word — the last word (or the
    part after the last '·') gets the indigo→cyan gradient, echoing the brand */
 function setPubTitleAccent(text) {
@@ -2017,6 +2187,11 @@ async function renderPubContent() {
     /* ── all-boards view: one LIVE stats summary per board ── */
     chartsGrid.classList.add('hidden');
     boardsList.classList.remove('hidden');
+    /* board-scoped KPI boxes + task list only belong to the single-board view */
+    $('#pubBoardKpis').classList.add('hidden');
+    $('#pubBoardKpis').innerHTML = '';
+    $('#pubTaskListCard').classList.add('hidden');
+    $('#pubTlBody').innerHTML = '';
     const boards = snap.boards || [];
     if (!boards.length) {
       boardsList.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">' + escapeHtml(t('pub.noBoardsPublished')) + '</div>';
@@ -2136,6 +2311,20 @@ async function renderPubContent() {
     $('#pubIssueCount').textContent = tReplace('pub.nIssues', { n: rec.issuesCount });
     $('#pubChangelogBadge').textContent = rec.hasChangelog ? t('badge.changelog') : t('badge.noChangelog');
     $('#pubChangelogBadge').className = 'data-badge ' + (rec.hasChangelog ? 'ok' : 'missing');
+
+    /* KPI stat boxes — same six cards as the admin dashboard, from live metrics */
+    const kpiWrap = $('#pubBoardKpis');
+    kpiWrap.innerHTML = pubBoardKpiHtml();
+    kpiWrap.classList.remove('hidden');
+    applyI18n(kpiWrap);
+    fillPubBoardKpis(rec.metrics || {});
+
+    /* live task list under the charts (last-updated sort + filters + search) */
+    const tlCard = $('#pubTaskListCard');
+    tlCard.classList.remove('hidden');
+    applyI18n(tlCard);
+    renderPubTaskList(rec.issues || []);
+
     if (!charts.length) {
       grid.innerHTML = `<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">${escapeHtml(t('pub.noCharts'))}</div>`;
       return;
@@ -4116,6 +4305,10 @@ function renderPubCompareView() {
   destroyPubCharts();
   $('#pubBoardsList').classList.add('hidden');
   $('#pubChartsGrid').classList.add('hidden');
+  $('#pubBoardKpis').classList.add('hidden');
+  $('#pubBoardKpis').innerHTML = '';
+  $('#pubTaskListCard').classList.add('hidden');
+  $('#pubTlBody').innerHTML = '';
   $('#pubBackBtn').dataset.fromAll = '';
   $('#pubBackBtn').textContent = t('pub.back');
   $('#pubBackBtn').classList.remove('hidden');   /* compare is a sub-page — Back always shows */
@@ -4471,7 +4664,7 @@ const BUILTIN_TITLE_I18N = {
   resolvedTrend: 'chart.title.resolvedTrend', backlogGrowth: 'chart.title.backlogGrowth', blockedDist: 'chart.title.blockedDist',
   bottlenecks: 'chart.title.bottlenecks', statusDist: 'chart.title.statusDist', statusTime: 'chart.title.statusTime',
   phaseDelays: 'chart.title.phaseDelays', typeDist: 'chart.title.typeDist', assigneeLoad: 'chart.title.assigneeLoad',
-  priorityDist: 'chart.title.priorityDist', ageDist: 'chart.title.ageDist', ageBuckets: 'chart.title.ageBuckets',
+  priorityDist: 'chart.title.priorityDist', doneByAssignee: 'chart.title.doneByAssignee', ageBuckets: 'chart.title.ageBuckets',
   unassigned: 'chart.title.unassigned', assigneeCycle: 'chart.title.assigneeCycle',
 };
 const BUILTIN_SUB_I18N = {
@@ -4479,7 +4672,7 @@ const BUILTIN_SUB_I18N = {
   resolvedTrend: 'chart.sub.resolvedTrend', backlogGrowth: 'chart.sub.backlogGrowth', blockedDist: 'chart.sub.blockedDist',
   bottlenecks: 'chart.sub.bottlenecks', statusDist: 'chart.sub.statusDist', statusTime: 'chart.sub.statusTime',
   phaseDelays: 'chart.sub.phaseDelays', typeDist: 'chart.sub.typeDist', assigneeLoad: 'chart.sub.assigneeLoad',
-  priorityDist: 'chart.sub.priorityDist', ageDist: 'chart.sub.ageDist', ageBuckets: 'chart.sub.ageBuckets',
+  priorityDist: 'chart.sub.priorityDist', doneByAssignee: 'chart.sub.doneByAssignee', ageBuckets: 'chart.sub.ageBuckets',
   unassigned: 'chart.sub.unassigned', assigneeCycle: 'chart.sub.assigneeCycle',
 };
 /* translated view of a chart def (built-ins only; custom defs keep their own titles) */
@@ -4520,7 +4713,7 @@ const BUILTIN_DEFS = [
   { id: 'typeDist', title: 'Issue Type Breakdown', subtitle: 'Open issues by type', type: 'doughnut', metric: 'count', groupBy: 'type', bucket: 'week', range: 0, filter: 'open', topN: 8, split: 'none', color: 'cyan', wide: false, centerTotal: true },
   { id: 'assigneeLoad', title: 'Assignee Workload', subtitle: 'Open issues per assignee', type: 'hbar', metric: 'count', groupBy: 'assignee', bucket: 'week', range: 0, filter: 'open', topN: 12, split: 'none', color: 'pink', wide: false, centerTotal: false },
   { id: 'priorityDist', title: 'Priority Distribution', subtitle: 'Open issues by priority', type: 'doughnut', metric: 'count', groupBy: 'priority', bucket: 'week', range: 0, filter: 'open', topN: 8, split: 'none', color: 'amber', wide: false, centerTotal: true },
-  { id: 'ageDist', title: 'Open Issue Age', subtitle: 'How long issues have been open', type: 'hbar', metric: 'openAge', groupBy: 'assignee', bucket: 'week', range: 0, filter: 'open', topN: 10, split: 'none', color: 'green', wide: false, centerTotal: false },
+  { id: 'doneByAssignee', title: 'Done by Assignee', subtitle: 'Completed tasks per assignee', type: 'hbar', metric: 'count', groupBy: 'assignee', bucket: 'week', range: 0, filter: 'done', topN: 10, split: 'none', color: 'green', wide: false, centerTotal: false },
   { id: 'ageBuckets', title: 'Age vs Demand', subtitle: 'How long the open backlog has been waiting', type: 'hbar', metric: 'count', groupBy: 'ageBucket', bucket: 'week', range: 0, filter: 'open', topN: 0, split: 'none', color: 'amber', wide: false, centerTotal: false },
   /* 'unassigned' (Assignment Gaps) removed — it left a solo chart in the last
      grid row; the remaining 14 standard charts pair up evenly */
