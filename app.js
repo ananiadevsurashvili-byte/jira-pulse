@@ -1421,6 +1421,52 @@ let pubState = {
   compareGen: 0,           /* staleness guard for in-flight compare loads */
 };
 
+/* ── viewer session persistence (refresh keeps you signed in) ─────────
+   After a Google sign-in or a verified email code we remember the viewer
+   (email + timestamp) in localStorage. On the next page load the org gate
+   is skipped and the viewer lands straight back on the board they were
+   viewing. Sign-out wipes it. Sessions expire after 30 days. */
+const LS_PUB_SESSION = 'jp_pub_session_v1';
+const PUB_SESSION_TTL = 30 * 24 * 60 * 60 * 1000;   /* 30 days */
+
+function pubSaveSession(extra = {}) {
+  try {
+    if (!pubState.verified || !pubState.email) return;
+    localStorage.setItem(LS_PUB_SESSION, JSON.stringify({
+      email: pubState.email,
+      ts: Date.now(),
+      ...extra,
+    }));
+  } catch { /* storage unavailable — non-fatal */ }
+}
+
+function pubRestoreSession() {
+  try {
+    const raw = localStorage.getItem(LS_PUB_SESSION);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s || !s.email || !publishEmailOk(s.email)) return null;
+    if (!s.ts || Date.now() - s.ts > PUB_SESSION_TTL) {
+      localStorage.removeItem(LS_PUB_SESSION);
+      return null;
+    }
+    return s;
+  } catch { return null; }
+}
+
+function pubClearSession() {
+  try { localStorage.removeItem(LS_PUB_SESSION); } catch { /* noop */ }
+}
+
+/* shared "viewer verified" path: hide the gate, show the content, render.
+   Used by Google sign-in, the email code and the session restore. */
+function pubEnterVerified() {
+  $('#pubContent').classList.remove('hidden');
+  $('#pubAuthBox').classList.add('hidden');
+  updatePubUserChip();
+  renderPubContent();
+}
+
 /* Google OAuth client id (leave empty to disable Google sign-in) */
 const GOOGLE_CLIENT_ID = '671098966570-21bp1aeud5o2glbjsliif3foi6n71gmh.apps.googleusercontent.com';
 
@@ -1440,12 +1486,11 @@ function handleGoogleCredential(resp) {
   pubState.email = email;
   pubState.verified = true;
   pubState.isAdmin = isAdminEmail(email);
+  /* remember the viewer so a refresh skips the login gate */
+  pubSaveSession();
   /* no "verified · loading" message here — the charts appearing IS the feedback;
      the status line is reserved for errors only */
-  $('#pubContent').classList.remove('hidden');
-  $('#pubAuthBox').classList.add('hidden');
-  updatePubUserChip();
-  renderPubContent();
+  pubEnterVerified();
 }
 
 /* render Google's official sign-in button. The GSI script is loaded with `async`,
@@ -1562,6 +1607,7 @@ function pubSignOut() {
   pubState.email = '';
   pubState.codeSent = false;
   pubState.isAdmin = false;
+  pubClearSession();   /* forget the persisted viewer session */
   /* let Google forget the chosen account so the next sign-in shows the chooser */
   if (googleReady()) {
     try { window.google.accounts.id.disableAutoSelect(); } catch { /* noop */ }
@@ -1762,11 +1808,10 @@ function pubVerifyCode() {
   if (entered === expected) {
     pubState.verified = true;
     pubState.isAdmin = isAdminEmail(pubState.email);
+    /* remember the viewer so a refresh skips the login gate */
+    pubSaveSession();
     /* success = charts appearing; status line stays reserved for errors */
-    $('#pubContent').classList.remove('hidden');
-    $('#pubAuthBox').classList.add('hidden');
-    updatePubUserChip();
-    renderPubContent();
+    pubEnterVerified();
   } else {
     $('#pubStatus').textContent = t('pub.wrongCode');
     $('#pubStatus').className = 'error';
@@ -2360,6 +2405,7 @@ function openBoardSnapshot(boardRec) {
   };
   pubState.snapshot = sub;
   $('#pubBackBtn').dataset.fromAll = '1';   /* set BEFORE render so the label logic sees it */
+  pubSaveSession({ boardId: boardRec.boardId });   /* remember the board for refresh */
   renderPubContent();
   $('#pubBackBtn').textContent = t('pub.backAll');
 }
@@ -2377,8 +2423,10 @@ function hidePubScreen() {
 /* Public landing for the root URL "/" — org members should never see the Jira
    API-token form. Fetch the published board CONFIG from the relay (shared by
    every device) and show the org sign-in gate (Google 1-click / email code).
-   Data itself is fetched live at render time. */
-async function showPublicLanding() {
+   Data itself is fetched live at render time.
+   `restore = true` → a persisted viewer session exists: skip the gate and go
+   straight back to the board the viewer was on before the refresh. */
+async function showPublicLanding(restore = false) {
   const cfg = await pubConfigGet();
   const boards = (cfg && Array.isArray(cfg.boards)) ? cfg.boards : [];
   const snapshot = {
@@ -2391,6 +2439,21 @@ async function showPublicLanding() {
     boards,
     domain: (cfg && cfg.domain) || '',
   };
+  /* restore the persisted viewer session (refresh keeps you signed in) */
+  const sess = restore ? pubRestoreSession() : null;
+  if (sess) {
+    pubState.email = sess.email;
+    pubState.verified = true;
+    pubState.isAdmin = false;   /* the public app never grants admin powers */
+    pubState.snapshot = snapshot;
+    pubEnterVerified();
+    /* land on the same board the viewer was reading (if it still exists) */
+    if (sess.boardId) {
+      const b = boards.find((x) => x.boardId === sess.boardId);
+      if (b) { openBoardSnapshot(b); return; }
+    }
+    return;
+  }
   showPubScreen(snapshot);
 }
 
@@ -6204,6 +6267,7 @@ document.addEventListener('DOMContentLoaded', () => {
       pubState.allSnapshot = null;
       $('#pubBackBtn').dataset.fromAll = '';
       $('#pubBackBtn').textContent = t('pub.back');
+      pubSaveSession({ boardId: null });   /* back to the all-boards view */
       renderPubContent();
       return;
     }
@@ -6287,13 +6351,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (saved) enterApp();
     else showSetup();
   } else {
-    /* PUBLIC APP (root URL): org members land here. If a Jira session exists on this
-       device, open the LIVE read-only dashboard so users see the same charts & design
-       as the admin panel — but without any admin functions/buttons (no publish, no new
-       chart, no settings, no diagnostics). Without a session, fall back to the secure
-       published-boards gate (config from the relay, data live after sign-in). */
+    /* PUBLIC APP (root URL): org members land here. A persisted viewer session
+       (Google sign-in or verified email code) skips the org gate entirely and
+       re-opens the board the viewer was on before the refresh. Without a
+       session, fall back to the secure published-boards gate. */
     if (saved) enterApp();
-    else showPublicLanding();
+    else showPublicLanding(true);
   }
 
   window.addEventListener('error', (ev) => {

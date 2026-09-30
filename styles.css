@@ -846,10 +846,22 @@ body.cmp-view .chart-actions { opacity: 1; }
   padding: 8px 30px 8px 12px;
   cursor: pointer;
   max-width: 220px;
+  /* make the NATIVE dropdown popup dark too (Chromium paints it from color-scheme) */
+  color-scheme: dark;
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b93ad' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 11px center;
 }
+/* option rows: dark surface + readable text (some browsers ignore styling on
+   <option>, but Chrome/Edge/Firefox all honour background+color) */
+.tl-select option {
+  background-color: #0a0f22;
+  color: #e9edf8;
+  font-weight: 500;
+  padding: 6px 10px;
+}
+.tl-select option:checked,
+.tl-select option:hover { background-color: #1c2542; }
 .tl-select:hover { border-color: var(--border-strong); }
 .tl-select:focus { outline: none; border-color: var(--accent); }
 .tl-search {
@@ -1370,10 +1382,13 @@ body.light .data-table a { color: #4f46e5; }
 body.light .status-pill { background: rgba(15, 23, 42, 0.05); }
 body.light .age-bar { background: rgba(15, 23, 42, 0.1); }
 
-/* pub task-list filter bar → light surfaces */
+/* pub task-list filter bar → light surfaces (incl. the native popup) */
 body.light .tl-select,
-body.light .tl-search { background-color: rgba(255, 255, 255, 0.9); color: #1e2540; }
+body.light .tl-search { background-color: rgba(255, 255, 255, 0.9); color: #1e2540; color-scheme: light; }
 body.light .tl-search::placeholder { color: #8b93ad; }
+body.light .tl-select option { background-color: #ffffff; color: #1e2540; }
+body.light .tl-select option:checked,
+body.light .tl-select option:hover { background-color: #eef0ff; }
 
 /* badges / chips / accents → darker tints for light panels */
 body.light .badge { color: #4f46e5; }

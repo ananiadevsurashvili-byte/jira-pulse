@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-<link rel="stylesheet" href="styles.css?v=8241324" />
+<link rel="stylesheet" href="styles.css?v=8241325" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -528,6 +528,9 @@
         <button id="pubBackBtn" class="btn btn-ghost hidden" style="margin-left:auto" data-i18n="pub.back">← Back</button>
       </div>
 
+      <!-- single-board view: KPI stat boxes at the very top (like the admin dashboard) -->
+      <div id="pubBoardKpis" class="kpi-grid hidden"></div>
+
       <div id="pubLinkBox" class="hidden glass" style="padding:14px 18px;margin-bottom:16px">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <span style="font-size:0.8rem;font-weight:700;white-space:nowrap" data-i18n="pub.share">🔗 Share link</span>
@@ -585,8 +588,7 @@
       <div id="pubKpiGrid" class="kpi-grid hidden"></div>
       <div id="pubInsightsStrip" class="insights-strip hidden"></div>
 
-      <!-- single-board view: KPI stat boxes + live task list (rendered by renderPubContent) -->
-      <div id="pubBoardKpis" class="kpi-grid hidden"></div>
+      <!-- single-board view: live task list under the charts (rendered by renderPubContent) -->
       <div id="pubTaskListCard" class="card glass table-card hidden">
         <h3><span data-i18n="tl.title">Last updated tasks</span><span class="muted" data-i18n="tl.titleSub">· live from the board</span></h3>
         <div class="tl-filterbar" id="pubTlFilterBar"></div>
@@ -609,6 +611,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=8241324"></script>
+<script src="app.js?v=8241325"></script>
 </body>
 </html>
