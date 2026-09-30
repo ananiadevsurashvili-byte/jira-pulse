@@ -1402,7 +1402,14 @@ function setLang(lang) {
   try {
     if (state.inShareScreen) { renderPubContent(); }
     else if (state.lastBoard && state.lastMetrics && !$('#dashScreen').classList.contains('hidden')) {
-      renderDashboard(state.lastBoard, state.lastMetrics);
+      /* compare mode: renderDashboard() would restoreKpiGrid() and wipe the
+         3-way compare KPI cards — re-render the compare layout instead */
+      const kpiGrid = document.querySelector('.kpi-grid');
+      if (kpiGrid && kpiGrid.classList.contains('kpi-grid-compare')) {
+        renderCompareDashboard();
+      } else {
+        renderDashboard(state.lastBoard, state.lastMetrics);
+      }
       renderCharts(effectiveCharts(), state.lastMetrics);
     } else if (state.boards.length && !$('#boardsScreen').classList.contains('hidden')) {
       renderBoardCards();
@@ -6002,8 +6009,8 @@ function wireChartRangeControls(root, defs) {
       const from = root.querySelector(`[data-rfrom="${id}"]`);
       const to = root.querySelector(`[data-rto="${id}"]`);
       const f = from?.value ? Date.parse(from.value) : null;
-      const t = to?.value ? Date.parse(to.value) : null;
-      if (!f || !t || !isFinite(f) || !isFinite(t) || t < f) { toast(t('range.invalid'), 'warn'); return; }
+      const tMs = to?.value ? Date.parse(to.value) : null;
+      if (!f || !tMs || !isFinite(f) || !isFinite(tMs) || tMs < f) { toast(t('range.invalid'), 'warn'); return; }
       setChartRange(id, { range: RANGE_CUSTOM, rangeFrom: from.value, rangeTo: to.value });
     });
   });
