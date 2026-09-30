@@ -395,6 +395,7 @@ const I18N = {
     'range.custom': 'Custom range', 'range.pickCustom': 'Calendar…', 'range.from': 'From', 'range.to': 'To',
     'range.apply': 'Apply', 'range.title': 'Time range', 'range.invalid': 'Pick a valid from–to window',
     'range.now': 'now',
+    'range.noData': 'No status transitions in this time range',
     'age.le2d': '≤ 2d', 'age.3_7d': '3–7d', 'age.1_2w': '1–2w', 'age.2_4w': '2–4w',
     'age.1_3mo': '1–3mo', 'age.3_6mo': '3–6mo', 'age.6moPlus': '6mo+',
     'chart.title.pipeline': 'Incoming vs Completed', 'chart.sub.pipeline': 'Created vs resolved over time',
@@ -405,7 +406,7 @@ const I18N = {
     'chart.title.blockedDist': 'Blocked & Canceled', 'chart.sub.blockedDist': 'Work sitting on blocked/canceled/rejected statuses · all time',
     'chart.title.bottlenecks': 'Active Bottlenecks', 'chart.sub.bottlenecks': 'Where open work is parked',
     'chart.title.statusDist': 'Status Distribution', 'chart.sub.statusDist': 'All issues by current status',
-    'chart.title.statusTime': 'Avg Time in Status', 'chart.sub.statusTime': 'Lifetime average per status · changelog',
+    'chart.title.statusTime': 'Avg Time in Status', 'chart.sub.statusTime': 'Average time per status · changelog',
     'chart.title.phaseDelays': 'Stakeholder vs Team Delays', 'chart.sub.phaseDelays': 'Avg days per stage · stakeholder gates vs team work · changelog',
     'chart.title.typeDist': 'Issue Type Breakdown', 'chart.sub.typeDist': 'Open issues by type',
     'chart.title.assigneeLoad': 'Assignee Workload', 'chart.sub.assigneeLoad': 'Open issues per assignee',
@@ -705,7 +706,7 @@ const I18N = {
     'statusTime.noTransitions': 'No status transition data found',
     'statusTime.noStages': 'No stakeholder / team stage transitions detected',
     'statusTime.subStage': 'avg days · stakeholder vs team · changelog',
-    'statusTime.subStatus': 'avg days per status · lifetime · changelog',
+    'statusTime.subStatus': 'avg days per status · changelog',
     'statusTime.subSplit': 'avg days parked per stage · changelog',
     'statusTime.stakeholderAvg': 'Stakeholder gates avg',
     'statusTime.teamAvg': 'Team phases avg',
@@ -978,6 +979,7 @@ const I18N = {
     'range.custom': 'არჩეული პერიოდი', 'range.pickCustom': 'კალენდარი…', 'range.from': 'საიდან', 'range.to': 'სადამდე',
     'range.apply': 'მიღება', 'range.title': 'დროის პერიოდი', 'range.invalid': 'აირჩიეთ სწორი პერიოდი',
     'range.now': 'ახლა',
+    'range.noData': 'ამ პერიოდში სტატუსის ცვლილებები არ არის',
     'age.le2d': '≤ 2 დღე', 'age.3_7d': '3–7 დღე', 'age.1_2w': '1–2 კვირა', 'age.2_4w': '2–4 კვირა',
     'age.1_3mo': '1–3 თვე', 'age.3_6mo': '3–6 თვე', 'age.6moPlus': '6 თვე+',
     'chart.title.pipeline': 'შემოსვლა vs დასრულება', 'chart.sub.pipeline': 'შექმნა vs დახურვა დროში',
@@ -1288,7 +1290,7 @@ const I18N = {
     'statusTime.noTransitions': 'სტატუსის გადასვლების მონაცემები ვერ მოიძებნა',
     'statusTime.noStages': 'სტეიკჰოლდერის / გუნდის ეტაპების გადასვლები ვერ მოიძებნა',
     'statusTime.subStage': 'საშ. დღეები · სტეიკჰოლდერი vs გუნდი · ცვლილებების ისტორია',
-    'statusTime.subStatus': 'საშ. დღეები სტატუსის მიხედვით · სრული ვადა · ცვლილებების ისტორია',
+    'statusTime.subStatus': 'საშ. დღეები სტატუსის მიხედვით · ცვლილებების ისტორია',
     'statusTime.subSplit': 'საშ. დღეები ეტაპზე ყოფნისთვის · ცვლილებების ისტორია',
     'statusTime.stakeholderAvg': 'სტეიკჰოლდერის ეტაპების საშ.',
     'statusTime.teamAvg': 'გუნდის ეტაპების საშ.',
@@ -2059,6 +2061,20 @@ const REMOVED_BUILTIN_IDS = new Set(['unassigned']);
 function upgradedBuiltinDef(id) {
   return id === 'ageDist' ? BUILTIN_DEFS.find((d) => d.id === 'doneByAssignee') : null;
 }
+/* built-in ids whose DEFAULT time range changed after their snapshots were
+   published. Snapshots frozen an old def (e.g. statusTime range:0 "All time");
+   the fresh default from BUILTIN_DEFS is merged in at render time so every
+   published board shows the new default without re-publishing. Admin-set
+   overrides (saved in the chart store) always win over the fresh default. */
+const RANGE_DEFAULT_UPGRADES = new Set(['statusTime', 'doneByAssignee']);
+function upgradeBuiltinRange(id, def) {
+  if (!def || !def.builtin || !RANGE_DEFAULT_UPGRADES.has(id)) return def;
+  const fresh = BUILTIN_DEFS.find((b) => b.id === id);
+  /* only when the snapshot still carries the OLD default (range 0) — an
+     explicitly configured value (anything else) must not be clobbered */
+  if (fresh && def.range === 0 && fresh.range !== 0) return { ...def, range: fresh.range };
+  return def;
+}
 function pubChartDefs() {
   return (pubState.snapshot?.chartDefs || [])
     .filter((d) => !REMOVED_BUILTIN_IDS.has(d.id))
@@ -2067,8 +2083,10 @@ function pubChartDefs() {
          NOT carry the builtin flag (effectiveCharts() adds it only in the admin
          app) — without it defTitle()/defSubtitle() skip the i18n maps and render
          the hardcoded English title (the "untranslated chart" bug). */
+      let d2 = d;
       const up = d.builtin && upgradedBuiltinDef(d.id);
-      return up ? { ...up, builtin: true, scope: 'global' } : { ...d };
+      if (up) d2 = { ...up, builtin: true, scope: 'global' };
+      return upgradeBuiltinRange(d.id, d2);
     });
 }
 
@@ -5329,12 +5347,12 @@ const BUILTIN_DEFS = [
   { id: 'blockedDist', title: 'Blocked & Canceled', subtitle: 'Work sitting on blocked/canceled/rejected statuses', type: 'hbar', metric: 'blockedCount', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 10, split: 'none', color: 'pink', wide: false, centerTotal: false },
   { id: 'bottlenecks', title: 'Active Bottlenecks', subtitle: 'Where open work is parked', type: 'doughnut', metric: 'count', groupBy: 'bottleneck', bucket: 'week', range: 0, filter: 'open', topN: 0, split: 'none', color: 'indigo', wide: false, centerTotal: true },
   { id: 'statusDist', title: 'Status Distribution', subtitle: 'All issues by current status', type: 'doughnut', metric: 'count', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 8, split: 'none', color: 'violet', wide: false, centerTotal: true },
-  { id: 'statusTime', title: 'Avg Time in Status', subtitle: 'Lifetime average per status · changelog', type: 'hbar', metric: 'avgStatusTime', groupBy: 'status', bucket: 'week', range: 0, filter: 'all', topN: 12, split: 'none', color: 'violet', wide: false, centerTotal: false },
+  { id: 'statusTime', title: 'Avg Time in Status', subtitle: 'Average per status · changelog', type: 'hbar', metric: 'avgStatusTime', groupBy: 'status', bucket: 'week', range: 182, filter: 'all', topN: 12, split: 'none', color: 'violet', wide: false, centerTotal: false },
   { id: 'phaseDelays', title: 'Stakeholder vs Team Delays', subtitle: 'Avg days per stage · stakeholder gates vs team work · changelog', type: 'hbar', metric: 'avgStatusTime', groupBy: 'status', bucket: 'week', range: 182, filter: 'all', topN: 8, split: 'stage', color: 'amber', wide: false, centerTotal: false },
   { id: 'typeDist', title: 'Issue Type Breakdown', subtitle: 'Open issues by type', type: 'doughnut', metric: 'count', groupBy: 'type', bucket: 'week', range: 0, filter: 'open', topN: 8, split: 'none', color: 'cyan', wide: false, centerTotal: true },
   { id: 'assigneeLoad', title: 'Assignee Workload', subtitle: 'Open issues per assignee', type: 'hbar', metric: 'count', groupBy: 'assignee', bucket: 'week', range: 0, filter: 'open', topN: 12, split: 'none', color: 'pink', wide: false, centerTotal: false },
   { id: 'priorityDist', title: 'Priority Distribution', subtitle: 'Open issues by priority', type: 'doughnut', metric: 'count', groupBy: 'priority', bucket: 'week', range: 0, filter: 'open', topN: 8, split: 'none', color: 'amber', wide: false, centerTotal: true },
-  { id: 'doneByAssignee', title: 'Done by Assignee', subtitle: 'Completed tasks per assignee', type: 'hbar', metric: 'count', groupBy: 'assignee', bucket: 'week', range: 0, filter: 'done', topN: 10, split: 'none', color: 'green', wide: false, centerTotal: false },
+  { id: 'doneByAssignee', title: 'Done by Assignee', subtitle: 'Completed tasks per assignee', type: 'hbar', metric: 'count', groupBy: 'assignee', bucket: 'week', range: 182, filter: 'done', topN: 10, split: 'none', color: 'green', wide: false, centerTotal: false },
   { id: 'ageBuckets', title: 'Age vs Demand', subtitle: 'How long the open backlog has been waiting', type: 'hbar', metric: 'count', groupBy: 'ageBucket', bucket: 'week', range: 0, filter: 'open', topN: 0, split: 'none', color: 'amber', wide: false, centerTotal: false },
   /* 'unassigned' (Assignment Gaps) removed — it left a solo chart in the last
      grid row; the remaining 14 standard charts pair up evenly */
@@ -5785,10 +5803,85 @@ function buildStatusTimeData(def, m, hasChangelog, issues) {
   const hc = hasChangelog != null ? hasChangelog : state.hasChangelog;
   if (!hc || !m || !m.statusTime) return { empty: [t('statusTime.noChangelog1'), t('statusTime.noChangelog2')] };
 
-  const keyMap = m.statusKeys || new Map();
-  let rows = [...m.statusTime.entries()]
+  /* windowed mode: when a time range is set, recompute per-status durations from
+     the raw changelogs — the precomputed m.statusTime is a lifetime aggregate
+     and cannot be sliced. Inclusion is period-based (the correct semantics for
+     a duration metric): any issue whose life OVERLAPS the window counts, and
+     only the status time actually spent INSIDE the window contributes (segment
+     clamping below). "All time" keeps the cheap precomputed lifetime map. */
+  const win = rangeWindowOf(def);
+  let statusTimeMap = m.statusTime;
+  let keyMap = m.statusKeys || new Map();
+  let windowed = false;
+  if ((win.days > 0 || win.from || win.to) && Array.isArray(issues) && issues.length) {
+    const NOW = Date.now();
+    const wFrom = win.from != null ? win.from : (win.days > 0 ? NOW - win.days * DAY : null);
+    const wTo = win.to != null ? win.to : (win.days > 0 ? NOW : null);
+    const doneOnly = def.filter === 'done';
+    /* life span of the issue: created → completed (done-only charts) or → now */
+    const inWin = (f, iss) => {
+      const start = f.created ? Date.parse(f.created) : null;
+      if (start == null || !isFinite(start)) return false;
+      if (wTo != null && start > wTo) return false;          /* born after the window */
+      if (wFrom != null) {
+        const end = doneOnly ? issueCompletedAt(f, iss.changelog) : NOW;
+        if (end != null && isFinite(end) && end < wFrom) return false;  /* died before the window */
+      }
+      return true;
+    };
+    const wt = new Map(), wk = new Map();
+    for (const iss of issues) {
+      const f = iss.fields || {};
+      if (!inWin(f, iss)) continue;
+      /* same exclusion rules as computeMetrics: issues CURRENTLY in an excluded
+         status (done / blocked / canceled) must not inflate flow time */
+      const statusName = f.status?.name || '';
+      const excludedNow = isExcludedStatus(f);
+      const evts = [];
+      for (const h of iss.changelog?.histories || []) {
+        for (const it of h.items || []) {
+          if (String(it.field).toLowerCase() === 'status') {
+            evts.push({ ts: Date.parse(h.created), from: it.fromString || null, to: it.toString || it.to || null });
+          }
+        }
+      }
+      evts.sort((a, b) => a.ts - b.ts);
+      const created = f.created ? Date.parse(f.created) : null;
+      let prevTs = created ?? NOW;
+      let prevName = evts.length ? (evts[0].from || statusName) : statusName;
+      /* clamp segment boundaries to the window so long-lived issues only
+         contribute the time actually spent inside it */
+      const clamp = (ts) => {
+        let v = ts;
+        if (wFrom != null && v < wFrom) v = wFrom;
+        if (wTo != null && v > wTo) v = wTo;
+        return v;
+      };
+      const segStart = clamp(prevTs);
+      for (const ev of evts) {
+        if (ev.ts > prevTs && !excludedNow && !isExcludedStatus({ status: { name: prevName } })) {
+          const s = Math.max(segStart, clamp(prevTs));
+          const e = clamp(ev.ts);
+          if (e > s) { addTime(wt, prevName, e - s); addStatusKey(wk, prevName, iss.key); }
+        }
+        prevTs = ev.ts;
+        if (ev.to) prevName = ev.to;
+      }
+      if (!excludedNow && !isExcludedStatus({ status: { name: prevName } })) {
+        const s = Math.max(segStart, clamp(prevTs));
+        const e = clamp(NOW);
+        if (e > s) { addTime(wt, prevName, e - s); addStatusKey(wk, prevName, iss.key); }
+      }
+    }
+    if (wt.size) { statusTimeMap = wt; keyMap = wk; windowed = true; }
+  }
+
+  let rows = [...statusTimeMap.entries()]
     .map(([k, v]) => ({ k, avg: v.sum / v.n, side: classifySide(k), sum: v.sum, n: v.n, keys: keyMap.get(k) || [] }));
-  if (!rows.length) return { empty: [t('statusTime.noTransitions')] };
+  if (!rows.length) return { empty: [windowed ? t('range.noData') : t('statusTime.noTransitions')] };
+
+  /* show the active window in the subtitle (matches category/time charts) */
+  const rangeSuffix = windowed ? ` · ${rangeLabel(def.range)}` : '';
 
   let extraSub = '';
   let labels, values, colors;
@@ -5838,7 +5931,7 @@ function buildStatusTimeData(def, m, hasChangelog, issues) {
         { label: t('stage.it'), data: it.reverse(), color: '#8b5cf6', rgb: ACCENT_RGB.violet, __keys: picked.map((r) => r.keys).reverse(), __src: issues },
       ],
       duration: true,
-      subtitle: t('statusTime.subSplit'),
+      subtitle: t('statusTime.subSplit') + rangeSuffix,
       extraSub,
     };
   } else {
@@ -5855,7 +5948,7 @@ function buildStatusTimeData(def, m, hasChangelog, issues) {
     datasets: [{ label: def.title, data: values, color: ACCENT_HEX[def.color] || ACCENT_HEX.violet, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.violet, __keys: keys, __src: issues }],
     colors,
     duration: true,
-    subtitle: def.groupBy === 'stage' ? t('statusTime.subStage') : t('statusTime.subStatus'),
+    subtitle: (def.groupBy === 'stage' ? t('statusTime.subStage') : t('statusTime.subStatus')) + rangeSuffix,
     extraSub,
   };
 }
@@ -5901,10 +5994,9 @@ function chartCardHTML(def, overridden) {
     : '';
   /* per-chart time-range dropdown (top-right of the card): shows the effective
      range, one-click presets + a calendar option that opens a from–to picker.
-     avgStatusTime charts are changelog-lifetime aggregates — no range applies. */
-  const rangeCapable = def.metric !== 'avgStatusTime';
-  const rangeCtl = rangeCapable
-    ? `<div class="chart-range" data-rid="${def.id}">
+     avgStatusTime charts are range-capable too: a set range re-windows the
+     changelog durations inside buildStatusTimeData (all time = lifetime). */
+  const rangeCtl = `<div class="chart-range" data-rid="${def.id}">
         <button type="button" class="chart-range-btn" data-act="range" data-id="${def.id}" title="${escapeHtml(t('range.title'))}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           <span class="chart-range-label">${escapeHtml(rangeLabel(def.range))}</span>
@@ -5919,8 +6011,7 @@ function chartCardHTML(def, overridden) {
             <button type="button" class="chart-range-apply" data-rapply="${def.id}">${escapeHtml(t('range.apply'))}</button>
           </div>
         </div>
-      </div>`
-    : '';
+      </div>`;
   return `<div class="card glass chart-card${def.wide ? ' wide' : ''}" data-cid="${def.id}">
     <div class="chart-head">
       <div class="chart-titles">
@@ -5957,9 +6048,10 @@ function pubRangeStore() {
      re-windows the issue pool: done-only charts filter on completion
      timestamp, everything else on creation timestamp; issues outside the
      window drop out of the bars/doughnut.
-   • kind 'statusTime' (avgStatusTime) → NOT range-capable by design: it
-     aggregates full-changelog stage durations, so the dropdown is hidden
-     for it (rangeCapable check in chartCardHTML).
+   • kind 'statusTime' (avgStatusTime) → buildStatusTimeData re-windows the
+     changelog durations: with a range set it recomputes per-status time from
+     the raw changelogs of in-window issues (created/completed anchored, with
+     segment clamping); "All time" keeps the precomputed lifetime aggregate.
    In compare mode the overlay (boards B/C) is recomputed together with
    board A and the winner chip is refreshed for that one card only. */
 function applyChartRangeUpdate(id) {
@@ -6571,8 +6663,8 @@ function syncChartForm() {
 
   $('#cBucketWrap').classList.toggle('hidden', kind !== 'time');
   $('#cSplitWrap').classList.toggle('hidden', !(metric === 'avgStatusTime' && $('#cGroup').value === 'status'));
-  $('#cRangeWrap').classList.toggle('hidden', metric === 'avgStatusTime');
-  $('#cRangeCustomWrap').classList.toggle('hidden', metric === 'avgStatusTime' || $('#cRange').value !== String(RANGE_CUSTOM));
+  $('#cRangeWrap').classList.toggle('hidden', false);
+  $('#cRangeCustomWrap').classList.toggle('hidden', $('#cRange').value !== String(RANGE_CUSTOM));
   $('#cFilterWrap').classList.toggle('hidden', kind !== 'category');
   $('#cTopWrap').classList.toggle('hidden', kind === 'time' || $('#cType').value === 'line');
   $('#cColorWrap').classList.toggle('hidden', $('#cType').value === 'doughnut');
