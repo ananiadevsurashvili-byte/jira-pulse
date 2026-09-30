@@ -128,8 +128,9 @@ const state = {
   lastMetrics: null,   // cached computeMetrics() result for the last board
   inShareScreen: false, // true while the public share overlay (#pubScreen) is open
   compare: null,       // compare mode: { boardId, board, issues, metrics, syncedAt } for board B
+  compareC: null,      // compare mode: same shape as `compare` for the optional third board C
   compareGen: 0,       // bumped on every compare exit so stale async loads are discarded
-  pickCompare: null,   // boards-page pick mode: { a: boardId|null, b: boardId|null } — null = off
+  pickCompare: null,   // boards-page pick mode: { a, b, c } board ids (c optional) — null = off
 };
 
 function show(el) { el.classList.remove('hidden'); }
@@ -193,10 +194,12 @@ const I18N = {
     'pick.title': '⇄ Compare boards',
     'pick.slotA': 'Pick board A',
     'pick.slotB': 'Pick board B',
+    'pick.slotC': 'Pick board C (optional)',
     'pick.go': 'Compare →',
     'pick.cancel': 'Cancel',
     'pick.hintA': 'click a card to slot it as A',
     'pick.hintB': 'now click a second card as B',
+    'pick.hintC': 'optional — click a third card as C, or just compare',
     'pick.hintGo': 'ready — open the side-by-side view',
     'kpi.total': 'Issues analyzed',
     'kpi.totalSub': 'on this board',
@@ -212,8 +215,10 @@ const I18N = {
     'kpi.wipSub': 'not yet done',
     'cmp.roleA': 'Board A · current',
     'cmp.roleB': 'Board B · compared',
+    'cmp.roleC': 'Board C · compared',
     'cmp.loadingBoards': 'Loading boards…',
     'cmp.pickB': 'Pick the board to compare against',
+    'cmp.pickC': 'Optional: pick a third board to compare',
     'cmp.exit': '✕ Exit compare',
     'cmp.exitTitle': 'Leave compare mode and go back to the single-board dashboard',
     'cmp.compareTitle': 'Compare this board with another board — overlay every chart & metric',
@@ -232,6 +237,10 @@ const I18N = {
     'cmp.pubSelectedAs': 'Selected as {s} — click to remove',
     'cmp.pubClickPickA': 'Click to pick as A',
     'cmp.pubClickPickB': 'Click to pick as B',
+    'cmp.pubClickPickC': 'Click to pick as C',
+    'cmp.pubSlotC': 'Pick board C (optional)',
+    'cmp.pubPickHintC': 'optional — click a third card as C, or just compare',
+    'cmp.pubC': 'Board C',
     'cmp.pubGo': 'Compare →',
     'cmp.pubCancel': 'Cancel',
     'cmp.pubSyncing': 'syncing…',
@@ -332,6 +341,10 @@ const I18N = {
     'cmp.bSyncing': 'syncing board B…',
     'cmp.bSynced': 'board B synced · {x}',
     'cmp.bFailed': '⚠ board B failed to sync — pick another',
+    'cmp.cSyncing': 'syncing board C…',
+    'cmp.cSynced': 'board C synced · {x}',
+    'cmp.cFailed': '⚠ board C failed to sync — pick another',
+    'cmp.dupSlot': 'That board is already compared in the other slot',
     'cmp.count': 'A: {a} issues · B: {b} issues',
     'cmp.prompt': 'Compare mode — pick a second board in the bar above to overlay every chart and metric.',
     'cmp.even': '— even', 'cmp.identical': 'identical on both boards', 'cmp.noData': 'no data to compare',
@@ -377,8 +390,11 @@ const I18N = {
     'group.priority': 'Priority', 'group.label': 'First label', 'group.bottleneck': 'Bottleneck stage',
     'group.stage': 'Stakeholder vs team', 'group.ageBucket': 'Age bucket', 'group.assigneeState': 'Assigned vs unassigned',
     'group.complexity': 'Complexity', 'group.noComplexity': 'No complexity',
-    'range.30': 'Last 30 days', 'range.90': 'Last 90 days', 'range.182': 'Last 6 months',
-    'range.365': 'Last 12 months', 'range.0': 'All time',
+    'range.7': 'Last 7 days', 'range.14': 'Last 2 weeks', 'range.30': 'Last 30 days', 'range.90': 'Last 90 days',
+    'range.182': 'Last 6 months', 'range.365': 'Last 12 months', 'range.0': 'All time',
+    'range.custom': 'Custom range', 'range.pickCustom': 'Calendar…', 'range.from': 'From', 'range.to': 'To',
+    'range.apply': 'Apply', 'range.title': 'Time range', 'range.invalid': 'Pick a valid from–to window',
+    'range.now': 'now',
     'age.le2d': '≤ 2d', 'age.3_7d': '3–7d', 'age.1_2w': '1–2w', 'age.2_4w': '2–4w',
     'age.1_3mo': '1–3mo', 'age.3_6mo': '3–6mo', 'age.6moPlus': '6mo+',
     'chart.title.pipeline': 'Incoming vs Completed', 'chart.sub.pipeline': 'Created vs resolved over time',
@@ -556,6 +572,8 @@ const I18N = {
     'cmp.noData': 'no data to compare',
     'cmp.pickBHint': 'pick board B above',
     'cmp.outerRing': 'outer ring',
+    'cmp.outerRingC': 'outer ring',
+    'cmp.shownGreen': 'shown in green',
     'cmp.lblThroughput': 'Throughput',
     'cmp.lblSpeed': 'Speed',
     'cmp.lblOpenLoad': 'Open load',
@@ -608,9 +626,15 @@ const I18N = {
     'card.copyLinkTitle': 'Copy link to this board',
     'card.orgBoards': '[P] Org boards',
     'card.otherBoards': 'All other boards',
+    'master.pName': 'All [P] boards',
+    'master.cardChip': 'master view',
+    'master.cardDesc': 'All [P] boards united',
+    'master.syncing': 'Loading all [P] boards…',
+    'master.savedAs': 'Board-scoped charts are not available on the master [P] view',
     'pick.selectedAs': 'Selected as {s} — click to remove',
     'pick.clickPickA': 'Click to pick as A',
     'pick.clickPickB': 'Click to pick as B',
+    'pick.clickPickC': 'Click to pick as C',
     'hl.blocked': '{b} blocked',
     'hl.allClear': 'All clear — nothing in progress',
     'hl.backlogGrowing': 'Backlog growing',
@@ -633,6 +657,7 @@ const I18N = {
     'ins.growing': 'growing',
     'cmp.noDataEither1': 'No data on either board',
     'cmp.noDataEither2': 'for this chart',
+    'cmp.boardsNoData': 'no data on {n}',
     'cmp.noDataA': 'No data on board A for this chart',
     'cmp.noComparable': 'No comparable data',
     'cmp.shownCyan': 'shown in cyan',
@@ -752,10 +777,12 @@ const I18N = {
     'pick.title': '⇄ დაფების შედარება',
     'pick.slotA': 'აირჩიეთ დაფა A',
     'pick.slotB': 'აირჩიეთ დაფა B',
+    'pick.slotC': 'აირჩიეთ დაფა C (არასავალდებულო)',
     'pick.go': 'შედარება →',
     'pick.cancel': 'გაუქმება',
     'pick.hintA': 'დააჭირეთ ბარათს დაფა A-სთვის',
     'pick.hintB': 'ახლა დააჭირეთ მეორე ბარათს დაფა B-სთვის',
+    'pick.hintC': 'არასავალდებულო — დააჭირეთ მესამე ბარათს დაფა C-სთვის, ან უბრალოდ შეადარეთ',
     'pick.hintGo': 'მზადაა — გახსენით გვერდით-გვერდ ხედი',
     'kpi.total': 'გაანალიზებული დავალებები',
     'kpi.totalSub': 'ამ დაფაზე',
@@ -771,8 +798,10 @@ const I18N = {
     'kpi.wipSub': 'ჯერ არ არის მზად',
     'cmp.roleA': 'დაფა A · მიმდინარე',
     'cmp.roleB': 'დაფა B · შედარებული',
+    'cmp.roleC': 'დაფა C · შედარებული',
     'cmp.loadingBoards': 'დაფების ჩატვირთვა…',
     'cmp.pickB': 'აირჩიეთ დაფა შედარებისთვის',
+    'cmp.pickC': 'არასავალდებულო: აირჩიეთ მესამე დაფა შედარებისთვის',
     'cmp.exit': '✕ შედარებიდან გასვლა',
     'cmp.exitTitle': 'დატოვეთ შედარების რეჟიმი და დაბრუნდით ერთი დაფის დაშბორდზე',
     'cmp.compareTitle': 'შეადარეთ ეს დაფა სხვა დაფას — ყველა გრაფიკი და მეტრიკა გადაფარვით',
@@ -791,6 +820,10 @@ const I18N = {
     'cmp.pubSelectedAs': 'არჩეულია როგორც {s} — დააჭირეთ მოსაშორებლად',
     'cmp.pubClickPickA': 'აირჩიეთ A-დ',
     'cmp.pubClickPickB': 'აირჩიეთ B-დ',
+    'cmp.pubClickPickC': 'აირჩიეთ C-დ',
+    'cmp.pubSlotC': 'აირჩიეთ დაფა C (არასავალდებულო)',
+    'cmp.pubPickHintC': 'არასავალდებულო — დააჭირეთ მესამე ბარათს დაფა C-სთვის, ან უბრალოდ შეადარეთ',
+    'cmp.pubC': 'დაფა C',
     'cmp.pubGo': 'შედარება →',
     'cmp.pubCancel': 'გაუქმება',
     'cmp.pubSyncing': 'განახლება…',
@@ -891,6 +924,10 @@ const I18N = {
     'cmp.bSyncing': 'დაფა B განახლდება…',
     'cmp.bSynced': 'დაფა B განახლდა · {x}',
     'cmp.bFailed': '⚠ დაფა B ვერ განახლდა — აირჩიეთ სხვა',
+    'cmp.cSyncing': 'დაფა C განახლდება…',
+    'cmp.cSynced': 'დაფა C განახლდა · {x}',
+    'cmp.cFailed': '⚠ დაფა C ვერ განახლდა — აირჩიეთ სხვა',
+    'cmp.dupSlot': 'ეს დაფა უკვე შედარებულია მეორე სლოტში',
     'cmp.count': 'A: {a} დავალება · B: {b} დავალება',
     'cmp.prompt': 'შედარების რეჟიმი — აირჩიეთ მეორე დაფა ზემოთა ზოლში, რომ ყველა გრაფიკი და მეტრიკა გადაფარვით ნახოთ.',
     'cmp.even': 'თანაბარი', 'cmp.identical': 'ორივე დაფაზე იდენტურია', 'cmp.noData': 'შედარების მონაცემები არ არის',
@@ -936,8 +973,11 @@ const I18N = {
     'group.priority': 'პრიორიტეტი', 'group.label': 'პირველი ჭდე', 'group.bottleneck': 'გამავრობის შემზღუდავი ეტაპი',
     'group.stage': 'სტეიკჰოლდერი vs გუნდი', 'group.ageBucket': 'ასაკის დიაპაზონი', 'group.assigneeState': 'განაწილებული vs დაუნიშნავი',
     'group.complexity': 'სირთულე', 'group.noComplexity': 'სირთულე მითითებული არაა',
-    'range.30': 'ბოლო 30 დღე', 'range.90': 'ბოლო 90 დღე', 'range.182': 'ბოლო 6 თვე',
-    'range.365': 'ბოლო 12 თვე', 'range.0': 'მთელი ისტორია',
+    'range.7': 'ბოლო 7 დღე', 'range.14': 'ბოლო 2 კვირა', 'range.30': 'ბოლო 30 დღე', 'range.90': 'ბოლო 90 დღე',
+    'range.182': 'ბოლო 6 თვე', 'range.365': 'ბოლო 12 თვე', 'range.0': 'მთელი ისტორია',
+    'range.custom': 'არჩეული პერიოდი', 'range.pickCustom': 'კალენდარი…', 'range.from': 'საიდან', 'range.to': 'სადამდე',
+    'range.apply': 'მიღება', 'range.title': 'დროის პერიოდი', 'range.invalid': 'აირჩიეთ სწორი პერიოდი',
+    'range.now': 'ახლა',
     'age.le2d': '≤ 2 დღე', 'age.3_7d': '3–7 დღე', 'age.1_2w': '1–2 კვირა', 'age.2_4w': '2–4 კვირა',
     'age.1_3mo': '1–3 თვე', 'age.3_6mo': '3–6 თვე', 'age.6moPlus': '6 თვე+',
     'chart.title.pipeline': 'შემოსვლა vs დასრულება', 'chart.sub.pipeline': 'შექმნა vs დახურვა დროში',
@@ -1113,6 +1153,8 @@ const I18N = {
     'cmp.noData': 'შედარების მონაცემები არ არის',
     'cmp.pickBHint': 'აირჩიეთ დაფა B ზემოთ',
     'cmp.outerRing': 'გარე რგოლი',
+    'cmp.outerRingC': 'გარე რგოლი',
+    'cmp.shownGreen': 'ნაჩვენებია მწვანედ',
     'cmp.lblThroughput': 'გამტარუნარიანობა',
     'cmp.lblSpeed': 'სიჩქარე',
     'cmp.lblOpenLoad': 'ღია დატვირთვა',
@@ -1165,9 +1207,15 @@ const I18N = {
     'card.copyLinkTitle': 'დაფის ლინკის კოპირება',
     'card.orgBoards': '[P] ორგანიზაციის დაფები',
     'card.otherBoards': 'დანარჩენი დაფები',
+    'master.pName': 'ყველა [P] დაფა',
+    'master.cardChip': 'გაერთიანებული ხედი',
+    'master.cardDesc': 'ყველა [P] დაფა ერთად',
+    'master.syncing': 'იტვირთება ყველა [P] დაფა…',
+    'master.savedAs': 'დაფაზე მიბმული გრაფიკები გაერთიანებულ [P] ხედში მიუწვდომელია',
     'pick.selectedAs': 'არჩეულია როგორც {s} — დააჭირეთ მოსაშორებლად',
     'pick.clickPickA': 'აირჩიეთ A-დ',
     'pick.clickPickB': 'აირჩიეთ B-დ',
+    'pick.clickPickC': 'აირჩიეთ C-დ',
     'hl.blocked': '{b} დაბლოკილია',
     'hl.allClear': 'ყველაფერი რიგზეა — არაფერი მიმდინარეობს',
     'hl.backlogGrowing': 'ბექლოგი იზრდება',
@@ -1192,6 +1240,7 @@ const I18N = {
     'ins.growing': 'იზრდება',
     'cmp.noDataEither1': 'ორივე დაფაზე მონაცემები არ არის',
     'cmp.noDataEither2': 'ამ გრაფიკისთვის',
+    'cmp.boardsNoData': '{n}-ზე მონაცემები არ არის',
     'cmp.noDataA': 'დაფა A-ზე ამ გრაფიკის მონაცემები არ არის',
     'cmp.noComparable': 'შედარებადი მონაცემები არ არის',
     'cmp.shownCyan': 'ნაჩვენებია ცისფრად',
@@ -1513,8 +1562,8 @@ let pubState = {
   isAdmin: false,          /* true when the viewer is the JiraPulse admin */
   currentBoard: null,      /* board being viewed when snapshot.scope === 'all' */
   allSnapshot: null,       /* parent all-boards snapshot when drilled into a board */
-  pickCompare: null,       /* { a, b } board ids while the user is picking two boards to compare */
-  compare: null,           /* { a, b, recA, recB } active pub compare view (live records for both boards) */
+  pickCompare: null,       /* { a, b, c } board ids while the user is picking boards to compare (c optional) */
+  compare: null,           /* { a, b, c?, nameA, nameB, nameC?, recA, recB, recC? } active pub compare view */
   compareGen: 0,           /* staleness guard for in-flight compare loads */
 };
 
@@ -1956,7 +2005,14 @@ function _pubBuildBoardRec(rec, boardId) {
   rememberDoneStatuses(issues);                       /* learn custom done-status names */
   detectComplexityField(issues);                      /* learn the complexity custom field id */
   const defs = pubState.chartDefs;                    /* snapshot-configured chart defs */
-  const charts = defs.map((def) => ({ def, data: buildChartData(def, m, issues, rec.hasChangelog) }));
+  /* viewer-local per-chart range overrides (own localStorage map, not the
+     admin store) — applied at build time so charts re-window instantly */
+  const rStore = pubRangeStore();
+  const effDefs = defs.map((def) => {
+    const o = rStore[def.id];
+    return o ? { ...def, ...o } : def;
+  });
+  const charts = effDefs.map((def) => ({ def, data: buildChartData(def, m, issues, rec.hasChangelog) }));
   return {
     boardId,
     issues,
@@ -2381,12 +2437,15 @@ async function renderPubContent() {
       const pick = pubState.pickCompare;
       const pickedA = pick && pick.a === b.boardId;
       const pickedB = pick && pick.b === b.boardId;
-      const picked = pickedA || pickedB;
+      const pickedC = pick && pick.c === b.boardId;
+      const picked = pickedA || pickedB || pickedC;
       const openLabel = pick
-        ? (picked ? tReplace('cmp.pubSelectedAs', { s: pickedA ? 'A' : 'B' }) : (pick.a == null ? t('cmp.pubClickPickA') : t('cmp.pubClickPickB')))
+        ? (picked
+          ? tReplace('cmp.pubSelectedAs', { s: pickedA ? 'A' : pickedB ? 'B' : 'C' })
+          : (pick.a == null ? t('cmp.pubClickPickA') : pick.b == null ? t('cmp.pubClickPickB') : t('cmp.pubClickPickC')))
         : t('card.openDash');
       return `
-        <div class="board-card glass${pBoard ? ' p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}" data-bid="${b.boardId}" style="animation-delay:${Math.min(i * 35, 400)}ms">
+        <div class="board-card glass${pBoard ? ' p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}${pickedC ? ' pick-c' : ''}" data-bid="${b.boardId}" style="animation-delay:${Math.min(i * 35, 400)}ms">
           <div class="board-card-head">
             <div class="board-avatar" aria-hidden="true">${initial}</div>
             <div class="board-id-block">
@@ -2501,6 +2560,8 @@ async function renderPubContent() {
       return;
     }
     grid.innerHTML = charts.map((c) => chartCardHTML(c.def, false)).join('');
+    /* viewer-side per-chart time-range dropdowns */
+    wireChartRangeControls(grid, charts.map((c) => c.def));
     const theme = chartTheme();
     for (const c of charts) {
       const def = c.def;
@@ -3146,6 +3207,12 @@ function route() {
     hide($('#setupScreen')); show($('#topbar'));
     hide($('#boardsScreen')); show($('#dashScreen'));
     syncHeaderState();
+    /* master [P] board deep link (#/board/900000001): boards must be loaded
+       first so the merged pool knows which [P] boards to fetch */
+    if (bid === MASTER_P_ID) {
+      loadBoards({ autoOpenLast: false }).then(() => openBoard(masterPBoard())).catch((e) => handleAuthError(e));
+      return;
+    }
     $('#boardSelect').innerHTML = '<option value="">Loading boards…</option>';
     loadBoards({ autoOpenLast: false, targetBoardId: bid }).catch((e) => handleAuthError(e));
   } else {
@@ -3371,6 +3438,12 @@ async function enrichBoardStats() {
     await Promise.all(Array.from({ length: Math.min(BSTATS_CONCURRENCY, pending.length) }, worker));
   } finally {
     _bstatsRunning = false;
+    /* the master [P] card aggregates every [P] board's stats — refresh it once
+       the last per-board enrichment lands so it flips from pending to live */
+    if (state.boards.some(isPBoard)) {
+      const mRec = masterPStats();
+      if (mRec) updateBoardStatsDom(MASTER_P_ID, mRec);
+    }
   }
 }
 
@@ -3425,9 +3498,47 @@ function updateBoardStatsDom(boardId, rec) {
   if (box) box.innerHTML = rec ? boardStatsChipHtml(rec) : `<span class="bstat bstat-skip">${escapeHtml(t('bc.unavailable'))}</span>`;
 }
 
+/* aggregate card stats for the master [P] board: the cached per-board records
+   of every [P] board, summed. Renders instantly from cache; refreshes to live
+   values once every [P] board's own enrichment has completed. */
+function masterPStats() {
+  const pBoards = state.boards.filter(isPBoard);
+  const recs = pBoards.map((b) => cachedBoardStats(b.id));
+  if (!recs.length || recs.some((r) => !r)) return null;
+  const sum = (k) => recs.reduce((a, r) => a + (r[k] || 0), 0);
+  const totalIssues = sum('total');
+  const rec = {
+    total: totalIssues, done: sum('done'), wip: sum('wip'),
+    created30: sum('created30'), resolved30: sum('resolved30'),
+    doneRate: recs.reduce((a, r) => a + (r.doneRate || 0) * (r.total || 0), 0) / Math.max(1, totalIssues),
+    cycleAvg: (() => {
+      const c = recs.filter((r) => r.cycleAvg != null);
+      if (!c.length) return null;
+      const w = c.reduce((a, r) => a + (r.resolved30 || 0), 0);
+      return w ? c.reduce((a, r) => a + (r.cycleAvg || 0) * (r.resolved30 || 0), 0) / w
+               : c.reduce((a, r) => a + (r.cycleAvg || 0), 0) / c.length;
+    })(),
+  };
+  return rec;
+}
+
+/* ── Master [P] board ──────────────────────────────────────────────
+   A synthetic board that merges the issue pools of EVERY [P] org board into
+   one dashboard. It is not a real Jira board: the id is reserved, it never
+   goes into state.boards, and its issues are fetched per-board via the
+   project-wide search (the same strategy single [P] boards prefer). */
+const MASTER_P_ID = 900000001;
+function isMasterPBoard(b) { return !!b && b.id === MASTER_P_ID; }
+function masterPBoard() {
+  return { id: MASTER_P_ID, name: t('master.pName'), type: 'master', location: null };
+}
+
 /* is this board one of the "[P]" org boards? Its project name (e.g. "[P] Automarket")
-   marks it as a shared org-flow Kanban board with the same statuses → shown first. */
+   marks it as a shared org-flow Kanban board with the same statuses → shown first.
+   The synthetic master [P] board counts too (its name starts with "All", so the
+   prefix test alone would miss it — but its charts need the [P] backlog semantics). */
 function isPBoard(b) {
+  if (isMasterPBoard(b)) return true;
   return /^\[P\]/i.test(b.location?.projectName || '') || /^\[P\]/i.test(b.name || '');
 }
 
@@ -3437,15 +3548,18 @@ function boardCardHTML(b, i) {
   const pick = state.pickCompare;
   const pickedA = pick && pick.a === b.id;
   const pickedB = pick && pick.b === b.id;
-  const picked = pickedA || pickedB;
+  const pickedC = pick && pick.c === b.id;
+  const picked = pickedA || pickedB || pickedC;
   const openLabel = pick
-    ? (picked ? tReplace('pick.selectedAs', { s: pickedA ? 'A' : 'B' }) : (pick.a == null ? t('pick.clickPickA') : t('pick.clickPickB')))
+    ? (picked
+      ? tReplace('pick.selectedAs', { s: pickedA ? 'A' : pickedB ? 'B' : 'C' })
+      : (pick.a == null ? t('pick.clickPickA') : pick.b == null ? t('pick.clickPickB') : t('pick.clickPickC')))
     : t('card.openDash');
   const initial = escapeHtml((b.name || '?').trim().charAt(0).toUpperCase());
   const pBoard = isPBoard(b);
   const cached = cachedBoardStats(b.id);
   return `
-    <div class="board-card glass${pBoard ? ' p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}" data-id="${b.id}" style="animation-delay:${Math.min(i * 35, 400)}ms">
+    <div class="board-card glass${pBoard ? ' p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}${pickedC ? ' pick-c' : ''}" data-id="${b.id}" style="animation-delay:${Math.min(i * 35, 400)}ms">
       <div class="board-card-head">
         <div class="board-avatar" aria-hidden="true">${initial}</div>
         <div class="board-id-block">
@@ -3468,13 +3582,38 @@ function boardCardHTML(b, i) {
     </div>`;
 }
 
+/* dedicated card for the synthetic master [P] board (precedes the real [P] cards).
+   It has no Jira identity — no copy-link, no compare-pick — just an "open merged
+   dashboard" affordance with the live aggregate stats of every [P] board. */
+function masterBoardCardHTML(i) {
+  const b = masterPBoard();
+  const initial = '∑';
+  const cached = masterPStats();
+  return `
+    <div class="board-card glass p-board master-p-board" data-id="${b.id}" style="animation-delay:${Math.min(i * 35, 400)}ms">
+      <div class="board-card-head">
+        <div class="board-avatar" aria-hidden="true">${initial}</div>
+        <div class="board-id-block">
+          <h3 title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</h3>
+          <div class="board-meta"><span class="chip chip-master">${escapeHtml(t('master.cardChip'))}</span></div>
+        </div>
+        <span class="chip chip-p board-p-flag" title="[P]">[P]</span>
+      </div>
+      <div class="board-stats" id="bstats_${b.id}">${boardStatsChipHtml(cached)}</div>
+      <div class="board-card-foot">
+        <span class="board-open">${escapeHtml(t('card.openDash'))}</span>
+        <span class="board-proj muted" title="${escapeHtml(t('master.cardDesc'))}">${escapeHtml(t('master.cardDesc'))}</span>
+      </div>
+    </div>`;
+}
+
 function renderBoardCards() {
   const grid = $('#boardsGrid');
   const pBoards = state.boards.filter(isPBoard);
   const otherBoards = state.boards.filter((b) => !isPBoard(b));
   let html = '';
   if (pBoards.length) {
-    html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.orgBoards'))}</span><div class="boards-grid">${pBoards.map((b, ci) => boardCardHTML(b, ci)).join('')}</div></div>`;
+    html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.orgBoards'))}</span><div class="boards-grid">${masterBoardCardHTML(0)}${pBoards.map((b, ci) => boardCardHTML(b, ci + 1)).join('')}</div></div>`;
   }
   if (otherBoards.length) {
     html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.otherBoards'))}</span><div class="boards-grid">${otherBoards.map((b, ci) => boardCardHTML(b, ci)).join('')}</div></div>`;
@@ -3494,10 +3633,10 @@ function renderBoardCards() {
   grid.querySelectorAll('.board-card').forEach((card) => {
     card.addEventListener('click', () => {
       const b = state.boards.find((x) => x.id === parseInt(card.dataset.id, 10));
-      if (!b) return;
+      if (!b && !isMasterPBoard({ id: parseInt(card.dataset.id, 10) })) return;
       if (state.pickCompare) { togglePickCompare(b); return; }   // pick mode → cards select instead of open
-      $('#boardSelect').value = String(b.id);
-      openBoard(b);
+      $('#boardSelect').value = String(b?.id ?? card.dataset.id);
+      openBoard(b || masterPBoard());
     });
   });
   /* kick off the background stats enrichment (cached boards render instantly) */
@@ -3640,6 +3779,58 @@ function hasResolutionOrChangelog(issues) {
   return false;
 }
 
+/* master [P] board loader: fetch every [P] board's issue pool (project-wide
+   search with changelog, same as a single [P] board's primary strategy) in
+   parallel and concatenate. A board whose search fails is skipped with a
+   warning — a partial master view beats a dead one. Tagging each issue with
+   its source board keeps per-board attribution available downstream. */
+const MASTER_P_TAG = '_srcBoardName';
+async function loadMasterPIssues() {
+  const pBoards = state.boards.filter(isPBoard).filter((b) => !isMasterPBoard(b));
+  if (!pBoards.length) throw new Error('No [P] boards found to merge.');
+  await discoverComplexityFieldId();
+
+  const results = await Promise.all(pBoards.map(async (b) => {
+    try {
+      const ctx = await resolveBoardContext(b);
+      const keys = ctx.projectKeys.length ? ctx.projectKeys : [];
+      if (!keys.length) throw new Error('no projects resolvable');
+      const issues = await searchIssuesByJql(
+        `project in (${keys.map((k) => `"${k}"`).join(', ')}) ORDER BY created DESC`, true);
+      logDiag('info', 'Master [P] board segment loaded', { boardId: b.id, name: b.name, issues: issues.length });
+      return { board: b, issues, err: null };
+    } catch (e) {
+      logDiag('warn', 'Master [P] board segment failed — skipped', { boardId: b.id, name: b.name, status: e?.status, message: e?.message });
+      return { board: b, issues: [], err: e };
+    }
+  }));
+
+  const ok = results.filter((r) => !r.err);
+  const failed = results.filter((r) => r.err);
+  if (!ok.length) {
+    const e = new Error(`No [P] board could be loaded. Last error: ${failed[0]?.err?.message || 'unknown'}`);
+    e.status = failed[0]?.err?.status || 500;
+    throw e;
+  }
+  const merged = [];
+  for (const r of ok) {
+    for (const iss of r.issues) {
+      try { iss[MASTER_P_TAG] = r.board.name; } catch (_) { /* frozen object — attribution is best-effort */ }
+      merged.push(iss);
+    }
+  }
+  state.hasChangelog = ok.some((r) => hasChangelogData(r.issues));
+  state.boardLoadMeta = {
+    source: `Master [P] — ${ok.length} board${ok.length === 1 ? '' : 's'} merged`,
+    note: failed.length
+      ? `${failed.length} board${failed.length === 1 ? '' : 's'} could not be loaded and ${failed.length === 1 ? 'is' : 'are'} excluded.`
+      : '',
+  };
+  rememberDoneStatuses(merged);
+  detectComplexityField(merged);
+  return merged;
+}
+
 async function loadBoardIssues(board) {
   state.hasChangelog = true;
   state.boardLoadMeta = { source: '', note: '' };
@@ -3777,6 +3968,7 @@ async function selectBoard(board) {
      Bump the generation even if compare was already off, so any in-flight
      compare-board load is discarded when its await resumes. */
   state.compare = null;
+  state.compareC = null;
   state.compareGen = (state.compareGen || 0) + 1;
   hide($('#compareBar'));
   $('#compareBtn').classList.remove('active');
@@ -3789,7 +3981,7 @@ async function selectBoard(board) {
 
   try {
     logDiag('info', 'Board selected', { boardId: board.id, name: board.name, type: board.type, location: board.location || null });
-    const issues = await loadBoardIssues(board);
+    const issues = isMasterPBoard(board) ? await loadMasterPIssues() : await loadBoardIssues(board);
     /* only replace data AFTER a successful load — never lose the previous board on failure */
     state.issues = issues;
     const m = computeMetrics(issues);
@@ -3999,17 +4191,22 @@ async function enterCompareMode() {
   const btn = $('#compareBtn');
   btn.classList.add('active');
 
-  /* populate the board picker (exclude the board we're currently viewing) */
+  /* populate the board pickers (exclude the board we're currently viewing).
+     B is required; C is optional — leave it on "" for a 2-board comparison. */
+  const others = state.boards.filter((b) => b.id !== state.lastBoard.id);
+  const optHtml = others.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
   const sel = $('#cmpBoardSelect');
-  sel.innerHTML = `<option value="">${escapeHtml(t('cmp.pickB'))}</option>` +
-    state.boards
-      .filter((b) => b.id !== state.lastBoard.id)
-      .map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`)
-      .join('');
+  sel.innerHTML = `<option value="">${escapeHtml(t('cmp.pickB'))}</option>` + optHtml;
   if (state.compare?.boardId && state.boards.some((b) => b.id === state.compare.boardId)) {
     sel.value = String(state.compare.boardId);
   } else {
     sel.value = '';
+  }
+  const selC = $('#cmpBoardSelectC');
+  if (selC) {
+    selC.innerHTML = `<option value="">${escapeHtml(t('cmp.pickC'))}</option>` + optHtml;
+    selC.value = state.compareC?.boardId && state.boards.some((b) => b.id === state.compareC.boardId)
+      ? String(state.compareC.boardId) : '';
   }
 
   show($('#compareBar'));
@@ -4021,6 +4218,7 @@ async function enterCompareMode() {
 
 function exitCompareMode() {
   state.compare = null;
+  state.compareC = null;
   /* bump the generation so any in-flight compare-board load knows it is stale */
   state.compareGen = (state.compareGen || 0) + 1;
   hide($('#compareBar'));
@@ -4031,55 +4229,69 @@ function exitCompareMode() {
   }
 }
 
-async function onCompareBoardChange(ev) {
+/* shared loader for compare slots B and C. `slot` is 'b' or 'c'; state.compare /
+   state.compareC holds the result; each slot has its own dropdown + staleness
+   guard so a slow B load can never be written into C's slot (or vice versa). */
+async function onCompareSlotChange(slot, ev) {
+  const sel = slot === 'b' ? $('#cmpBoardSelect') : $('#cmpBoardSelectC');
   const id = parseInt(ev.target.value, 10);
   if (!id || !state.lastBoard) return;
-  if (state.compare && state.compare.boardId === id) return;
+  const existing = slot === 'b' ? state.compare : state.compareC;
+  if (existing && existing.boardId === id) return;
+  /* a board already compared in the other slot must not be picked twice */
+  const other = slot === 'b' ? state.compareC : state.compare;
+  if (other && other.boardId === id) {
+    if (sel) sel.value = existing ? String(existing.boardId) : '';
+    toast(t('cmp.dupSlot'), 'warn');
+    return;
+  }
 
   const board = state.boards.find((b) => b.id === id);
   if (!board) return;
 
-  const sel = $('#cmpBoardSelect');
-  sel.disabled = true;
-  $('#cmpSynced').innerHTML = `<span class="spinner spinner-sm"></span> ${escapeHtml(t('cmp.bSyncing'))}`;
+  if (sel) sel.disabled = true;
+  $('#cmpSynced').innerHTML = `<span class="spinner spinner-sm"></span> ${escapeHtml(t(slot === 'b' ? 'cmp.bSyncing' : 'cmp.cSyncing'))}`;
 
-  /* staleness guard: the user may switch boards (or exit compare) while board B is
-     loading. Capture board A's id + a compare generation now and re-verify after the
-     await — a stale load must NEVER resurrect compare mode onto a different board's
-     dashboard, and exiting compare during the load must discard the result. */
+  /* staleness guard: the user may switch boards (or exit compare) while a compare
+     board is loading. Capture board A's id + a compare generation now and re-verify
+     after the await — a stale load must NEVER resurrect compare mode onto a different
+     board's dashboard, and exiting compare during the load must discard the result. */
   const boardAId = state.lastBoard?.id;
   const genAtStart = state.compareGen || 0;
   const isStale = () => !state.lastBoard || state.lastBoard.id !== boardAId || (state.compareGen || 0) !== genAtStart;
 
   try {
-    logDiag('info', 'Compare board load started', { boardId: board.id, name: board.name });
+    logDiag('info', 'Compare board load started', { slot, boardId: board.id, name: board.name });
     const issues = await loadBoardIssues(board);
     if (isStale()) {
-      logDiag('info', 'Compare load discarded — board changed during sync', { boardId: board.id });
+      logDiag('info', 'Compare load discarded — board changed during sync', { slot, boardId: board.id });
       return;
     }
     const m = computeMetrics(issues);
     /* save-then-restore: loadBoardIssues writes hasChangelog/boardLoadMeta into
-       global state for the MAIN board — snapshot it for board B's charts instead */
-    state.compare = {
+       global state for the MAIN board — snapshot it for the compare board's charts */
+    const rec = {
       boardId: board.id, board, issues, metrics: m,
       hasChangelog: state.hasChangelog,
       syncedAt: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
     };
-    $('#cmpSynced').textContent = tReplace('cmp.bSynced', { x: state.compare.syncedAt });
-    logDiag('info', 'Compare board loaded', { boardId: board.id, issues: issues.length, hasChangelog: state.hasChangelog });
+    if (slot === 'b') state.compare = rec; else state.compareC = rec;
+    $('#cmpSynced').textContent = tReplace(slot === 'b' ? 'cmp.bSynced' : 'cmp.cSynced', { x: rec.syncedAt });
+    logDiag('info', 'Compare board loaded', { slot, boardId: board.id, issues: issues.length, hasChangelog: state.hasChangelog });
     renderCompareDashboard();
     renderCharts(effectiveCharts(), state.lastMetrics);
   } catch (e) {
     if (isStale()) return; /* board switched during a failing load — stay silent */
-    $('#cmpSynced').textContent = t('cmp.bFailed');
+    $('#cmpSynced').textContent = t(slot === 'b' ? 'cmp.bFailed' : 'cmp.cFailed');
     toast(tReplace('cmp.loadFailed', { name: board.name }), 'warn');
-    logDiag('error', 'Compare board load failed', { boardId: board.id, message: e?.message, status: e?.status });
-    if (!state.compare) { sel.value = ''; }
+    logDiag('error', 'Compare board load failed', { slot, boardId: board.id, message: e?.message, status: e?.status });
+    if (slot === 'b' && !state.compare) sel.value = '';
+    if (slot === 'c' && !state.compareC) sel.value = '';
   } finally {
-    sel.disabled = false;
+    if (sel) sel.disabled = false;
   }
 }
+const onCompareBoardChange = (ev) => onCompareSlotChange('b', ev);   /* slot B entry point */
 
 /* KPI metric descriptors for compare mode — label/sub resolved via i18n at render time */
 const CMP_KPIS = [
@@ -4121,44 +4333,60 @@ function shortBoardName(name) {
 function renderCompareDashboard(opts = {}) {
   const A = opts.metricsA != null ? opts.metricsA : state.lastMetrics;
   const B = opts.metricsB != null ? opts.metricsB : state.compare?.metrics;
+  const C = opts.metricsC != null ? opts.metricsC : state.compareC?.metrics;
   const nameA = opts.nameA || state.lastBoard?.name || t('cmp.pubA');
   const nameB = opts.nameB || state.compare?.board?.name || null;
+  const nameC = opts.nameC || state.compareC?.board?.name || null;
   const grid = opts.gridEl || document.querySelector('.kpi-grid');
   if (!grid) return;
   const badgeEl = opts.badgeEl || $('#issueCountBadge');
   const stripEl = opts.stripEl || $('#insightsStrip');
-  /* short names keep chips/tags/badges compact — full names overflow the pills */
-  const shortA = shortBoardName(nameA) || 'A';
-  const shortB = shortBoardName(nameB) || 'B';
+  /* boards list: A is always present; B/C join as their metrics arrive.
+     Letter drives the side color (a=indigo, b=cyan, c=green) everywhere. */
+  const boards = [{ letter: 'a', name: nameA, m: A }];
+  if (B) boards.push({ letter: 'b', name: nameB || 'B', m: B });
+  if (C) boards.push({ letter: 'c', name: nameC || 'C', m: C });
+  for (const bd of boards) bd.short = shortBoardName(bd.name) || bd.letter.toUpperCase();
+  const compared = boards.length >= 2;   /* B chosen → real comparison is on */
 
   grid.classList.add('kpi-grid-compare');
   grid.innerHTML = CMP_KPIS.map((k) => {
-    const a = A ? A[k.key] : null;
-    const b = B ? B[k.key] : null;
-    const valuesHtml = B
-      ? `<div class="cmp-values">
-           <span class="cmp-val cmp-val-a" title="${escapeHtml(nameA)}"><span class="cmp-val-num">${k.fmt(a)}</span><span class="cmp-val-tag">${escapeHtml(shortA)}</span></span>
-           <span class="cmp-vs-inline">/</span>
-           <span class="cmp-val cmp-val-b" title="${escapeHtml(nameB)}"><span class="cmp-val-num">${k.fmt(b)}</span><span class="cmp-val-tag">${escapeHtml(shortB)}</span></span>
-         </div>`
+    const vals = boards.map((bd) => (bd.m && bd.m[k.key] != null && isFinite(bd.m[k.key])) ? bd.m[k.key] : null);
+    const have = vals.filter((v) => v != null);
+    const valuesHtml = compared
+      ? `<div class="cmp-values">` + boards.map((bd, i) =>
+          `<span class="cmp-val cmp-val-${bd.letter}" title="${escapeHtml(bd.name)}"><span class="cmp-val-num">${k.fmt(vals[i])}</span><span class="cmp-val-tag">${escapeHtml(bd.short)}</span></span>`
+        ).join(`<span class="cmp-vs-inline">/</span>`) + `</div>`
       : `<div class="cmp-values"><span class="cmp-val-num" style="color:var(--muted)">—</span></div>`;
 
     let winnerHtml = '', deltaHtml = '';
-    if (B) {
-      const numA = (a != null && isFinite(a)) ? a : null;
-      const numB = (b != null && isFinite(b)) ? b : null;
-      if (numA != null && numB != null && numA !== numB) {
-        const aWins = k.winner === 'less' ? numA < numB : numA > numB;
-        const d = pctDelta(numB, numA);
-        const label = aWins ? tReplace('cmp.aHigher', { n: shortA }) : tReplace('cmp.bHigher', { n: shortB });
-        winnerHtml = `<span class="cmp-winner ${aWins ? 'cmp-winner-a' : 'cmp-winner-b'}" title="${escapeHtml(nameA)} vs ${escapeHtml(nameB)}">${aWins ? '▲' : '▼'} ${escapeHtml(label)}</span>`;
-        deltaHtml = `<div class="cmp-delta ${d > 0 ? 'up' : 'down'}">${escapeHtml(d > 0 ? tReplace('cmp.aAbove', { a: shortA, b: shortB, p: Math.abs(d) }) : tReplace('cmp.aBelow', { a: shortA, b: shortB, p: Math.abs(d) }))}</div>`;
-      } else if (numA != null && numB != null) {
+    if (compared && have.length >= 2) {
+      const best = k.winner === 'less' ? Math.min(...have) : Math.max(...have);
+      const leaders = boards.filter((bd, i) => vals[i] === best);
+      const rest = have.filter((v) => v !== best);
+      if (!rest.length) {
+        /* every loaded board is identical on this metric */
         winnerHtml = `<span class="cmp-winner cmp-winner-even">— ${escapeHtml(t('cmp.even'))}</span>`;
         deltaHtml = `<div class="cmp-delta even">${escapeHtml(t('cmp.identical'))}</div>`;
+      } else if (leaders.length === 1) {
+        const leadIdx = boards.findIndex((bd, i) => vals[i] === best);
+        const lead = boards[leadIdx];
+        const runVal = k.winner === 'less' ? Math.min(...rest) : Math.max(...rest);
+        const run = boards.find((bd, i) => i !== leadIdx && vals[i] === runVal);
+        winnerHtml = `<span class="cmp-winner cmp-winner-${lead.letter}" title="${boards.map((bd) => escapeHtml(bd.name)).join(' vs ')}">▲ ${escapeHtml(tReplace('cmp.aHigher', { n: lead.short }))}</span>`;
+        const d = pctDelta(run.m[k.key], best);
+        deltaHtml = `<div class="cmp-delta ${d > 0 ? 'up' : 'down'}">${escapeHtml(
+          d > 0
+            ? tReplace('cmp.aAbove', { a: lead.short, b: run.short, p: Math.abs(d) })
+            : tReplace('cmp.aBelow', { a: lead.short, b: run.short, p: Math.abs(d) })
+        )}</div>`;
       } else {
-        deltaHtml = `<div class="cmp-delta even">${escapeHtml(t('cmp.noData'))}</div>`;
+        /* tie at the top between 2+ boards while another trails */
+        winnerHtml = `<span class="cmp-winner cmp-winner-even">— ${escapeHtml(t('cmp.even'))}</span>`;
+        deltaHtml = `<div class="cmp-delta even">${escapeHtml(t('cmp.identical'))}</div>`;
       }
+    } else if (compared) {
+      deltaHtml = `<div class="cmp-delta even">${escapeHtml(t('cmp.noData'))}</div>`;
     } else {
       deltaHtml = `<div class="cmp-delta even">${escapeHtml(nameA)} vs <b>?</b> — ${escapeHtml(t('cmp.pickBHint'))}</div>`;
     }
@@ -4172,30 +4400,44 @@ function renderCompareDashboard(opts = {}) {
   }).join('');
 
   /* keep the header badge informative — board names, not A/B */
-  if (badgeEl) badgeEl.textContent = B
-    ? tReplace('cmp.badgeBoth', { a: A?.total ?? 0, b: B.total, na: shortA, nb: shortB })
+  if (badgeEl) badgeEl.textContent = compared
+    ? boards.map((bd) => `${bd.short}: ${bd.m?.total ?? 0} ${t('cmp.issues')}`).join(' · ')
     : tReplace('dash.issuesAnalyzed', { n: A?.total ?? 0 });
 
   /* head-to-head score: count the compare metrics each board wins and show it
-     as a live "3 : 1" tally inside the compare bar — the at-a-glance verdict */
+     as a live "3 : 1" tally inside the compare bar — the at-a-glance verdict.
+     With 3 boards the tally becomes a 3-way count (the C number + separator
+     are simply hidden again when only two boards are compared). */
   const scoreEl = opts.scoreEl || $('#cmpScore');
   if (scoreEl) {
-    if (B) {
-      let wA = 0, wB = 0;
+    if (compared) {
+      const wins = { a: 0, b: 0, c: 0 };
       for (const k of CMP_KPIS) {
-        const va = A ? A[k.key] : null, vb = B ? B[k.key] : null;
-        if (va == null || vb == null || !isFinite(va) || !isFinite(vb) || va === vb) continue;
-        if (k.winner === 'less' ? va < vb : va > vb) wA++; else wB++;
+        const loaded = boards.filter((bd) => bd.m && bd.m[k.key] != null && isFinite(bd.m[k.key]));
+        if (loaded.length < 2) continue;
+        const best = k.winner === 'less' ? Math.min(...loaded.map((bd) => bd.m[k.key])) : Math.max(...loaded.map((bd) => bd.m[k.key]));
+        const leaders = loaded.filter((bd) => bd.m[k.key] === best);
+        /* a metric with a tie at the top awards no board a point */
+        if (leaders.length !== 1) continue;
+        wins[leaders[0].letter]++;
       }
       const sA = scoreEl.querySelector('.cmp-score-a');
       const sB = scoreEl.querySelector('.cmp-score-b');
+      const sC = scoreEl.querySelector('.cmp-score-c');
+      const sSepC = scoreEl.querySelector('.cmp-score-sep-c');
       const sSub = scoreEl.querySelector('.cmp-score-sub');
-      if (sA) sA.textContent = String(wA);
-      if (sB) sB.textContent = String(wB);
-      if (sSub) sSub.textContent = wA === wB
-        ? tReplace('cmp.scoreTie', { n: wA })
-        : tReplace('cmp.scoreLeads', { n: Math.max(wA, wB), m: CMP_KPIS.length });
-      scoreEl.classList.toggle('cmp-score-tied', wA === wB);
+      if (sA) sA.textContent = String(wins.a);
+      if (sB) sB.textContent = String(wins.b);
+      if (sC) sC.textContent = String(wins.c);
+      if (sSepC) sSepC.style.display = C ? '' : 'none';
+      if (sC) sC.style.display = C ? '' : 'none';
+      const totalWins = wins.a + wins.b + (C ? wins.c : 0);
+      const topWins = Math.max(wins.a, wins.b, C ? wins.c : 0);
+      const topCount = [wins.a, wins.b, C ? wins.c : 0].filter((w) => w === topWins).length;
+      if (sSub) sSub.textContent = topCount > 1
+        ? tReplace('cmp.scoreTie', { n: topWins })
+        : tReplace('cmp.scoreLeads', { n: topWins, m: CMP_KPIS.length });
+      scoreEl.classList.toggle('cmp-score-tied', topCount > 1 || totalWins === 0);
       show(scoreEl);
     } else {
       hide(scoreEl);
@@ -4205,8 +4447,8 @@ function renderCompareDashboard(opts = {}) {
   /* insights strip → compare winners strip */
   const strip = stripEl;
   if (!strip) return;
-  if (B) {
-    const ins = buildCompareInsights(A, B, nameA, nameB);
+  if (compared) {
+    const ins = buildCompareInsights(boards);
     strip.innerHTML = ins.map((x, i) =>
       `<div class="cmp-insight cmp-insight-${x.kind}" style="animation-delay:${i * 70}ms">` +
         `<span class="ins-icon">${x.icon}</span>` +
@@ -4228,142 +4470,193 @@ function renderCompareDashboard(opts = {}) {
    SEVERAL datapoints (trend vs prior 30d, cycle-time trend, completion rate,
    WIP vs throughput) so conclusions read like an analyst verdict, not a
    single-number echo. Cards are structured: label → headline → supporting
-   stats row. */
-function buildCompareInsights(A, B, nameA, nameB) {
+   stats row. Takes the shared `boards` array ({ letter, name, short, m }) so
+   the same code serves 2-board and 3-board comparisons. */
+function buildCompareInsights(boards) {
+  const loaded = boards.filter((bd) => bd.m);
+  if (loaded.length < 2) return [];
+  const [A, B] = loaded.map((bd) => bd.m);
+  const C = loaded[2]?.m || null;
   const out = [];
-  const pct = (x, y) => pctDelta(y, x); /* % A vs B */
-  const sA = shortBoardName(nameA), sB = shortBoardName(nameB);
+  const sOf = (bd) => bd.short;
   /* board-name span with its side color — used in headlines and verdict rows */
-  const tag = (who, full) => `<span class="cmp-ins-board cmp-ins-${who}" title="${escapeHtml(full)}">${escapeHtml(who === 'a' ? sA : sB)}</span>`;
+  const tag = (bd) => `<span class="cmp-ins-board cmp-ins-${bd.letter}" title="${escapeHtml(bd.name)}">${escapeHtml(bd.short)}</span>`;
   const stat = (v, cls) => `<span class="cmp-ins-stat${cls ? ' ' + cls : ''}">${v}</span>`;
   const delta = (a, b) => {
-    const d = pct(a, b);
+    const d = pctDelta(b, a);
     return d == null ? '' : `<span class="cmp-ins-delta ${d > 0 ? 'pos' : 'neg'}">${d > 0 ? '+' : ''}${d}%</span>`;
   };
+  /* per-board metric getter with a null filter — every check below runs on
+     the boards that actually have the value, so a 2-board comparison inside
+     a 3-board session still produces sensible verdicts */
+  const mvals = (key) => loaded.map((bd) => (bd.m[key] != null && isFinite(bd.m[key])) ? bd.m[key] : null);
+  /* pick the single best board for a metric ('more'/'less'), or null on ties
+     or when fewer than two boards carry the value */
+  const bestBoard = (key, dir) => {
+    const withV = loaded.filter((bd) => bd.m[key] != null && isFinite(bd.m[key]));
+    if (withV.length < 2) return null;
+    const vals = withV.map((bd) => bd.m[key]);
+    const best = dir === 'less' ? Math.min(...vals) : Math.max(...vals);
+    const leaders = withV.filter((bd) => bd.m[key] === best);
+    return leaders.length === 1 ? leaders[0] : null;
+  };
+  const fmtList = (fn) => loaded.map((bd) => fn(bd.m)).join(' / ');
 
   /* ── 1. overall verdict: cross-reference size, throughput, speed, completion ── */
   {
-    let wA = 0, wB = 0;
     const wins = [];
-    const tally = (cond, onA, what) => { if (cond) { wA++; wins.push({ who: 'a', what }); } else { wB++; wins.push({ who: 'b', what }); } };
-    if (A.resolved30 !== B.resolved30) tally(A.resolved30 > B.resolved30, 'throughput');
-    if (A.cycleAvg != null && B.cycleAvg != null && Math.round(A.cycleAvg) !== Math.round(B.cycleAvg)) tally(A.cycleAvg < B.cycleAvg, 'speed');
-    if (A.doneRate !== B.doneRate) tally(A.doneRate > B.doneRate, 'completion');
-    if (A.wip !== B.wip) tally(A.wip < B.wip, 'load');
-    if (A.blockedCount !== B.blockedCount) tally(A.blockedCount < B.blockedCount, 'blocked');
-    if (wA || wB) {
-      const lead = wA === wB ? null : (wA > wB ? 'a' : 'b');
+    for (const [key, what, dir] of [
+      ['resolved30', 'throughput', 'more'],
+      ['cycleAvg', 'speed', 'less'],
+      ['doneRate', 'completion', 'more'],
+      ['wip', 'load', 'less'],
+      ['blockedCount', 'blocked', 'less'],
+    ]) {
+      const lead = bestBoard(key, dir);
+      if (lead) wins.push({ who: lead, what });
+    }
+    if (wins.length) {
+      const tally = { a: 0, b: 0, c: 0 };
+      for (const w of wins) tally[w.who.letter]++;
+      const topWins = Math.max(tally.a, tally.b, tally.c);
+      const topBoards = loaded.filter((bd) => tally[bd.letter] === topWins && topWins > 0);
+      const lead = topBoards.length === 1 ? topBoards[0] : null;
       const verdict = lead
-        ? tReplace('cmp.insVerdict', { a: lead === 'a' ? sA : sB, b: lead === 'a' ? sB : sA, w: Math.max(wA, wB), m: wA + wB })
-        : tReplace('cmp.insVerdictTie', { m: wA + wB });
+        ? tReplace('cmp.insVerdict', { a: lead.short, b: loaded.filter((bd) => bd !== lead).map((bd) => bd.short).join(', '), w: topWins, m: wins.length })
+        : tReplace('cmp.insVerdictTie', { m: wins.length });
       out.push({
         icon: '🏆', kind: 'verdict',
-        title: lead ? tReplace('cmp.insVerdictTitle', { n: lead === 'a' ? sA : sB }) : t('cmp.insVerdictTieTitle'),
-        html: verdict + ' ' + wins.slice(0, 3).map((w) => `<span class="cmp-ins-chip ${w.who === 'a' ? 'chip-a' : 'chip-b'}">${escapeHtml(t('cmp.wins.' + w.what))}</span>`).join(''),
+        title: lead ? tReplace('cmp.insVerdictTitle', { n: lead.short }) : t('cmp.insVerdictTieTitle'),
+        html: verdict + ' ' + wins.slice(0, 3).map((w) => `<span class="cmp-ins-chip chip-${w.who.letter}">${escapeHtml(t('cmp.wins.' + w.what))}</span>`).join(''),
         stats:
-          stat(`${A.total} / ${B.total}`, '') + t('cmp.insStatsIssues') +
-          stat(`${A.resolved30} / ${B.resolved30}`) + t('cmp.insStatsShipped') +
-          stat(`${A.cycleAvg != null ? fmtDuration(A.cycleAvg) : '—'} / ${B.cycleAvg != null ? fmtDuration(B.cycleAvg) : '—'}`) + t('cmp.insStatsCycle'),
+          stat(fmtList((m) => `${m.total}`), '') + t('cmp.insStatsIssues') +
+          stat(fmtList((m) => `${m.resolved30}`)) + t('cmp.insStatsShipped') +
+          stat(fmtList((m) => (m.cycleAvg != null ? fmtDuration(m.cycleAvg) : '—'))) + t('cmp.insStatsCycle'),
       });
     }
   }
 
-  /* ── 2. momentum: 30d throughput vs the prior 30d on BOTH boards ── */
+  /* ── 2. momentum: 30d throughput vs the prior 30d on every board ── */
   {
-    const tA = A.resolvedPrev30 ? pctDelta(A.resolvedPrev30, A.resolved30) : null;
-    const tB = B.resolvedPrev30 ? pctDelta(B.resolvedPrev30, B.resolved30) : null;
-    if (tA != null || tB != null) {
-      const better = (x, y) => x == null ? false : (y == null ? true : x > y);
-      const aBetter = better(tA, tB);
-      const lead = tA == null || tB == null ? null : (aBetter ? 'a' : 'b');
+    const trends = loaded.map((bd) => ({
+      bd,
+      t: bd.m.resolvedPrev30 ? pctDelta(bd.m.resolvedPrev30, bd.m.resolved30) : null,
+    })).filter((x) => x.t != null);
+    if (trends.length >= 2) {
+      const bestT = Math.max(...trends.map((x) => x.t));
+      const leaders = trends.filter((x) => x.t === bestT);
+      const lead = leaders.length === 1 ? leaders[0].bd : null;
       out.push({
         icon: '📈', kind: 'trend',
         title: t('cmp.lblMomentum'),
         html: lead
-          ? tReplace('cmp.insMomentum', { n: tag(lead, lead === 'a' ? nameA : nameB) })
+          ? tReplace('cmp.insMomentum', { n: tag(lead) })
           : escapeHtml(t('cmp.insMomentumMixed')),
         stats:
-          stat(`${A.resolved30} vs ${A.resolvedPrev30}`, tA != null && tA > 0 ? 'pos' : tA != null && tA < 0 ? 'neg' : '') + delta(A.resolvedPrev30, A.resolved30) + t('cmp.insStatsNowPrev') +
-          stat(`${B.resolved30} vs ${B.resolvedPrev30}`, tB != null && tB > 0 ? 'pos' : tB != null && tB < 0 ? 'neg' : '') + delta(B.resolvedPrev30, B.resolved30) + t('cmp.insStatsNowPrev'),
+          trends.map((x) =>
+            stat(`${x.bd.m.resolved30} vs ${x.bd.m.resolvedPrev30}`, x.t > 0 ? 'pos' : x.t < 0 ? 'neg' : '') + delta(x.bd.m.resolvedPrev30, x.bd.m.resolved30) + t('cmp.insStatsNowPrev')
+          ).join(''),
       });
     }
   }
 
-  /* ── 3. flow balance: intake vs delivery + WIP pressure on both boards ── */
+  /* ── 3. flow balance: intake vs delivery + WIP pressure on every board ── */
   {
-    const balA = A.created30 - A.resolved30, balB = B.created30 - B.resolved30;
-    if (balA !== balB) {
-      const aHealthier = balA < balB;   /* smaller intake surplus = healthier */
-      const lead = aHealthier ? 'a' : 'b';
+    const bals = loaded.map((bd) => ({ bd, bal: bd.m.created30 - bd.m.resolved30 }));
+    const distinct = new Set(bals.map((x) => x.bal));
+    if (distinct.size > 1) {
+      const bestBal = Math.min(...bals.map((x) => x.bal));   /* smaller intake surplus = healthier */
+      const leaders = bals.filter((x) => x.bal === bestBal);
+      const lead = leaders.length === 1 ? leaders[0].bd : null;
       out.push({
         icon: '⚖️', kind: 'flow',
         title: t('cmp.lblFlow'),
-        html: tReplace('cmp.insFlow', { n: tag(lead, lead === 'a' ? nameA : nameB), a: Math.abs(balA), b: Math.abs(balB) }),
+        html: lead
+          ? tReplace('cmp.insFlow', { n: tag(lead), a: Math.abs(lead.m.created30 - lead.m.resolved30), b: Math.abs(bals.filter((x) => x.bd !== lead)[0]?.bal ?? 0) })
+          : escapeHtml(t('cmp.insRiskEven')),
         stats:
-          stat(`${A.created30} ▸ ${A.resolved30}`, balA > 0 ? 'neg' : 'pos') + t('cmp.insStatsInOut') +
-          stat(`${B.created30} ▸ ${B.resolved30}`, balB > 0 ? 'neg' : 'pos') + t('cmp.insStatsInOut') +
-          stat(`${A.wip} / ${B.wip}`) + t('cmp.insStatsWip'),
+          bals.map((x) =>
+            stat(`${x.bd.m.created30} ▸ ${x.bd.m.resolved30}`, x.bal > 0 ? 'neg' : 'pos') + t('cmp.insStatsInOut')
+          ).join('') +
+          stat(fmtList((m) => `${m.wip}`)) + t('cmp.insStatsWip'),
       });
     }
   }
 
   /* ── 4. speed + quality: cycle time vs completion rate combined ── */
-  if (A.cycleAvg != null && B.cycleAvg != null && (Math.round(A.cycleAvg) !== Math.round(B.cycleAvg) || A.doneRate !== B.doneRate)) {
-    const aWins = A.cycleAvg < B.cycleAvg;
-    const lead = aWins ? 'a' : 'b';
-    out.push({
-      icon: '⏱️', kind: 'speed',
-      title: t('cmp.lblSpeedQuality'),
-      html: tReplace('cmp.insSpeed', { n: tag(lead, lead === 'a' ? nameA : nameB), a: fmtDuration(A.cycleAvg), b: fmtDuration(B.cycleAvg) }),
-      stats:
-        stat(fmtDuration(A.cycleAvg), aWins ? 'pos' : 'neg') + t('cmp.insStatsCycle') +
-        stat(`${A.doneRate}%`, A.doneRate >= B.doneRate ? 'pos' : 'neg') + t('cmp.insStatsDone') +
-        stat(`${A.blockedCount} / ${B.blockedCount}`, A.blockedCount <= B.blockedCount ? 'pos' : 'neg') + t('cmp.insStatsBlocked'),
-    });
+  {
+    const cycleLead = bestBoard('cycleAvg', 'less');
+    const doneLead = bestBoard('doneRate', 'more');
+    const hasCycle = loaded.every((bd) => bd.m.cycleAvg != null);
+    if (hasCycle && (cycleLead || doneLead)) {
+      const lead = cycleLead || doneLead;
+      const runner = loaded.filter((bd) => bd !== lead)[0];
+      out.push({
+        icon: '⏱️', kind: 'speed',
+        title: t('cmp.lblSpeedQuality'),
+        html: tReplace('cmp.insSpeed', { n: tag(lead), a: fmtDuration(lead.m.cycleAvg), b: fmtDuration(runner.m.cycleAvg) }),
+        stats:
+          loaded.map((bd) =>
+            stat(fmtDuration(bd.m.cycleAvg), cycleLead === bd ? 'pos' : 'neg') + t('cmp.insStatsCycle')
+          ).join('') +
+          stat(fmtList((m) => `${m.doneRate}%`)) + t('cmp.insStatsDone') +
+          stat(fmtList((m) => `${m.blockedCount}`)) + t('cmp.insStatsBlocked'),
+      });
+    }
   }
 
   /* ── 5. risk radar: blocked work + aging backlog together ── */
-  if (A.blockedCount !== B.blockedCount || (A.wip !== B.wip && (A.blockedCount || B.blockedCount))) {
-    const aSafer = A.blockedCount < B.blockedCount;
-    const lead = A.blockedCount === B.blockedCount ? null : (aSafer ? 'a' : 'b');
-    out.push({
-      icon: '🛡️', kind: 'risk',
-      title: t('cmp.lblRisk'),
-      html: lead
-        ? tReplace('cmp.insRisk', { n: tag(lead, lead === 'a' ? nameA : nameB), a: lead === 'a' ? A.blockedCount : B.blockedCount, b: lead === 'a' ? B.blockedCount : A.blockedCount })
-        : escapeHtml(t('cmp.insRiskEven')),
-      stats:
-        stat(`${A.blockedCount}`, A.blockedCount <= B.blockedCount ? 'pos' : 'neg') + t('cmp.insStatsBlocked') +
-        stat(`${A.wip}`, A.wip <= B.wip ? 'pos' : 'neg') + t('cmp.insStatsWip') +
-        stat(`${A.doneRate}% / ${B.doneRate}%`) + t('cmp.insStatsDone'),
-    });
+  {
+    const blockedLead = bestBoard('blockedCount', 'less');
+    const wipLead = bestBoard('wip', 'less');
+    if (blockedLead || wipLead) {
+      const lead = blockedLead || wipLead;
+      const runner = loaded.filter((bd) => bd !== lead)[0];
+      out.push({
+        icon: '🛡️', kind: 'risk',
+        title: t('cmp.lblRisk'),
+        html: blockedLead
+          ? tReplace('cmp.insRisk', { n: tag(lead), a: lead.m.blockedCount, b: runner.m.blockedCount })
+          : escapeHtml(t('cmp.insRiskEven')),
+        stats:
+          loaded.map((bd) =>
+            stat(`${bd.m.blockedCount}`, blockedLead ? (blockedLead === bd ? 'pos' : 'neg') : '') + t('cmp.insStatsBlocked')
+          ).join('') +
+          stat(fmtList((m) => `${m.wip}`)) + t('cmp.insStatsWip') +
+          stat(fmtList((m) => `${m.doneRate}%`)) + t('cmp.insStatsDone'),
+      });
+    }
   }
 
   return out.slice(0, 4);
 }
 
-/* ══════════════════ compare from the MAIN page (pick 2 boards) ══════════════════
+/* ══════════════════ compare from the MAIN page (pick 2-3 boards) ══════════════════
    "⇄ Compare boards" turns the board grid into a picker: click any card to slot it
-   as A, another as B, then "Compare →" loads both and opens the dashboard with every
-   KPI + chart overlaid. Available on the admin panel AND the public user view. */
+   as A, another as B, optionally a third as C, then "Compare →" loads all of them
+   and opens the dashboard with every KPI + chart overlaid. Available on the admin
+   panel AND the public user view. */
 function togglePickCompareMode() {
   if (state.pickCompare) { state.pickCompare = null; updatePickBar(); renderBoardCards(); return; }
   if (!state.boards.length) { toast(t('toast.boardsLoading'), 'warn'); return; }
-  state.pickCompare = { a: null, b: null };
+  state.pickCompare = { a: null, b: null, c: null };
   updatePickBar();
   renderBoardCards();
 }
 
-/* card click inside pick mode: fill A, then B; click a picked card to un-pick it;
-   click an unpicked card when both slots are full → replace B */
+/* card click inside pick mode: fill A, then B, then C (optional); click a picked
+   card to un-pick it (later slots cascade down); click an unpicked card when all
+   slots are full → replace the last slot (C, else B) */
 function togglePickCompare(board) {
   const pick = state.pickCompare;
   if (!pick) return;
-  if (pick.a === board.id) { pick.a = pick.b; pick.b = null; }
-  else if (pick.b === board.id) { pick.b = null; }
+  if (pick.a === board.id) { pick.a = pick.b; pick.b = pick.c; pick.c = null; }
+  else if (pick.b === board.id) { pick.b = pick.c; pick.c = null; }
+  else if (pick.c === board.id) { pick.c = null; }
   else if (pick.a == null) { pick.a = board.id; }
   else if (pick.b == null) { pick.b = board.id; }
-  else { pick.b = board.id; }
+  else if (pick.c == null) { pick.c = board.id; }
+  else { pick.c = board.id; }
   updatePickBar();
   renderBoardCards();
 }
@@ -4377,46 +4670,61 @@ function updatePickBar() {
   if (!bar) return;
   const pick = state.pickCompare;
   if (!pick) { hide(bar); return; }
-  const nameA = pick.a != null ? (state.boards.find((x) => x.id === pick.a) || {}).name : null;
-  const nameB = pick.b != null ? (state.boards.find((x) => x.id === pick.b) || {}).name : null;
+  const nameOf = (id) => id != null ? (state.boards.find((x) => x.id === id) || {}).name : null;
+  const nameA = nameOf(pick.a), nameB = nameOf(pick.b), nameC = nameOf(pick.c);
   $('#pickSlotA').textContent = nameA || t('pick.slotA');
   $('#pickSlotA').classList.toggle('filled', !!nameA);
   $('#pickSlotB').textContent = nameB || t('pick.slotB');
   $('#pickSlotB').classList.toggle('filled', !!nameB);
+  const slotC = $('#pickSlotC');
+  if (slotC) {
+    slotC.textContent = nameC || t('pick.slotC');
+    slotC.classList.toggle('filled', !!nameC);
+  }
   $('#pickGoBtn').disabled = !(nameA && nameB);
   $('#pickHint').textContent = !nameA ? t('pick.hintA')
     : !nameB ? t('pick.hintB')
-    : t('pick.hintGo');
+    : nameC ? t('pick.hintGo')
+    : t('pick.hintC');
   show(bar);
 }
 
-/* load BOTH picked boards and open the dashboard in compare mode.
-   Reuses the whole existing pipeline: selectBoard() for A, enterCompareMode() +
-   onCompareBoardChange() for B — identical code path as the in-dashboard picker. */
+/* load ALL picked boards (B required, C optional) and open the dashboard in
+   compare mode. Reuses the whole existing pipeline: selectBoard() for A,
+   enterCompareMode() + onCompareSlotChange() for B and C — identical code
+   path as the in-dashboard picker. */
 async function openPickCompareDashboard() {
   const pick = state.pickCompare;
   if (!pick || pick.a == null || pick.b == null) return;
   const boardA = state.boards.find((x) => x.id === pick.a);
   const boardB = state.boards.find((x) => x.id === pick.b);
-  if (!boardA || !boardB) return;
+  const boardC = pick.c != null ? state.boards.find((x) => x.id === pick.c) : null;
+  if (!boardA || !boardB || (pick.c != null && !boardC)) return;
 
   /* leave pick mode first (bar hidden, cards clickable normally again) */
   state.pickCompare = null;
   updatePickBar();
 
-  toast(tReplace('cmp.loading', { a: boardA.name, b: boardB.name }));
+  toast(tReplace('cmp.loading', { a: boardA.name, b: boardC ? `${boardB.name} + ${boardC.name}` : boardB.name }));
   await selectBoard(boardA);
   if (!state.lastBoard || state.lastBoard.id !== boardA.id) return;   // A failed → error banner already shown
 
-  /* enter compare on A's dashboard and sync B through the standard picker path */
+  /* enter compare on A's dashboard and sync B (and optionally C) through the
+     standard picker path */
   await enterCompareMode();
   const sel = $('#cmpBoardSelect');
   if (!sel.querySelector(`option[value="${boardB.id}"]`)) { toast(t('cmp.failed'), 'warn'); return; }
   sel.value = String(boardB.id);
   await onCompareBoardChange({ target: sel });
+  if (boardC) {
+    const selC = $('#cmpBoardSelectC');
+    if (!selC || !selC.querySelector(`option[value="${boardC.id}"]`)) return;
+    selC.value = String(boardC.id);
+    await onCompareSlotChange('c', { target: selC });
+  }
 }
 
-/* ══════════════════ compare on the PUBLIC share view (pick 2 boards) ══════════════════
+/* ══════════════════ compare on the PUBLIC share view (pick 2-3 boards) ══════════════════
    Mirrors the admin pick-compare flow but runs entirely on the relay-backed live
    loader (pubLoadBoardLive) — no Jira session is needed, so org members get the
    same side-by-side comparison without any admin powers. */
@@ -4429,21 +4737,23 @@ function togglePubPickCompareMode() {
   if (pubState.snapshot?.scope !== 'all') return;   /* pick mode lives on the all-boards view */
   const boards = pubBoardsList();
   if (!boards.length) { toast(t('toast.boardsLoading'), 'warn'); return; }
-  pubState.pickCompare = { a: null, b: null };
+  pubState.pickCompare = { a: null, b: null, c: null };
   updatePubPickBar();
   renderPubContent();
 }
 
-/* pub card click inside pick mode: fill A, then B; click a picked card to un-pick;
-   click an unpicked card when both slots are full → replace B */
+/* pub card click inside pick mode: fill A, then B, then C (optional); click a
+   picked card to un-pick (later slots cascade); full slots → replace the last */
 function togglePubPickCompare(board) {
   const pick = pubState.pickCompare;
   if (!pick) return;
-  if (pick.a === board.boardId) { pick.a = pick.b; pick.b = null; }
-  else if (pick.b === board.boardId) { pick.b = null; }
+  if (pick.a === board.boardId) { pick.a = pick.b; pick.b = pick.c; pick.c = null; }
+  else if (pick.b === board.boardId) { pick.b = pick.c; pick.c = null; }
+  else if (pick.c === board.boardId) { pick.c = null; }
   else if (pick.a == null) { pick.a = board.boardId; }
   else if (pick.b == null) { pick.b = board.boardId; }
-  else { pick.b = board.boardId; }
+  else if (pick.c == null) { pick.c = board.boardId; }
+  else { pick.c = board.boardId; }
   updatePubPickBar();
   renderPubContent();
 }
@@ -4456,55 +4766,65 @@ function updatePubPickBar() {
   const pick = pubState.pickCompare;
   if (!pick) { hide(bar); return; }
   const boards = pubBoardsList();
-  const nameA = pick.a != null ? (boards.find((x) => x.boardId === pick.a) || {}).name : null;
-  const nameB = pick.b != null ? (boards.find((x) => x.boardId === pick.b) || {}).name : null;
+  const nameOf = (id) => id != null ? (boards.find((x) => x.boardId === id) || {}).name : null;
+  const nameA = nameOf(pick.a), nameB = nameOf(pick.b), nameC = nameOf(pick.c);
   $('#pubPickSlotA').textContent = nameA || t('cmp.pubSlotA');
   $('#pubPickSlotA').classList.toggle('filled', !!nameA);
   $('#pubPickSlotB').textContent = nameB || t('cmp.pubSlotB');
   $('#pubPickSlotB').classList.toggle('filled', !!nameB);
+  const slotC = $('#pubPickSlotC');
+  if (slotC) {
+    slotC.textContent = nameC || t('cmp.pubSlotC');
+    slotC.classList.toggle('filled', !!nameC);
+  }
   $('#pubPickGoBtn').disabled = !(nameA && nameB);
   $('#pubPickHint').textContent = !nameA ? t('cmp.pubPickHintA')
     : !nameB ? t('cmp.pubPickHintB')
-    : t('cmp.pubPickHintGo');
+    : nameC ? t('cmp.pubPickHintGo')
+    : t('cmp.pubPickHintC');
   show(bar);
 }
 
-/* load BOTH picked boards (live via the relay) and open the pub compare view */
+/* load ALL picked boards (B required, C optional — live via the relay) and
+   open the pub compare view */
 async function openPubPickCompareDashboard() {
   const pick = pubState.pickCompare;
   if (!pick || pick.a == null || pick.b == null) return;
   const boards = pubBoardsList();
   const boardA = boards.find((x) => x.boardId === pick.a);
   const boardB = boards.find((x) => x.boardId === pick.b);
-  if (!boardA || !boardB) return;
+  const boardC = pick.c != null ? boards.find((x) => x.boardId === pick.c) : null;
+  if (!boardA || !boardB || (pick.c != null && !boardC)) return;
 
   /* leave pick mode first (bar hidden, cards clickable normally again) */
   pubState.pickCompare = null;
   updatePubPickBar();
 
-  toast(tReplace('cmp.pubLoading', { a: boardA.name, b: boardB.name }));
+  const loadLabel = tReplace('cmp.pubLoading', { a: boardA.name, b: boardC ? `${boardB.name} + ${boardC.name}` : boardB.name });
+  toast(loadLabel);
   const genAtStart = pubState.compareGen || 0;
   const isStale = () => (pubState.compareGen || 0) !== genAtStart;
 
-  $('#pubBoardsList').innerHTML = `<div class="card glass chart-card wide" style="text-align:center;padding:42px;color:var(--muted)"><span class="spinner spinner-lg"></span><div style="margin-top:14px">${escapeHtml(tReplace('cmp.pubLoading', { a: boardA.name, b: boardB.name }))}</div></div>`;
+  $('#pubBoardsList').innerHTML = `<div class="card glass chart-card wide" style="text-align:center;padding:42px;color:var(--muted)"><span class="spinner spinner-lg"></span><div style="margin-top:14px">${escapeHtml(loadLabel)}</div></div>`;
 
-  let recA = null, recB = null;
+  let recA = null, recB = null, recC = null;
   try {
-    [recA, recB] = await Promise.all([
+    [recA, recB, recC] = await Promise.all([
       pubLoadBoardLive(boardA.boardId, 'full'),
       pubLoadBoardLive(boardB.boardId, 'full'),
+      ...(boardC ? [pubLoadBoardLive(boardC.boardId, 'full')] : [Promise.resolve(null)]),
     ]);
   } catch (e) {
     if (isStale()) return;
-    const failed = !recA ? boardA.name : boardB.name;
+    const failed = !recA ? boardA.name : (!recB ? boardB.name : (boardC?.name || ''));
     toast(tReplace('cmp.pubLoadFailed', { b: failed }), 'warn');
-    logDiag('error', 'Pub compare load failed', { boardA: boardA.boardId, boardB: boardB.boardId, message: e?.message });
+    logDiag('error', 'Pub compare load failed', { boardA: boardA.boardId, boardB: boardB.boardId, boardC: boardC?.boardId, message: e?.message });
     renderPubContent();
     return;
   }
   if (isStale()) return;   /* user exited / re-entered the share screen during the load */
 
-  pubState.compare = { a: boardA.boardId, b: boardB.boardId, nameA: boardA.name, nameB: boardB.name, recA, recB };
+  pubState.compare = { a: boardA.boardId, b: boardB.boardId, c: boardC?.boardId ?? null, nameA: boardA.name, nameB: boardB.name, nameC: boardC?.name ?? null, recA, recB, recC };
   renderPubCompareView();
 }
 
@@ -4523,19 +4843,23 @@ function renderPubCompareView() {
   $('#pubBackBtn').textContent = t('pub.back');
   $('#pubBackBtn').classList.remove('hidden');   /* compare is a sub-page — Back always shows */
   setPubTitleAccent(t('cmp.pubPickTitle'));
-  $('#pubSubtitle').textContent = tReplace('cmp.pubLoading', { a: cmp.nameA, b: cmp.nameB }).replace('…', '') + ' · ' + t('pub.liveSubtitle');
+  const cmpNames = [cmp.nameA, cmp.nameB, cmp.nameC].filter(Boolean);
+  $('#pubSubtitle').textContent = tReplace('cmp.pubLoading', { a: cmpNames[0], b: cmpNames.slice(1).join(' + ') }).replace('…', '') + ' · ' + t('pub.liveSubtitle');
   $('#pubHeadTitle').textContent = t('cmp.pubPickTitle');
-  $('#pubIssueCount').textContent = tReplace('cmp.badgeBoth', {
-    a: cmp.recA.issuesCount ?? cmp.recA.metrics?.total ?? 0,
-    b: cmp.recB.issuesCount ?? cmp.recB.metrics?.total ?? 0,
-    na: shortBoardName(cmp.nameA), nb: shortBoardName(cmp.nameB),
-  });
-  $('#pubChangelogBadge').textContent = (cmp.recA.hasChangelog && cmp.recB.hasChangelog) ? t('badge.changelog') : t('badge.noChangelog');
-  $('#pubChangelogBadge').className = 'data-badge ' + ((cmp.recA.hasChangelog && cmp.recB.hasChangelog) ? 'ok' : 'missing');
+  const cmpRecs = [cmp.recA, cmp.recB, cmp.recC].filter(Boolean);
+  $('#pubIssueCount').textContent = cmpRecs.map((rec, i) =>
+    `${shortBoardName(cmpNames[i])}: ${rec.issuesCount ?? rec.metrics?.total ?? 0} ${t('cmp.issues')}`
+  ).join(' · ');
+  $('#pubChangelogBadge').textContent = cmpRecs.every((rec) => rec.hasChangelog) ? t('badge.changelog') : t('badge.noChangelog');
+  $('#pubChangelogBadge').className = 'data-badge ' + (cmpRecs.every((rec) => rec.hasChangelog) ? 'ok' : 'missing');
 
   show($('#pubCompareBar'));
   $('#pubCmpNameA').textContent = cmp.nameA;
   $('#pubCmpNameB').textContent = cmp.nameB;
+  const nameCEl = $('#pubCmpNameC');
+  const sideCEl = $('#pubCmpSideC');
+  if (nameCEl) nameCEl.textContent = cmp.nameC || '—';
+  if (sideCEl) sideCEl.style.display = cmp.nameC ? '' : 'none';
   $('#pubCmpSynced').textContent = tReplace('cmp.pubSynced', { x: new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) });
 
   const kpiGrid = $('#pubKpiGrid');
@@ -4543,14 +4867,16 @@ function renderPubCompareView() {
   renderCompareDashboard({
     metricsA: cmp.recA.metrics,
     metricsB: cmp.recB.metrics,
+    metricsC: cmp.recC?.metrics ?? null,
     nameA: cmp.nameA,
     nameB: cmp.nameB,
+    nameC: cmp.nameC ?? null,
     gridEl: kpiGrid,
     badgeEl: null,          /* the pub badge lives outside the dashboard chrome */
     stripEl: $('#pubInsightsStrip'),   /* dedicated insights strip (charts grid is reused by chart cards) */
   });
 
-  /* charts: overlay board B onto every chart via the shared compare engine.
+  /* charts: overlay boards B (and C) onto every chart via the shared compare engine.
      The grid was hidden above — the compare view MUST re-show it, otherwise
      the KPI cards render with no charts beneath them (the "empty compare page"
      bug). Compare cards also get a colored left border + winner chip so the
@@ -4568,8 +4894,10 @@ function renderPubCompareView() {
   for (const def of defs) {
     const canvasId = 'chart_' + def.id;
     const data = buildCompareChartData(
-      def, cmp.recA.metrics, cmp.recA.issues, cmp.recA.hasChangelog,
-      cmp.recB.metrics, cmp.recB.issues, cmp.recB.hasChangelog, cmp.nameA, cmp.nameB,
+      def,
+      { metrics: cmp.recA.metrics, issues: cmp.recA.issues, hasChangelog: cmp.recA.hasChangelog, name: cmp.nameA },
+      { metrics: cmp.recB.metrics, issues: cmp.recB.issues, hasChangelog: cmp.recB.hasChangelog, name: cmp.nameB },
+      ...(cmp.recC ? [{ metrics: cmp.recC.metrics, issues: cmp.recC.issues, hasChangelog: cmp.recC.hasChangelog, name: cmp.nameC }] : []),
     );
     const card = grid.querySelector(`.chart-card[data-cid="${def.id}"]`);
     const sub = document.getElementById('sub_' + def.id);
@@ -4594,37 +4922,54 @@ function renderPubCompareView() {
 
 /* winner chip for a compare-mode chart card: derived from the chart's headline
    total (centerValue) — higher wins for counts, lower wins for durations.
-   Doughnuts compare too (two-ring charts): open-work charts read "less = wins".
+   Doughnuts compare too (ring charts): open-work charts read "less = wins".
+   N-board aware: the single best board gets the chip; ties at the top read
+   "even" (no winner is awarded, matching the KPI/score semantics).
    Returns '' for unmapped charts and empty charts. */
 function compareChartWinnerChip(def, data, cmp) {
   if (data.empty || !cmp) return '';
-  const a = cmp.recA.metrics, b = cmp.recB.metrics;
-  if (!a || !b) return '';
+  /* collect every loaded board — recC/nameC are simply absent for 2-way compares */
+  const boards = [
+    { letter: 'a', name: cmp.nameA, m: cmp.recA?.metrics },
+    { letter: 'b', name: cmp.nameB, m: cmp.recB?.metrics },
+    { letter: 'c', name: cmp.nameC, m: cmp.recC?.metrics },
+  ].filter((bd) => bd.m);
+  if (boards.length < 2) return '';
   /* pick the metric that matches this chart's headline number */
   const MAP = {
     pipeline: ['total', 'more'], throughput: ['resolved30', 'more'], createdTrend: ['created30', 'more'],
     statusDist: ['total', 'more'], blockedDist: ['blockedCount', 'less'], backlogGrowth: ['wip', 'less'],
     assigneeLoad: ['wip', 'less'], ageBuckets: ['wip', 'less'], assigneeCycle: ['cycleAvg', 'less'],
     phaseDelays: ['cycleAvg', 'less'], statusTime: ['cycleAvg', 'less'],
-    /* two-ring doughnuts: open-work slices — the board with fewer parked issues wins */
+    /* complexity charts (cm2): open complexity slices = parked work (less wins);
+       completed complexity = delivered volume (more wins) */
+    complexityDist: ['wip', 'less'], complexityDone: ['resolved30', 'more'],
+    /* ring doughnuts: open-work slices — the board with fewer parked issues wins */
     typeDist: ['wip', 'less'], priorityDist: ['wip', 'less'], bottlenecks: ['wip', 'less'],
   };
   const hit = MAP[def.id];
   if (!hit) return '';
   const [key, dir] = hit;
-  const va = a[key], vb = b[key];
-  if (va == null || vb == null || !isFinite(va) || !isFinite(vb) || va === vb) {
+  const loaded = boards
+    .map((bd) => ({ ...bd, v: bd.m[key] }))
+    .filter((bd) => bd.v != null && isFinite(bd.v));
+  if (loaded.length < 2) {
     return `<span class="cmp-winner cmp-winner-even cmp-chart-winner">— ${escapeHtml(t('cmp.even'))}</span>`;
   }
-  const aWins = dir === 'less' ? va < vb : va > vb;
-  const pct = pctDelta(vb, va);
-  const shortA = shortBoardName(cmp.nameA || t('cmp.pubA'));
-  const shortB = shortBoardName(cmp.nameB || t('cmp.pubB'));
-  const label = aWins
-    ? tReplace('cmp.chartWinsA', { n: shortA, p: Math.abs(pct) })
-    : tReplace('cmp.chartWinsB', { n: shortB, p: Math.abs(pct) });
-  const fullA = cmp.nameA || shortA, fullB = cmp.nameB || shortB;
-  return `<span class="cmp-winner ${aWins ? 'cmp-winner-a' : 'cmp-winner-b'} cmp-chart-winner" title="${escapeHtml(fullA)} vs ${escapeHtml(fullB)}">${aWins ? '▲' : '▼'} ${escapeHtml(label)}</span>`;
+  const best = dir === 'less' ? Math.min(...loaded.map((bd) => bd.v)) : Math.max(...loaded.map((bd) => bd.v));
+  const leaders = loaded.filter((bd) => bd.v === best);
+  if (leaders.length !== 1) {
+    return `<span class="cmp-winner cmp-winner-even cmp-chart-winner">— ${escapeHtml(t('cmp.even'))}</span>`;
+  }
+  const lead = leaders[0];
+  /* delta vs the closest runner-up in the winning direction */
+  const rest = loaded.filter((bd) => bd !== lead);
+  const second = rest.reduce((b, bd) => ((dir === 'less' ? bd.v < b.v : bd.v > b.v) ? bd : b), rest[0]);
+  const pct = Math.abs(pctDelta(second.v, lead.v));
+  const short = shortBoardName(lead.name) || lead.letter.toUpperCase();
+  const label = tReplace('cmp.chartWinsA', { n: short, p: pct });
+  const full = lead.name || short;
+  return `<span class="cmp-winner cmp-winner-${lead.letter} cmp-chart-winner" title="${escapeHtml(full)}">${dir === 'less' ? '▼' : '▲'} ${escapeHtml(label)}</span>`;
 }
 
 /* leave the pub compare view → back to the all-boards list */
@@ -4639,131 +4984,157 @@ function exitPubCompare() {
   renderPubContent();
 }
 
-/* ── compare-mode chart merging: overlay board B's data onto each chart ──
-   nameA/nameB are explicit params so the public share view can pass its own
-   board names (defaults fall back to the admin compare state). */
-function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB, nameAParam, nameBParam) {
-  const dataA = buildChartData(def, mA, issuesA, hcA);
-  const dataB = buildChartData(def, mB, issuesB, hcB);
-  const emptyA = dataA.empty, emptyB = dataB.empty;
-  const nameB = nameBParam || state.compare?.board?.name || t('cmp.pubB');
-  const nameA = nameAParam || state.lastBoard?.name || t('cmp.pubA');
-  const B_SERIES = { label: nameB, color: '#22d3ee', rgb: ACCENT_RGB.cyan };
-  if (emptyA && emptyB) return { empty: [t('cmp.noDataEither1'), t('cmp.noDataEither2')] };
+/* ── compare-mode chart merging: overlay boards B (and C) onto each chart ──
+   nameA/nameB/nameC are explicit params so the public share view can pass its
+   own board names (defaults fall back to the admin compare state).
+   srcs = [{ metrics, issues, hasChangelog, name }] for every loaded board —
+   A first, then B, then C. Series colors follow the side convention:
+   a=indigo, b=cyan, c=green. */
+const CMP_SERIES = [
+  { color: '#6366f1', rgb: ACCENT_RGB.indigo },
+  { color: '#22d3ee', rgb: ACCENT_RGB.cyan },
+  { color: '#34d399', rgb: ACCENT_RGB.green },
+];
+const CMP_RING_SUB = ['cmp.outerRing', 'cmp.outerRingC'];
 
-  /* doughnuts compare BOTH boards as two concentric rings on a shared label
-     union: inner ring = board A, outer ring = board B. Each category keeps the
-     same hue in both rings (B softened) so slices stay comparable at a glance. */
+const CMP_SERIES_SUB = ['cmp.shownCyan', 'cmp.shownGreen'];
+
+function buildCompareChartData(def, ...srcsIn) {
+  const srcs = srcsIn.filter((s) => s && s.metrics);
+  const first = srcs[0] || {};
+  const dataA = buildChartData(def, first.metrics, first.issues, first.hasChangelog);
+  const emptyA = dataA.empty;
+  const nameA = first.name || state.lastBoard?.name || t('cmp.pubA');
+  /* per-board chart data for boards 2..N */
+  const rest = srcs.slice(1).map((s, i) => ({
+    idx: i + 1,
+    name: s.name || (i === 0 ? (state.compare?.board?.name || t('cmp.pubB')) : (state.compareC?.board?.name || t('cmp.pubC'))),
+    data: buildChartData(def, s.metrics, s.issues, s.hasChangelog),
+    ...CMP_SERIES[i + 1],
+  }));
+  const allData = [dataA, ...rest.map((r) => r.data)];
+  if (emptyA && rest.every((r) => r.data.empty)) return { empty: [t('cmp.noDataEither1'), t('cmp.noDataEither2')] };
+
+  /* doughnuts compare ALL boards as concentric rings on a shared label union:
+     inner ring = board A, then B, then C. Each category keeps the same hue in
+     every ring (rings 2+ softened) so slices stay comparable at a glance. */
   if (def.type === 'doughnut') {
-    if (emptyA && emptyB) return { empty: [t('cmp.noDataEither1'), t('cmp.noDataEither2')] };
-    if (emptyA || emptyB) {
-      const only = emptyA ? dataB : dataA;
-      return { ...only, extraSub: `${escapeHtml(emptyA ? nameB : nameA)} ${t('cmp.only')} · ${t('cmp.oneBoardNoData')}` };
+    if (emptyA && rest.every((r) => r.data.empty)) return { empty: [t('cmp.noDataEither1'), t('cmp.noDataEither2')] };
+    const emptyBoards = [
+      ...(emptyA ? [{ name: nameA }] : []),
+      ...rest.filter((r) => r.data.empty).map((r) => ({ name: r.name })),
+    ];
+    if (emptyBoards.length) {
+      const only = emptyA ? rest.find((r) => !r.data.empty)?.data : dataA;
+      const firstName = emptyA ? rest.find((r) => !r.data.empty)?.name : nameA;
+      return {
+        ...only,
+        extraSub: `${escapeHtml(firstName || '')} ${t('cmp.only')} · ${tReplace('cmp.boardsNoData', { n: emptyBoards.map((b) => escapeHtml(b.name)).join(', ') })}`,
+      };
     }
     const rawLabels = [];
     const seen = new Set();
     const collect = (d) => (d.labels || []).forEach((l) => { if (!seen.has(l)) { seen.add(l); rawLabels.push(l); } });
-    collect(dataA); collect(dataB);
-    const aMap = new Map((dataA.labels || []).map((l, i) => [l, i]));
-    const bMap = new Map((dataB.labels || []).map((l, i) => [l, i]));
-    const aVals = dataA.datasets?.[0]?.data || [];
-    const bVals = dataB.datasets?.[0]?.data || [];
-    const aColors = dataA.colors || [];
-    const bColors = dataB.colors || [];
-    const alignV = (map, vals, l) => { const i = map.get(l); return i != null ? (vals[i] ?? 0) : 0; };
+    collect(dataA);
+    for (const r of rest) collect(r.data);
+    const maps = allData.map((d) => new Map((d.labels || []).map((l, i) => [l, i])));
+    const alignV = (mi, l) => { const i = maps[mi].get(l); const vals = allData[mi].datasets?.[0]?.data || []; return i != null ? (vals[i] ?? 0) : 0; };
     const scored = rawLabels.map((l) => {
-      const av = alignV(aMap, aVals, l), bv = alignV(bMap, bVals, l);
-      return { l, av, bv, score: Math.max(av, bv) };
+      const vals = maps.map((_, mi) => alignV(mi, l));
+      return { l, vals, score: Math.max(...vals) };
     });
     /* ordered-ladder groupings keep their intrinsic order in compare mode too */
     if (def.groupBy === 'ageBucket') scored.sort((x, y) => AGE_BUCKETS.findIndex(([b]) => b === x.l) - AGE_BUCKETS.findIndex(([b]) => b === y.l));
     else scored.sort((x, y) => y.score - x.score);
     const labels = scored.map((r) => r.l);
-    const dsA = scored.map((r) => r.av);
-    const dsB = scored.map((r) => r.bv);
-    /* per-label color: prefer board A's palette entry so a category keeps the
-       same hue in both rings; board B's ring is drawn softened */
+    /* per-label color: prefer the earliest board's palette entry so a category
+       keeps the same hue in every ring; later rings are drawn softened */
     const colors = labels.map((l) => {
-      const i = aMap.get(l);
-      if (i != null && aColors[i]) return aColors[i];
-      const j = bMap.get(l);
-      return (j != null && bColors[j]) || '#64748b';
+      for (let mi = 0; mi < allData.length; mi++) {
+        const i = maps[mi].get(l);
+        const cols = allData[mi].colors || [];
+        if (i != null && cols[i]) return cols[i];
+      }
+      return '#64748b';
     });
-    const keysAraw = dataA.datasets?.[0]?.__keys || [];
-    const keysBraw = dataB.datasets?.[0]?.__keys || [];
-    const alignKeys = (map, keys, l) => { const i = map.get(l); return i != null ? (keys[i] || []) : []; };
+    const datasets = allData.map((d, mi) => {
+      const keys = d.datasets?.[0]?.__keys || [];
+      const map = maps[mi];
+      return {
+        label: mi === 0 ? nameA : rest[mi - 1].name,
+        data: labels.map((l) => alignV(mi, l)),
+        __keys: labels.map((l) => { const i = map.get(l); return i != null ? (keys[i] || []) : []; }),
+        __src: srcs[mi]?.issues,
+      };
+    });
     return {
       labels,
-      datasets: [
-        { label: nameA, data: dsA, __keys: labels.map((l) => alignKeys(aMap, keysAraw, l)), __src: issuesA },
-        { label: nameB, data: dsB, __keys: labels.map((l) => alignKeys(bMap, keysBraw, l)), __src: issuesB },
-      ],
+      datasets,
       colors,
-      duration: !!(dataA.duration || dataB.duration),
+      duration: allData.some((d) => d.duration),
       subtitle: dataA.subtitle || def.subtitle || '',
-      extraSub: `${escapeHtml(nameB)} ${t('cmp.outerRing')}`,
-      centerValue: Math.round(dsA.reduce((s, v) => s + v, 0)),
-      centerValueB: Math.round(dsB.reduce((s, v) => s + v, 0)),
+      extraSub: rest.map((r, i) => `${escapeHtml(r.name)} ${t(CMP_RING_SUB[i] || 'cmp.outerRing')}`).join(' · '),
+      centerValues: datasets.map((ds) => Math.round(ds.data.reduce((s, v) => s + v, 0))),
       centerLabel: dataA.centerLabel || t('cmp.issues'),
     };
   }
 
-  /* time-series charts bucket from "now" backwards on both boards, so the
+  /* time-series charts bucket from "now" backwards on every board, so the
      label at the same index means the same date — plain index alignment is
      correct. Pad the shorter series with nulls. Datasets get board-name
-     prefixes so the legend tells the two boards apart. */
+     prefixes so the legend tells the boards apart. */
   const isTime = def.metric === 'flow' || def.metric === 'created' || def.metric === 'resolved' || def.metric === 'netflow';
   if (isTime) {
-    const labels = (dataA.labels || dataB.labels || []);
-    const n = Math.max(labels.length, (dataA.datasets?.[0]?.data || []).length, (dataB.datasets?.[0]?.data || []).length);
+    const labels = allData.reduce((acc, d) => ((d.labels || []).length > acc.length ? d.labels : acc), []);
+    const n = Math.max(labels.length, ...allData.map((d) => (d.datasets?.[0]?.data || []).length));
     const pad = (arr) => Array.from({ length: n }, (_, i) => arr[i] ?? null);
     const relabel = (ds, boardName) => ({
       ...ds,
       data: pad(ds.data),
-      label: (dataA.datasets?.length > 1 || dataB.datasets?.length > 1)
-        ? `${boardName} · ${ds.label}`
-        : boardName,
+      label: allData.some((d) => d.datasets?.length > 1) ? `${boardName} · ${ds.label}` : boardName,
     });
     const datasets = [];
-    if (!emptyA) datasets.push(...dataA.datasets.map((ds) => relabel({ ...ds, __src: issuesA }, nameA)));
-    if (!emptyB) datasets.push(...dataB.datasets.map((ds) => relabel({ ...ds, color: '#22d3ee', rgb: ACCENT_RGB.cyan, __src: issuesB }, nameB)));
+    if (!emptyA) datasets.push(...dataA.datasets.map((ds) => relabel({ ...ds, __src: first.issues }, nameA)));
+    for (const r of rest) {
+      if (!r.data.empty) datasets.push(...r.data.datasets.map((ds) => relabel({ ...ds, color: r.color, rgb: r.rgb, __src: r.issues ?? srcs[r.idx]?.issues }, r.name)));
+    }
     if (!datasets.length) return { empty: [t('cmp.noComparable')] };
     return {
       labels: labels,
       datasets,
       duration: false,
-      subtitle: dataA.subtitle || dataB.subtitle || def.subtitle,
-      extraSub: `${escapeHtml(nameB)} ${t('cmp.shownCyan')}`,
+      subtitle: allData.find((d) => d.subtitle)?.subtitle || def.subtitle,
+      extraSub: rest.map((r, i) => `${escapeHtml(r.name)} ${t(CMP_SERIES_SUB[i] || 'cmp.shownCyan')}`).join(' · '),
     };
   }
 
   /* category / statusTime charts: merge on the union of labels, one value per
-     board, then re-sort by the max of the two series so grouped bars stay
-     readable (single-board charts sort by value; two boards need a shared order) */
+     board, then re-sort by the max across the series so grouped bars stay
+     readable (single-board charts sort by value; compared boards need a shared
+     order) */
   const rawLabels = [];
   const seen = new Set();
   const collect = (d) => (d.labels || []).forEach((l) => { if (!seen.has(l)) { seen.add(l); rawLabels.push(l); } });
   if (!emptyA) collect(dataA);
-  if (!emptyB) collect(dataB);
+  for (const r of rest) if (!r.data.empty) collect(r.data);
 
-  const aMap = new Map((dataA.labels || []).map((l, i) => [l, i]));
-  const bMap = new Map((dataB.labels || []).map((l, i) => [l, i]));
-  const aVals = dataA.datasets?.[0]?.data || [];
-  const bVals = dataB.datasets?.[0]?.data || [];
-  const align = (map, vals, l) => {
-    const i = map.get(l);
+  const maps = allData.map((d) => new Map((d.labels || []).map((l, i) => [l, i])));
+  const align = (mi, l) => {
+    const i = maps[mi].get(l);
+    const vals = allData[mi].datasets?.[0]?.data || [];
     return i != null ? (vals[i] ?? null) : null;
   };
 
   const scored = rawLabels.map((l) => {
-    const av = align(aMap, aVals, l);
-    const bv = align(bMap, bVals, l);
-    return { l, av, bv, score: Math.max(av ?? 0, bv ?? 0) };
+    const vals = maps.map((_, mi) => align(mi, l));
+    return { l, vals, score: Math.max(...vals.map((v) => v ?? 0)) };
   });
-  /* per-label issue keys for both boards (click a data point → issue list) */
-  const keysAraw = dataA.datasets?.[0]?.__keys || [];
-  const keysBraw = dataB.datasets?.[0]?.__keys || [];
-  const alignKeys = (map, keys, l) => { const i = map.get(l); return i != null ? (keys[i] || []) : []; };
+  /* per-label issue keys for every board (click a data point → issue list) */
+  const alignKeys = (mi, l) => {
+    const i = maps[mi].get(l);
+    const keys = allData[mi].datasets?.[0]?.__keys || [];
+    return i != null ? (keys[i] || []) : [];
+  };
   /* ordered-ladder groupings (age buckets) keep their intrinsic order in compare
      mode too — sorting by value would scramble the ≤2d → 6mo+ narrative */
   if (def.groupBy === 'ageBucket') scored.sort((x, y) => AGE_BUCKETS.findIndex(([b]) => b === x.l) - AGE_BUCKETS.findIndex(([b]) => b === y.l));
@@ -4772,41 +5143,43 @@ function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB, nameAPar
   const topN = def.topN || 0;
   const picked = topN ? scored.slice(0, topN) : scored;
 
-  const isDuration = !!(dataA.duration || dataB.duration);
+  const isDuration = allData.some((d) => d.duration);
   let labels = picked.map((r) => r.l);
-  let dsA = picked.map((r) => r.av);
-  let dsB = picked.map((r) => r.bv);
+  const dsVals = allData.map((_, mi) => picked.map((r) => align(mi, r.l)));
   let keyIdx = picked.map((r) => r.l);           /* raw-label order for key alignment */
   if (def.type === 'hbar') {
     labels = labels.slice().reverse();
-    dsA = dsA.slice().reverse();
-    dsB = dsB.slice().reverse();
+    for (let mi = 0; mi < dsVals.length; mi++) dsVals[mi] = dsVals[mi].slice().reverse();
     keyIdx = keyIdx.slice().reverse();
   }
 
   const datasets = [];
   if (!emptyA) {
-    datasets.push({ label: nameA, data: dsA, color: ACCENT_HEX[def.color] || ACCENT_HEX.indigo, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.indigo, __keys: keyIdx.map((l) => alignKeys(aMap, keysAraw, l)), __src: issuesA });
+    datasets.push({ label: nameA, data: dsVals[0], color: CMP_SERIES[0].color, rgb: CMP_SERIES[0].rgb, __keys: keyIdx.map((l) => alignKeys(0, l)), __src: first.issues });
   }
-  if (!emptyB) {
-    datasets.push({ ...B_SERIES, data: dsB, __keys: keyIdx.map((l) => alignKeys(bMap, keysBraw, l)), __src: issuesB });
+  for (const r of rest) {
+    if (!r.data.empty) datasets.push({ label: r.name, data: dsVals[r.idx], color: r.color, rgb: r.rgb, __keys: keyIdx.map((l) => alignKeys(r.idx, l)), __src: srcs[r.idx]?.issues });
   }
 
-  const base = emptyA ? dataB : dataA;
-  const extraSub = (emptyA || emptyB)
-    ? `${emptyA ? escapeHtml(nameB) : escapeHtml(nameA)} ${t('cmp.only')} · ${t('cmp.oneBoardNoData')}`
-    : `${escapeHtml(nameB)} ${t('cmp.shownCyan')}`;
+  const base = emptyA ? rest.find((r) => !r.data.empty)?.data : dataA;
+  const emptyNames = [
+    ...(emptyA ? [nameA] : []),
+    ...rest.filter((r) => r.data.empty).map((r) => r.name),
+  ];
+  const extraSub = emptyNames.length
+    ? `${escapeHtml(emptyNames[0])} ${t('cmp.only')} · ${tReplace('cmp.boardsNoData', { n: emptyNames.map((nm) => escapeHtml(nm)).join(', ') })}`
+    : rest.map((r, i) => `${escapeHtml(r.name)} ${t(CMP_SERIES_SUB[i] || 'cmp.shownCyan')}`).join(' · ');
 
   return {
     labels,
     datasets,
-    colors: undefined,       /* per-bar colors make no sense with two series */
+    colors: undefined,       /* per-bar colors make no sense with multi-series */
     duration: isDuration,
-    subtitle: base.subtitle || def.subtitle || '',
+    subtitle: base?.subtitle || def.subtitle || '',
     extraSub,
     centerValue: isDuration
-      ? fmtDuration(avgOf(dsA.concat(dsB)) * DAY)
-      : Math.round(dsA.concat(dsB).reduce((s, v) => s + (v || 0), 0)),
+      ? fmtDuration(avgOf(datasets.flatMap((ds) => ds.data)) * DAY)
+      : Math.round(datasets.flatMap((ds) => ds.data).reduce((s, v) => s + (v || 0), 0)),
     centerLabel: isDuration ? t('cmp.avg') : t('cmp.issues'),
   };
 }
@@ -4853,9 +5226,11 @@ const GROUPS_FOR_KIND = {
 };
 
 const RANGE_OPTIONS = [
-  [30, 'Last 30 days'], [90, 'Last 90 days'], [182, 'Last 6 months'],
-  [365, 'Last 12 months'], [0, 'All time'],
+  [7, 'Last 7 days'], [14, 'Last 2 weeks'], [30, 'Last 30 days'], [90, 'Last 90 days'],
+  [182, 'Last 6 months'], [365, 'Last 12 months'], [0, 'All time'],
 ];
+/* def.range === -1 marks a custom calendar window (rangeFrom/rangeTo on the def) */
+const RANGE_CUSTOM = -1;
 
 /* i18n keys for the chart-constant labels above (resolved at render time via t()) */
 const METRIC_I18N = {
@@ -4869,7 +5244,7 @@ const GROUP_I18N = {
   stage: 'group.stage', ageBucket: 'group.ageBucket', assigneeState: 'group.assigneeState',
   complexity: 'group.complexity',
 };
-const RANGE_I18N = ['range.30', 'range.90', 'range.182', 'range.365', 'range.0'];
+const RANGE_I18N = ['range.7', 'range.14', 'range.30', 'range.90', 'range.182', 'range.365', 'range.0'];
 const AGE_BUCKET_I18N = ['age.le2d', 'age.3_7d', 'age.1_2w', 'age.2_4w', 'age.1_3mo', 'age.3_6mo', 'age.6moPlus'];
 const STATUS_TIME_TITLE_I18N = 'chart.title.statusTime';
 const BUILTIN_TITLE_I18N = {
@@ -4896,8 +5271,21 @@ function defSubtitle(def) { return def.builtin ? t(BUILTIN_SUB_I18N[def.id], def
 function metricLabel(m) { return t(METRIC_I18N[m], METRIC_DEFS[m]?.label || m); }
 function groupLabel(g) { return t(GROUP_I18N[g], GROUP_LABELS[g] || g); }
 function rangeLabel(days) {
+  if (days === RANGE_CUSTOM) return t('range.custom');
   const i = RANGE_OPTIONS.findIndex(([d]) => d === days);
   return i >= 0 ? t(RANGE_I18N[i], RANGE_OPTIONS[i][1]) : String(days);
+}
+/* the effective day-window of a def: preset day counts, or the calendar span of
+   a custom range (def.rangeFrom/rangeTo ISO dates). Returns {from,to} in ms
+   (null = unbounded) so the data engine can window issues, not just count days. */
+function rangeWindowOf(def) {
+  if (def.range === RANGE_CUSTOM) {
+    const from = def.rangeFrom ? Date.parse(def.rangeFrom) : null;
+    const to = def.rangeTo ? Date.parse(def.rangeTo) : null;
+    if (from || to) return { from: from || null, to: to || null };
+  }
+  if (def.range > 0) return { from: null, to: null, days: def.range };
+  return { from: null, to: null, days: 0 };   /* all time */
 }
 function ageBucketLabel(label) {
   const i = AGE_BUCKETS.findIndex(([l]) => l === label);
@@ -4963,6 +5351,11 @@ function effectiveCharts() {
   for (const c of store.custom) {
     if (c.scope === 'board' && c.boardId !== state.boardId) continue;
     list.push({ ...c, builtin: false });
+  }
+  /* the master [P] board is synthetic — board-scoped custom charts made on a
+     real board must not leak into it */
+  if (isMasterPBoard(state.lastBoard)) {
+    return list.filter((d) => d.builtin || d.scope !== 'board');
   }
   return list;
 }
@@ -5134,6 +5527,15 @@ function buildTimeSeries(def, issues, ctx) {
   const isP = isPBoard({ name: ctx?.boardName || '' });
   const inScope = isNet && isP ? (f) => isPBacklogStatus(f) : () => true;
   let rangeDays = def.range || 0;
+  /* custom calendar window (per-chart dropdown → "Calendar…"): buckets count
+     back from the window END, not from "now", so a historical from–to range
+     renders exactly the picked months/weeks. */
+  const customWin = def.range === RANGE_CUSTOM && def.rangeFrom && def.rangeTo
+    ? { from: Date.parse(def.rangeFrom), to: Date.parse(def.rangeTo) }
+    : null;
+  const hasCustom = !!(customWin && isFinite(customWin.from) && isFinite(customWin.to) && customWin.to > customWin.from);
+  const ANCHOR = hasCustom ? customWin.to : NOW;
+  if (hasCustom) rangeDays = Math.ceil((customWin.to - customWin.from) / DAY) + 1;
 
   let oldest = Infinity;
   for (const iss of issues) {
@@ -5146,7 +5548,7 @@ function buildTimeSeries(def, issues, ctx) {
   }
   if (!isFinite(oldest)) return { empty: 'No dated issues found for this chart' };
   if (!rangeDays) rangeDays = Math.ceil((NOW - oldest) / DAY) + 1;
-  rangeDays = Math.max(7, rangeDays);
+  rangeDays = Math.max(hasCustom ? 1 : 7, rangeDays);
 
   /* pick bucket size, auto-upgrading so we never draw 400 bars */
   let bucket = def.bucket || 'week';
@@ -5160,8 +5562,8 @@ function buildTimeSeries(def, issues, ctx) {
      partial slice — e.g. Apr reads 0 while its issues land in an unlabeled
      phantom bucket). Snap the window to full calendar months instead. */
   if (bucket === 'month') {
-    const nowD = new Date(NOW);
-    const oldestD = new Date(oldest);
+    const nowD = new Date(ANCHOR);
+    const oldestD = new Date(hasCustom ? Math.max(customWin.from, oldest) : oldest);
     nBuckets = Math.max(1,
       (nowD.getFullYear() * 12 + nowD.getMonth()) - (oldestD.getFullYear() * 12 + oldestD.getMonth()) + 1);
     nBuckets = Math.min(nBuckets, 400);
@@ -5172,7 +5574,7 @@ function buildTimeSeries(def, issues, ctx) {
   /* per-bucket issue keys — power the click-a-data-point → issue-list modal */
   const createdKeys = Array.from({ length: nBuckets }, () => []);
   const resolvedKeys = Array.from({ length: nBuckets }, () => []);
-  const nowMonthIdx = new Date(NOW).getFullYear() * 12 + new Date(NOW).getMonth();
+  const nowMonthIdx = new Date(ANCHOR).getFullYear() * 12 + new Date(ANCHOR).getMonth();
 
   for (const iss of issues) {
     const f = iss.fields || {};
@@ -5184,7 +5586,7 @@ function buildTimeSeries(def, issues, ctx) {
         const d = new Date(ts);
         idx = nBuckets - 1 - (nowMonthIdx - (d.getFullYear() * 12 + d.getMonth()));
       } else {
-        idx = nBuckets - 1 - Math.floor((NOW - ts) / bucketMs);
+        idx = nBuckets - 1 - Math.floor((ANCHOR - ts) / bucketMs);
       }
       if (idx >= 0 && idx < nBuckets) { createdCounts[idx]++; createdKeys[idx].push(iss.key); }
     }
@@ -5196,7 +5598,7 @@ function buildTimeSeries(def, issues, ctx) {
           const d = new Date(ts);
           idx = nBuckets - 1 - (nowMonthIdx - (d.getFullYear() * 12 + d.getMonth()));
         } else {
-          idx = nBuckets - 1 - Math.floor((NOW - ts) / bucketMs);
+          idx = nBuckets - 1 - Math.floor((ANCHOR - ts) / bucketMs);
         }
         if (idx >= 0 && idx < nBuckets) { resolvedCounts[idx]++; resolvedKeys[idx].push(iss.key); }
       }
@@ -5207,11 +5609,11 @@ function buildTimeSeries(def, issues, ctx) {
   for (let i = 0; i < nBuckets; i++) {
     if (bucket === 'month') {
       const back = nBuckets - 1 - i;
-      const d = new Date(NOW);
+      const d = new Date(ANCHOR);
       d.setMonth(d.getMonth() - back);
       labels.push(d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }));
     } else {
-      labels.push(fmtDate(NOW - (nBuckets - 1 - i) * bucketMs));
+      labels.push(fmtDate(ANCHOR - (nBuckets - 1 - i) * bucketMs));
     }
   }
 
@@ -5234,7 +5636,10 @@ function buildTimeSeries(def, issues, ctx) {
   else if (wantCreated && wantResolved) parts.push(t('series.createdVsResolved'));
   else if (wantCreated) parts.push(t('series.created'));
   else parts.push(t('series.resolved'));
-  const subtitle = `${parts.join(' · ')} · ${tReplace('series.perBucket', { b: t('bucket.' + bucket).toLowerCase() })} · ${rangeLabel(def.range)}`;
+  const rangeTxt = hasCustom
+    ? `${fmtDate(customWin.from)} – ${fmtDate(customWin.to)}`
+    : rangeLabel(def.range);
+  const subtitle = `${parts.join(' · ')} · ${tReplace('series.perBucket', { b: t('bucket.' + bucket).toLowerCase() })} · ${rangeTxt}`;
 
   const total = isNet
     ? (net && net.length ? net[net.length - 1] : 0)
@@ -5250,7 +5655,20 @@ function buildTimeSeries(def, issues, ctx) {
 function buildCategoryData(def, issues) {
   const metric = METRIC_DEFS[def.metric];
   const NOW = Date.now();
-  const pool = filterPool(def, issues);
+  /* per-chart time range (dropdown): preset day counts and custom calendar
+     windows also constrain category charts. Done-only charts window on the
+     completion timestamp, everything else on the creation timestamp — issues
+     without the relevant timestamp fall outside the window. */
+  const win = def.range === RANGE_CUSTOM && def.rangeFrom && def.rangeTo
+    ? { from: Date.parse(def.rangeFrom), to: Date.parse(def.rangeTo) }
+    : (def.range > 0 ? { from: NOW - def.range * DAY, to: NOW } : null);
+  const hasWin = !!(win && isFinite(win.from) && isFinite(win.to) && win.to > win.from);
+  const inWindow = (f, iss) => {
+    if (!hasWin) return true;
+    const ts = def.filter === 'done' ? issueCompletedAt(f, iss.changelog) : (f.created ? Date.parse(f.created) : null);
+    return ts != null && ts >= win.from && ts <= win.to;
+  };
+  const pool = filterPool(def, issues).filter((iss) => inWindow(iss.fields || {}, iss));
   const map = new Map();
   const keysByGroup = new Map();     /* group → issue keys (click → issue list) */
   for (const iss of pool) {
@@ -5329,7 +5747,10 @@ function buildCategoryData(def, issues) {
     : values.reduce((a, b) => a + b, 0);
 
   const filterTxt = def.filter === 'open' ? ` · ${t('filter.openOnly')}` : def.filter === 'done' ? ` · ${t('filter.doneOnly')}` : '';
-  const subtitle = `${metric.duration ? t('series.avg') : t('series.count')} ${tReplace('series.byGroup', { g: groupLabel(def.groupBy) || GROUP_LABELS[def.groupBy] || def.groupBy })}${metric.duration ? '' : filterTxt}`;
+  const rangeTxt = hasWin
+    ? (def.range === RANGE_CUSTOM ? ` · ${fmtDate(win.from)} – ${fmtDate(win.to)}` : ` · ${rangeLabel(def.range)}`)
+    : '';
+  const subtitle = `${metric.duration ? t('series.avg') : t('series.count')} ${tReplace('series.byGroup', { g: groupLabel(def.groupBy) || GROUP_LABELS[def.groupBy] || def.groupBy })}${metric.duration ? '' : filterTxt}${rangeTxt}`;
   return {
     labels,
     datasets: [{ label: def.title, data: values, color: ACCENT_HEX[def.color] || ACCENT_HEX.indigo, rgb: ACCENT_RGB[def.color] || ACCENT_RGB.indigo, __keys: keys, __src: issues }],
@@ -5429,6 +5850,7 @@ function currentChartBoardName() {
   if (state.inShareScreen) {
     return pubState.currentBoard?.name || pubState.snapshot?.boardName || '';
   }
+  if (isMasterPBoard(state.lastBoard)) return state.lastBoard.name;   /* master [P] board */
   const b = state.boards.find((x) => x.id === state.boardId);
   return b?.name || '';
 }
@@ -5459,16 +5881,140 @@ function chartCardHTML(def, overridden) {
         : `<button class="chart-btn" data-act="edit" data-id="${def.id}" title="${escapeHtml(t('chart.btnEdit'))}">✎</button>` +
           `<button class="chart-btn" data-act="del" data-id="${def.id}" title="${escapeHtml(t('chart.btnDelete'))}">🗑</button>`)
     : '';
+  /* per-chart time-range dropdown (top-right of the card): shows the effective
+     range, one-click presets + a calendar option that opens a from–to picker.
+     avgStatusTime charts are changelog-lifetime aggregates — no range applies. */
+  const rangeCapable = def.metric !== 'avgStatusTime';
+  const rangeCtl = rangeCapable
+    ? `<div class="chart-range" data-rid="${def.id}">
+        <button type="button" class="chart-range-btn" data-act="range" data-id="${def.id}" title="${escapeHtml(t('range.title'))}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span class="chart-range-label">${escapeHtml(rangeLabel(def.range))}</span>
+          <span class="chart-range-caret">▾</span>
+        </button>
+        <div class="chart-range-menu hidden" data-rmenu="${def.id}">
+          ${RANGE_OPTIONS.map(([v]) => `<button type="button" class="chart-range-opt${def.range === v ? ' active' : ''}" data-rv="${v}" data-rid="${def.id}">${escapeHtml(rangeLabel(v))}</button>`).join('')}
+          <button type="button" class="chart-range-opt chart-range-custom${def.range === RANGE_CUSTOM ? ' active' : ''}" data-rv="${RANGE_CUSTOM}" data-rid="${def.id}">${escapeHtml(t('range.pickCustom'))}</button>
+          <div class="chart-range-cal hidden" data-rcal="${def.id}">
+            <label class="chart-range-cal-row"><span>${escapeHtml(t('range.from'))}</span><input type="date" class="chart-range-date" data-rfrom="${def.id}"></label>
+            <label class="chart-range-cal-row"><span>${escapeHtml(t('range.to'))}</span><input type="date" class="chart-range-date" data-rto="${def.id}"></label>
+            <button type="button" class="chart-range-apply" data-rapply="${def.id}">${escapeHtml(t('range.apply'))}</button>
+          </div>
+        </div>
+      </div>`
+    : '';
   return `<div class="card glass chart-card${def.wide ? ' wide' : ''}" data-cid="${def.id}">
     <div class="chart-head">
       <div class="chart-titles">
         <h3>${escapeHtml(defTitle(def))} ${scopeChip}</h3>
         <span class="chart-sub" id="sub_${def.id}">${escapeHtml(defSubtitle(def) || '')}</span>
       </div>
-      <div class="chart-actions">${actions}</div>
+      <div class="chart-actions">${rangeCtl}${actions}</div>
     </div>
     <div class="canvas-wrap"><canvas id="chart_${def.id}"></canvas></div>
   </div>`;
+}
+
+/* ── per-chart time-range dropdown (shared by admin + pub + compare) ──
+   Admin persists overrides in the regular chart store (↺ reset clears them);
+   pub viewers get their own localStorage map (the admin store is keyed by the
+   signed-in domain, which viewers don't have). */
+const PUB_RANGE_KEY = 'jp_pub_chart_ranges_v1';
+
+function pubRangeStore() {
+  try { return JSON.parse(localStorage.getItem(PUB_RANGE_KEY) || '{}'); }
+  catch (_) { return {}; }
+}
+
+/* apply a range change to one chart and re-render the active view */
+function setChartRange(id, patch) {
+  if (state.inShareScreen) {
+    const s = pubRangeStore();
+    s[id] = { ...(s[id] || {}), ...patch };
+    try { localStorage.setItem(PUB_RANGE_KEY, JSON.stringify(s)); } catch (_) { /* non-fatal */ }
+    renderPubContent();
+    return;
+  }
+  const store = loadChartStore();
+  if (BUILTIN_DEFS.some((b) => b.id === id)) {
+    store.overrides[id] = { ...(store.overrides[id] || {}), ...patch };
+  } else {
+    const c = store.custom.find((x) => x.id === id);
+    if (c) Object.assign(c, patch);
+    else store.overrides[id] = { ...(store.overrides[id] || {}), ...patch };
+  }
+  saveChartStore(store);
+  rerenderDashboard();
+}
+
+/* close every open range menu (outside-click + re-open hygiene) */
+function closeChartRangeMenus(root) {
+  (root || document).querySelectorAll('.chart-range-menu').forEach((m) => m.classList.add('hidden'));
+  (root || document).querySelectorAll('.chart-range-cal').forEach((c) => c.classList.add('hidden'));
+}
+
+/* wire one grid's range dropdowns: button toggle, preset pick, calendar apply */
+function wireChartRangeControls(root, defs) {
+  if (!root) return;
+  const defById = new Map((defs || []).map((d) => [d.id, d]));
+  const iso = (ts) => new Date(ts).toISOString().slice(0, 10);
+
+  root.querySelectorAll('.chart-range-btn').forEach((btn) => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const menu = root.querySelector(`[data-rmenu="${btn.dataset.id}"]`);
+      if (!menu) return;
+      const wasOpen = !menu.classList.contains('hidden');
+      closeChartRangeMenus(root);
+      if (!wasOpen) {
+        menu.classList.remove('hidden');
+        /* prefill the calendar with the current custom window (or last 30 days) */
+        const def = defById.get(btn.dataset.id) || {};
+        const from = root.querySelector(`[data-rfrom="${btn.dataset.id}"]`);
+        const to = root.querySelector(`[data-rto="${btn.dataset.id}"]`);
+        if (from) from.value = def.rangeFrom || iso(Date.now() - 30 * DAY);
+        if (to) to.value = def.rangeTo || iso(Date.now());
+      }
+    });
+  });
+
+  root.querySelectorAll('.chart-range-opt').forEach((opt) => {
+    opt.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const id = opt.dataset.rid;
+      const rv = parseInt(opt.dataset.rv, 10);
+      if (rv === RANGE_CUSTOM) {
+        /* reveal the calendar panel inside this menu */
+        const cal = root.querySelector(`[data-rcal="${id}"]`);
+        if (cal) cal.classList.remove('hidden');
+        return;
+      }
+      setChartRange(id, { range: rv, rangeFrom: null, rangeTo: null });
+    });
+  });
+
+  root.querySelectorAll('.chart-range-apply').forEach((apply) => {
+    apply.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const id = apply.dataset.rapply;
+      const from = root.querySelector(`[data-rfrom="${id}"]`);
+      const to = root.querySelector(`[data-rto="${id}"]`);
+      const f = from?.value ? Date.parse(from.value) : null;
+      const t = to?.value ? Date.parse(to.value) : null;
+      if (!f || !t || !isFinite(f) || !isFinite(t) || t < f) { toast(t('range.invalid'), 'warn'); return; }
+      setChartRange(id, { range: RANGE_CUSTOM, rangeFrom: from.value, rangeTo: to.value });
+    });
+  });
+
+  root.querySelectorAll('.chart-range-date').forEach((inp) => {
+    inp.addEventListener('click', (ev) => ev.stopPropagation());
+  });
+
+  /* one outside-click closer per render batch */
+  if (!wireChartRangeControls._docWired) {
+    wireChartRangeControls._docWired = true;
+    document.addEventListener('click', () => closeChartRangeMenus(document));
+  }
 }
 
 function chartConfigFor(def, data, theme, canvasId) {
@@ -5496,7 +6042,7 @@ function chartConfigFor(def, data, theme, canvasId) {
   const chartOnHover = (evt, els) => { if (evt.native) evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; };
 
   if (def.type === 'doughnut') {
-    const twoBoards = data.datasets.length > 1;
+    const multi = data.datasets.length > 1;
     const baseDs = (ds, i) => ({
       data: ds.data,
       borderColor: tc.edge,
@@ -5505,23 +6051,22 @@ function chartConfigFor(def, data, theme, canvasId) {
       hoverBorderColor: tc.edgeHover,
       __keys: ds.__keys,
       __src: ds.__src,
-      /* ring 0 keeps the full palette; ring 1 (board B) is softened + outlined
-         so the two rings stay visually distinct without losing the hue match */
-      backgroundColor: twoBoards && i === 1
-        ? (data.colors || []).map((c) => c + 'b3')
+      /* ring 0 keeps the full palette; rings 1+ (boards B/C) are softened +
+         outlined so the rings stay visually distinct without losing the hue
+         match (softening deepens with each ring) */
+      backgroundColor: multi && i > 0
+        ? (data.colors || []).map((c) => c + (i === 1 ? 'b3' : '80'))
         : data.colors,
-      label: twoBoards ? (ds.label || '') : undefined,
+      label: multi ? (ds.label || '') : undefined,
     });
     return {
       type: 'doughnut',
       data: {
         labels: data.labels,
-        datasets: twoBoards
-          ? [baseDs(data.datasets[0], 0), baseDs(data.datasets[1], 1)]
-          : [baseDs(data.datasets[0], 0)],
+        datasets: data.datasets.map((ds, i) => baseDs(ds, i)),
       },
       options: {
-        responsive: true, maintainAspectRatio: false, cutout: def.centerTotal ? (twoBoards ? '44%' : '68%') : '62%',
+        responsive: true, maintainAspectRatio: false, cutout: def.centerTotal ? (multi ? (data.datasets.length > 2 ? '38%' : '44%') : '68%') : '62%',
         layout: { padding: 4 },
         onClick: chartOnClick,
         onHover: chartOnHover,
@@ -5533,13 +6078,13 @@ function chartConfigFor(def, data, theme, canvasId) {
               label: (c) => {
                 const tot = c.dataset.data.reduce((a, b) => a + b, 0);
                 const pct = tot ? Math.round(c.parsed / tot * 100) : 0;
-                return twoBoards ? ` ${c.dataset.label}: ${fmtV(c.parsed)} · ${pct}%` : ` ${fmtV(c.parsed)} · ${pct}%`;
+                return multi ? ` ${c.dataset.label}: ${fmtV(c.parsed)} · ${pct}%` : ` ${fmtV(c.parsed)} · ${pct}%`;
               },
             },
           },
           centerText: def.centerTotal
-            ? (twoBoards
-              ? { enable: true, value: data.centerValue, valueB: data.centerValueB, label: data.centerLabel }
+            ? (multi
+              ? { enable: true, values: data.centerValues, label: data.centerLabel }
               : { enable: true, value: data.centerValue, label: data.centerLabel })
             : { enable: false },
         },
@@ -5673,13 +6218,19 @@ function renderCharts(defs, m) {
   }
 
   const theme = chartTheme();
-  /* compare mode: overlay board B onto every non-doughnut chart using the
-     snapshot stored in state.compare (board B issues/metrics/hasChangelog) */
+  /* compare mode: overlay boards B (and C) onto every non-doughnut chart using
+     the snapshots stored in state.compare / state.compareC */
   const cmp = state.compare && state.compare.metrics ? state.compare : null;
+  const cmpC = state.compareC && state.compareC.metrics ? state.compareC : null;
   for (const def of defs) {
     const canvasId = 'chart_' + def.id;
     const data = cmp
-      ? buildCompareChartData(def, m, state.issues, state.hasChangelog, cmp.metrics, cmp.issues, cmp.hasChangelog)
+      ? buildCompareChartData(
+        def,
+        { metrics: m, issues: state.issues, hasChangelog: state.hasChangelog },
+        { metrics: cmp.metrics, issues: cmp.issues, hasChangelog: cmp.hasChangelog },
+        ...(cmpC ? [{ metrics: cmpC.metrics, issues: cmpC.issues, hasChangelog: cmpC.hasChangelog }] : []),
+      )
       : buildChartData(def, m);
     const sub = document.getElementById('sub_' + def.id);
     if (sub) {
@@ -5701,7 +6252,8 @@ function renderCharts(defs, m) {
     if (cmp && card) {
       const chip = compareChartWinnerChip(def, data, {
         recA: { metrics: m }, recB: { metrics: cmp.metrics },
-        nameA: state.lastBoard?.name, nameB: cmp.board?.name,
+        ...(cmpC ? { recC: { metrics: cmpC.metrics } } : {}),
+        nameA: state.lastBoard?.name, nameB: cmp.board?.name, nameC: cmpC?.board?.name,
       });
       if (chip) card.querySelector('.chart-actions')?.insertAdjacentHTML('afterbegin', chip);
     }
@@ -5719,6 +6271,8 @@ function renderCharts(defs, m) {
   grid.querySelectorAll('.chart-btn').forEach((btn) => {
     btn.addEventListener('click', () => onChartAction(btn.dataset.act, btn.dataset.id));
   });
+  /* per-chart time-range dropdowns (top-right of each card) */
+  wireChartRangeControls(grid, defs);
   strip.querySelectorAll('[data-restore]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const s = loadChartStore();
@@ -5811,8 +6365,13 @@ function openChartModal(def, meta) {
   $('#cMetric').innerHTML = Object.entries(METRIC_DEFS)
     .map(([k, v]) => `<option value="${k}">${escapeHtml(metricLabel(k))}</option>`).join('');
   $('#cMetric').value = def.metric || 'count';
-  $('#cRange').innerHTML = RANGE_OPTIONS.map(([v, l], i) => `<option value="${v}">${escapeHtml(t(RANGE_I18N[i], l))}</option>`).join('');
+  $('#cRange').innerHTML = RANGE_OPTIONS
+    .map(([v], i) => `<option value="${v}">${escapeHtml(rangeLabel(v))}</option>`).join('')
+    + `<option value="${RANGE_CUSTOM}">${escapeHtml(t('range.custom'))}</option>`;
   $('#cRange').value = String(def.range ?? 90);
+  $('#cRangeCustomWrap').classList.toggle('hidden', String(def.range) !== String(RANGE_CUSTOM));
+  $('#cRangeFrom').value = def.rangeFrom || '';
+  $('#cRangeTo').value = def.rangeTo || '';
   $('#cBucket').value = def.bucket || 'week';
   $('#cFilter').value = def.filter || 'all';
   $('#cSplit').value = def.split || 'none';
@@ -5846,6 +6405,7 @@ function syncChartForm() {
   $('#cBucketWrap').classList.toggle('hidden', kind !== 'time');
   $('#cSplitWrap').classList.toggle('hidden', !(metric === 'avgStatusTime' && $('#cGroup').value === 'status'));
   $('#cRangeWrap').classList.toggle('hidden', metric === 'avgStatusTime');
+  $('#cRangeCustomWrap').classList.toggle('hidden', metric === 'avgStatusTime' || $('#cRange').value !== String(RANGE_CUSTOM));
   $('#cFilterWrap').classList.toggle('hidden', kind !== 'category');
   $('#cTopWrap').classList.toggle('hidden', kind === 'time' || $('#cType').value === 'line');
   $('#cColorWrap').classList.toggle('hidden', $('#cType').value === 'doughnut');
@@ -5893,6 +6453,14 @@ function chartDefFromForm(base) {
   def.metric = $('#cMetric').value;
   def.groupBy = METRIC_DEFS[def.metric].kind === 'time' ? 'time' : $('#cGroup').value;
   def.range = parseInt($('#cRange').value, 10) || 0;
+  if (def.range === RANGE_CUSTOM) {
+    def.rangeFrom = $('#cRangeFrom').value || null;
+    def.rangeTo = $('#cRangeTo').value || null;
+    if (!def.rangeFrom || !def.rangeTo) { toast(t('range.invalid'), 'warn'); return null; }
+  } else {
+    def.rangeFrom = null;
+    def.rangeTo = null;
+  }
   def.bucket = $('#cBucket').value;
   def.filter = $('#cFilter').value;
   def.split = $('#cSplit').value;
@@ -5921,19 +6489,22 @@ function saveChartFromForm() {
       scope: segGet($('#cScope')) === 'global' ? 'global' : 'board',
       boardId: state.boardId,
     });
+    if (!def) return;   /* invalid custom range — toast already shown */
     if (def.scope === 'global') def.boardId = null;
     store.custom.push(def);
     toast(def.scope === 'global' ? t('chart.addedAll') : t('chart.addedBoard'), 'ok');
   } else if (edit.mode === 'custom') {
     const def = chartDefFromForm(edit.def);
+    if (!def) return;
     def.scope = segGet($('#cScope')) === 'global' ? 'global' : 'board';
     def.boardId = def.scope === 'global' ? null : state.boardId;
     store.custom = store.custom.map((c) => (c.id === def.id ? def : c));
     toast(t('chart.updated'), 'ok');
   } else if (edit.mode === 'builtin') {
     const def = chartDefFromForm(edit.def);
+    if (!def) return;
     const override = {};
-    for (const k of ['title', 'subtitle', 'type', 'metric', 'groupBy', 'bucket', 'range', 'filter', 'topN', 'split', 'color', 'wide', 'centerTotal']) {
+    for (const k of ['title', 'subtitle', 'type', 'metric', 'groupBy', 'bucket', 'range', 'rangeFrom', 'rangeTo', 'filter', 'topN', 'split', 'color', 'wide', 'centerTotal']) {
       override[k] = def[k];
     }
     store.overrides[edit.def.id] = override;
@@ -6026,8 +6597,10 @@ const BOTTLENECK_I18N = {
 function bottleneckLabel(cat) { return t(BOTTLENECK_I18N[cat], cat); }
 
 /* draws a big number + label inside doughnut holes. In compare mode the hole
-   is wider, so both boards' totals are stacked: A (indigo) above the label,
-   B (cyan) below — one glance answers "which board holds more". */
+   is wider, so every compared board's total is stacked around the label —
+   A (indigo), B (cyan), C (green) — one glance answers "which board holds
+   more". Three boards shrink the fonts to keep the stack inside the hole. */
+const CMP_CENTER_COLORS = ['#a5b4fc', '#67e8f9', '#6ee7b7'];
 const centerTextPlugin = {
   id: 'centerText',
   afterDraw(chart) {
@@ -6040,8 +6613,32 @@ const centerTextPlugin = {
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    if (opts.valueB != null && opts.valueB !== '') {
-      /* two-board center: A value / shared label / B value */
+    const values = Array.isArray(opts.values) ? opts.values : null;
+    if (values && values.length) {
+      /* N-board center: values stacked around the shared label.
+         2 boards → A / label / B (16px steps); 3 boards → A / B / C with the
+         label tucked under, fonts shrunk to fit the wider hole. */
+      const n = values.length;
+      const rows = [];
+      if (n === 2) {
+        rows.push({ txt: values[0], font: '800 20px Inter, system-ui', color: CMP_CENTER_COLORS[0], dy: -16 });
+        rows.push({ txt: opts.label, font: '700 9px Inter, system-ui', color: themeColors().muted, dy: 0, upper: true });
+        rows.push({ txt: values[1], font: '800 20px Inter, system-ui', color: CMP_CENTER_COLORS[1], dy: 16 });
+      } else {
+        const step = 15;
+        const start = -((n - 1) / 2) * step;
+        for (let i = 0; i < n; i++) {
+          rows.push({ txt: values[i], font: '800 14px Inter, system-ui', color: CMP_CENTER_COLORS[i % CMP_CENTER_COLORS.length], dy: start + i * step });
+        }
+        rows.push({ txt: opts.label, font: '700 8px Inter, system-ui', color: themeColors().muted, dy: start + n * step, upper: true });
+      }
+      for (const r of rows) {
+        ctx.font = r.font;
+        ctx.fillStyle = r.color;
+        ctx.fillText(r.upper ? String(r.txt ?? '').toUpperCase() : String(r.txt ?? ''), x, y + r.dy);
+      }
+    } else if (opts.valueB != null && opts.valueB !== '') {
+      /* legacy two-board center: A value / shared label / B value */
       ctx.font = '800 20px Inter, system-ui';
       ctx.fillStyle = '#a5b4fc';
       ctx.fillText(String(opts.value ?? ''), x, y - 16);
@@ -6136,7 +6733,7 @@ function showDashLoading(boardName) {
   restoreKpiGrid();   /* compare layout may still own the grid — restore the real KPI cards first */
   ['kpiTotal', 'kpiCreated', 'kpiDone', 'kpiResolved', 'kpiCycle', 'kpiWip'].forEach((id) => ($('#' + id).textContent = '…'));
   ['kpiTotalSub', 'kpiCreatedSub', 'kpiDoneSub', 'kpiResolvedSub', 'kpiCycleSub', 'kpiWipSub'].forEach((id) => { const el = $('#' + id); if (el) el.textContent = t('dash.syncing'); });
-  $('#issueCountBadge').textContent = t('dash.syncing');
+  $('#issueCountBadge').textContent = isMasterPBoard(state.lastBoard) ? t('master.syncing') : t('dash.syncing');
   $('#slowTableBody').innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:26px"><span class="spinner spinner-sm"></span> ${escapeHtml(tReplace('dash.loadingBoard', { b: boardName || t('dash.thisBoard') }))}…</td></tr>`;
   hide($('#insightsStrip'));
   hide($('#changelogNotice'));
@@ -6319,10 +6916,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (b) openBoard(b);
   });
   $('#syncBoardsBtn').addEventListener('click', () => goBoards({ autoOpenLast: false }));
-  /* compare mode wiring: ⇄ toggle, board B picker, exit button */
+  /* compare mode wiring: ⇄ toggle, board B/C pickers, exit button */
   $('#compareBtn').addEventListener('click', enterCompareMode);
   $('#cmpExitBtn').addEventListener('click', exitCompareMode);
   $('#cmpBoardSelect').addEventListener('change', onCompareBoardChange);
+  const cmpSelC = $('#cmpBoardSelectC');
+  if (cmpSelC) cmpSelC.addEventListener('change', (ev) => onCompareSlotChange('c', ev));
   /* main-page compare: ⇄ pick mode toggle, floating bar actions */
   const pickToggle = $('#pickCompareBtn');
   if (pickToggle) pickToggle.addEventListener('click', togglePickCompareMode);
@@ -6336,7 +6935,9 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#openDebugBtn').addEventListener('click', openDiagnostics);
   $('#refreshBtn').addEventListener('click', () => {
     const b = state.boards.find((x) => x.id === state.boardId);
-    if (b) { selectBoard(b); toast(t('toast.refreshing')); }
+    if (isMasterPBoard(b) || (!b && isMasterPBoard(state.lastBoard))) {
+      selectBoard(masterPBoard()); toast(t('toast.refreshing'));
+    } else if (b) { selectBoard(b); toast(t('toast.refreshing')); }
   });
 
   $('#settingsBtn').addEventListener('click', openSettings);
@@ -6382,6 +6983,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (ev.target === $('#chartModal')) { hide($('#chartModal')); state.chartEditing = null; }
   });
   ['#cMetric', '#cGroup', '#cType'].forEach((sel) => {
+    $(sel).addEventListener('change', syncChartForm);
+  });
+  /* custom-range calendar fields in the chart modal */
+  $('#cRange').addEventListener('change', () => {
+    $('#cRangeCustomWrap').classList.toggle('hidden', $('#cRange').value !== String(RANGE_CUSTOM));
+  });
+  ['#cRangeFrom', '#cRangeTo'].forEach((sel) => {
     $(sel).addEventListener('change', syncChartForm);
   });
 

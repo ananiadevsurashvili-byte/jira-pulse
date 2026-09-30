@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-<link rel="stylesheet" href="styles.css?v=8241333" />
+<link rel="stylesheet" href="styles.css?v=8241334" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -122,6 +122,8 @@
       <span id="pickSlotA" class="pick-slot" data-i18n="pick.slotA">Pick board A</span>
       <span class="pick-vs">vs</span>
       <span id="pickSlotB" class="pick-slot" data-i18n="pick.slotB">Pick board B</span>
+      <span class="pick-vs">vs</span>
+      <span id="pickSlotC" class="pick-slot" data-i18n="pick.slotC">Pick board C</span>
       <span id="pickHint" class="pick-hint"></span>
       <span class="pick-actions">
         <button id="pickGoBtn" class="btn btn-primary" disabled data-i18n="pick.go">Compare →</button>
@@ -168,6 +170,13 @@
         <span class="cmp-dot"></span>
         <select id="cmpBoardSelect" class="cmp-select" data-i18n-title="cmp.pickB" title="Pick the board to compare against">
           <option value="" data-i18n="cmp.loadingBoards">Loading boards…</option>
+        </select>
+      </div>
+      <span class="cmp-vs">VS</span>
+      <div class="cmp-side cmp-side-c">
+        <span class="cmp-dot"></span>
+        <select id="cmpBoardSelectC" class="cmp-select" data-i18n-title="cmp.pickC" title="Pick an optional third board to compare">
+          <option value="" data-i18n="cmp.pickC">Pick a third board (optional)</option>
         </select>
       </div>
       <div class="cmp-actions">
@@ -307,6 +316,13 @@
       <label id="cRangeWrap" class="form-col">
         <span class="seg-label" data-i18n="chart.range">Time range</span>
         <select id="cRange" class="input"></select>
+      </label>
+      <label id="cRangeCustomWrap" class="form-col hidden">
+        <span class="seg-label" data-i18n="range.title">Time range</span>
+        <div class="form-row" style="gap:6px">
+          <input id="cRangeFrom" class="input" type="date" data-i18n-title="range.from" />
+          <input id="cRangeTo" class="input" type="date" data-i18n-title="range.to" />
+        </div>
       </label>
       <label id="cBucketWrap" class="form-col hidden">
         <span class="seg-label" data-i18n="chart.bucket">Bucket</span>
@@ -548,6 +564,8 @@
         <span id="pubPickSlotA" class="pick-slot" data-i18n="cmp.pubSlotA">Pick board A</span>
         <span class="pick-vs">vs</span>
         <span id="pubPickSlotB" class="pick-slot" data-i18n="cmp.pubSlotB">Pick board B</span>
+        <span class="pick-vs">vs</span>
+        <span id="pubPickSlotC" class="pick-slot" data-i18n="cmp.pubSlotC">Pick board C</span>
         <span id="pubPickHint" class="pick-hint"></span>
         <span class="pick-actions">
           <button id="pubPickGoBtn" class="btn btn-primary" disabled data-i18n="cmp.pubGo">Compare →</button>
@@ -571,6 +589,8 @@
           <span class="cmp-score-num cmp-score-a">0</span>
           <span class="cmp-score-sep">:</span>
           <span class="cmp-score-num cmp-score-b">0</span>
+          <span class="cmp-score-sep cmp-score-sep-c">:</span>
+          <span class="cmp-score-num cmp-score-c">0</span>
           <span class="cmp-score-sub"></span>
         </div>
         <div class="cmp-side cmp-side-b">
@@ -578,6 +598,14 @@
           <div class="cmp-meta">
             <span class="cmp-role" data-i18n="cmp.roleB">Board B · compared</span>
             <span class="cmp-name" id="pubCmpNameB">—</span>
+          </div>
+        </div>
+        <span class="cmp-vs">VS</span>
+        <div class="cmp-side cmp-side-c" id="pubCmpSideC">
+          <span class="cmp-dot"></span>
+          <div class="cmp-meta">
+            <span class="cmp-role" data-i18n="cmp.roleC">Board C · compared</span>
+            <span class="cmp-name" id="pubCmpNameC">—</span>
           </div>
         </div>
         <div class="cmp-actions">
@@ -611,6 +639,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=8241333"></script>
+<script src="app.js?v=8241334"></script>
 </body>
 </html>
