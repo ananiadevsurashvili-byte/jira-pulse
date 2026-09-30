@@ -6151,6 +6151,9 @@ function wireChartRangeControls(root, defs) {
         if (cal) cal.classList.remove('hidden');
         return;
       }
+      /* close the dropdown FIRST — the targeted update no longer re-renders
+         the grid, so nothing else would remove this menu from the DOM */
+      closeChartRangeMenus(root);
       setChartRange(id, { range: rv, rangeFrom: null, rangeTo: null });
     });
   });
@@ -6164,6 +6167,8 @@ function wireChartRangeControls(root, defs) {
       const f = from?.value ? Date.parse(from.value) : null;
       const tMs = to?.value ? Date.parse(to.value) : null;
       if (!f || !tMs || !isFinite(f) || !isFinite(tMs) || tMs < f) { toast(t('range.invalid'), 'warn'); return; }
+      /* close the dropdown before the targeted update (see note above) */
+      closeChartRangeMenus(root);
       setChartRange(id, { range: RANGE_CUSTOM, rangeFrom: from.value, rangeTo: to.value });
     });
   });
