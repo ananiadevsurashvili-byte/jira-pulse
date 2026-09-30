@@ -771,8 +771,9 @@ body.cmp-view .chart-actions { opacity: 1; }
   -webkit-backdrop-filter: blur(16px);
 }
 #pubScreen .pub-topbar .topbar-center { pointer-events: none; }
-#pubScreen .pub-topbar .brand { cursor: default; }
-#pubScreen .pub-topbar .brand:hover { opacity: 1; }
+/* pub logo is clickable → back to the all-boards main page */
+#pubScreen .pub-topbar .brand { cursor: pointer; }
+#pubScreen .pub-topbar .brand:hover { opacity: 0.85; }
 .pub-user-chip {
   display: inline-flex; align-items: center; gap: 9px;
   padding: 5px 12px 5px 6px;

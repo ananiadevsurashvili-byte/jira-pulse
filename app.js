@@ -6266,6 +6266,26 @@ document.addEventListener('DOMContentLoaded', () => {
     $( '#pubBoardSelectWrap').classList.toggle('hidden', scope !== 'board');
   });
 
+  /* pub logo → main page (all boards): exit any active compare/pick state and,
+     if we're inside a board, drill back out to the all-boards view */
+  const goPubHome = () => {
+    if (!pubState.verified) return;   /* on the login gate there is no "home" yet */
+    if (pubState.compare) { exitPubCompare(); }
+    if (pubState.pickCompare) { togglePubPickCompareMode(); }
+    if (pubState.snapshot?.scope === 'board' && pubState.allSnapshot) {
+      pubState.snapshot = pubState.allSnapshot;
+      pubState.currentBoard = null;
+      pubState.allSnapshot = null;
+      $('#pubBackBtn').dataset.fromAll = '';
+      pubSaveSession({ boardId: null });
+      renderPubContent();
+    }
+  };
+  $('#pubBrandBtn').addEventListener('click', goPubHome);
+  $('#pubBrandBtn').addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); goPubHome(); }
+  });
+
   /* public share screen wiring */
   $('#pubSendBtn').addEventListener('click', pubSendCode);
   $('#pubVerifyBtn').addEventListener('click', pubVerifyCode);
