@@ -27,7 +27,59 @@ const RELAYS = [
   { key: 'corsproxy', build: (url, conn) =>
       'https://corsproxy.io/?' + (conn?.proxyApiKey ? 'key=' + encodeURIComponent(conn.proxyApiKey) + '&' : '') + 'url=' + encodeURIComponent(url), keyless: false },
 ];
-const ISSUE_FIELDS = ['summary', 'status', 'resolutiondate', 'created', 'updated', 'issuetype', 'assignee', 'priority', 'labels'];
+const ISSUE_FIELDS = ['summary', 'status', 'resolutiondate', 'created', 'updated', 'issuetype', 'assignee', 'priority', 'labels', 'customfield_10226', 'customfield_10230', 'customfield_10231', 'customfield_10232', 'customfield_10233', 'customfield_10234'];
+
+/* complexity field detection: Jira custom fields carry cryptic ids (customfield_NNNNN).
+   On first load we scan the issue set for a select-style field whose option values
+   look like the org's complexity ladder (Small (S) / Medium (M) / Large (L) /
+   eXtra Large (XL)) and remember its id — the chart engine reads it via complexityOf(). */
+let COMPLEXITY_FIELD_ID = null;
+const COMPLEXITY_VALUE_RE = /^(small\s*\(s\)|medium\s*\(m\)|large\s*\(l\)|e?xtra\s*large\s*\(xl\)|[smlx])$/i;
+function detectComplexityField(issues) {
+  if (COMPLEXITY_FIELD_ID) return COMPLEXITY_FIELD_ID;
+  const hits = new Map();
+  for (const iss of issues || []) {
+    const f = iss.fields || {};
+    for (const k of Object.keys(f)) {
+      if (!/^customfield_\d+$/.test(k)) continue;
+      const v = f[k];
+      if (v == null || v === '' || typeof v !== 'object') continue;
+      const name = String(v.value ?? v.name ?? '').trim();
+      if (name && COMPLEXITY_VALUE_RE.test(name)) hits.set(k, (hits.get(k) || 0) + 1);
+    }
+  }
+  let best = null, bestN = 0;
+  for (const [k, n] of hits) if (n > bestN) { best = k; bestN = n; }
+  COMPLEXITY_FIELD_ID = best;   /* may be null — the chart then shows "no data" */
+  if (best) logDiag('info', 'Complexity field detected', { field: best, samples: bestN });
+  return COMPLEXITY_FIELD_ID;
+}
+/* canonical display order + short labels for the complexity ladder */
+const COMPLEXITY_ORDER = ['Small (S)', 'Medium (M)', 'Large (L)', 'eXtra Large (XL)'];
+function complexityShortLabel(v) {
+  const s = String(v || '').toLowerCase().replace(/\s+/g, ' ');
+  if (/^small|^\(s\)|\(s\)$/.test(s) || s === 's') return 'S';
+  if (/^medium|^\(m\)|\(m\)$/.test(s) || s === 'm') return 'M';
+  if (/^large|^\(l\)|\(l\)$/.test(s) || s === 'l') return 'L';
+  if (/large|xl/.test(s)) return 'XL';
+  return v;
+}
+function complexityOf(f) {
+  if (!COMPLEXITY_FIELD_ID) return null;
+  const v = f[COMPLEXITY_FIELD_ID];
+  if (v == null || v === '') return null;
+  return String(typeof v === 'object' ? (v.value ?? v.name ?? '') : v).trim() || null;
+}
+/* sort rank for the S→XL ladder (unknown values / 'No complexity' sink to the end) */
+function complexityRank(v) {
+  if (!v || v === 'No complexity') return 99;
+  const i = COMPLEXITY_ORDER.findIndex((o) => o.toLowerCase() === String(v).toLowerCase());
+  if (i >= 0) return i;
+  const s = complexityShortLabel(v).toUpperCase();
+  return ['S', 'M', 'L', 'XL'].indexOf(s) >= 0 ? ['S', 'M', 'L', 'XL'].indexOf(s) : 98;
+}
+/* fixed heat ramp keyed by the SHORT label: green → amber → orange → red */
+const COMPLEXITY_COLORS = { S: '#34d399', M: '#fbbf24', L: '#fb923c', XL: '#ef4444' };
 
 const state = {
   conn: null,          // { domain, email, token, useProxy, proxyApiKey, proxyUrl }
@@ -291,6 +343,7 @@ const I18N = {
     'group.time': 'Time', 'group.status': 'Status', 'group.assignee': 'Assignee', 'group.type': 'Issue type',
     'group.priority': 'Priority', 'group.label': 'First label', 'group.bottleneck': 'Bottleneck stage',
     'group.stage': 'Stakeholder vs team', 'group.ageBucket': 'Age bucket', 'group.assigneeState': 'Assigned vs unassigned',
+    'group.complexity': 'Complexity', 'group.noComplexity': 'No complexity',
     'range.30': 'Last 30 days', 'range.90': 'Last 90 days', 'range.182': 'Last 6 months',
     'range.365': 'Last 12 months', 'range.0': 'All time',
     'age.le2d': '≤ 2d', 'age.3_7d': '3–7d', 'age.1_2w': '1–2w', 'age.2_4w': '2–4w',
@@ -312,6 +365,8 @@ const I18N = {
     'chart.title.ageBuckets': 'Age vs Demand', 'chart.sub.ageBuckets': 'How long each open issue has been waiting, grouped by wait time',
     'chart.title.unassigned': 'Assignment Gaps', 'chart.sub.unassigned': 'Who owns the open work — spot the load imbalance',
     'chart.title.assigneeCycle': 'Cycle Time Leaderboard', 'chart.sub.assigneeCycle': 'Avg create → resolve per assignee · resolved issues only',
+    'chart.title.complexityDist': 'Complexity Distribution', 'chart.sub.complexityDist': 'Open issues by Change Request Complexity (S/M/L/XL)',
+    'chart.title.complexityDone': 'Complexity Completed', 'chart.sub.complexityDone': 'Completed issues by Change Request Complexity (S/M/L/XL)',
     /* auth · connect · publish · misc dynamic strings */
     'auth.sending': 'Sending…',
     'auth.codeSent': 'Code sent to {email} — check your inbox (and spam).',
@@ -847,6 +902,7 @@ const I18N = {
     'group.time': 'დრო', 'group.status': 'სტატუსი', 'group.assignee': 'შემსრულებელი', 'group.type': 'დავალების ტიპი',
     'group.priority': 'პრიორიტეტი', 'group.label': 'პირველი ჭდე', 'group.bottleneck': 'გამავრობის შემზღუდავი ეტაპი',
     'group.stage': 'სტეიკჰოლდერი vs გუნდი', 'group.ageBucket': 'ასაკის დიაპაზონი', 'group.assigneeState': 'განაწილებული vs დაუნიშნავი',
+    'group.complexity': 'სირთულე', 'group.noComplexity': 'სირთულე მითითებული არაა',
     'range.30': 'ბოლო 30 დღე', 'range.90': 'ბოლო 90 დღე', 'range.182': 'ბოლო 6 თვე',
     'range.365': 'ბოლო 12 თვე', 'range.0': 'მთელი ისტორია',
     'age.le2d': '≤ 2 დღე', 'age.3_7d': '3–7 დღე', 'age.1_2w': '1–2 კვირა', 'age.2_4w': '2–4 კვირა',
@@ -868,6 +924,8 @@ const I18N = {
     'chart.title.ageBuckets': 'ასაკი vs მოთხოვნილება', 'chart.sub.ageBuckets': 'რამდენ ხანს ელოდება თითოეული ღია დავალება — დაჯგუფებული ლოდინის დროის მიხედვით',
     'chart.title.unassigned': 'დანიშვნის ხარვეზები', 'chart.sub.unassigned': 'ვინ ფლობს ღია სამუშაოს — დატვირთვის დისბალანსის აღმოჩენა',
     'chart.title.assigneeCycle': 'ციკლის დროის ლიდერბორდი', 'chart.sub.assigneeCycle': 'საშუალოდ შექმნილი - დასრულებული შემსრულებლისგან · დახურული საკითხები',
+    'chart.title.complexityDist': 'სირთულის განაწილება', 'chart.sub.complexityDist': 'ღია დავალებები ცვლილების მოთხოვნის სირთულით (S/M/L/XL)',
+    'chart.title.complexityDone': 'დასრულებული სირთულით', 'chart.sub.complexityDone': 'დასრულებული დავალებები ცვლილების მოთხოვნის სირთულით (S/M/L/XL)',
     /* auth · connect · publish · misc dynamic strings — Georgian */
     'auth.sending': 'იგზავნება…',
     'auth.codeSent': 'კოდი გაიგზავნა {email}-ზე — შეამოწმეთ შემოსულები (და სპამი).',
@@ -1863,6 +1921,7 @@ function _pubBuildBoardRec(rec, boardId) {
   const issues = Array.isArray(rec.issues) ? rec.issues : [];
   const m = computeMetrics(issues);
   rememberDoneStatuses(issues);                       /* learn custom done-status names */
+  detectComplexityField(issues);                      /* learn the complexity custom field id */
   const defs = pubState.chartDefs;                    /* snapshot-configured chart defs */
   const charts = defs.map((def) => ({ def, data: buildChartData(def, m, issues, rec.hasChangelog) }));
   return {
@@ -3643,6 +3702,8 @@ async function loadBoardIssues(board) {
       /* learn this board's done-status names (statusCategory=done) so changelog-based
          completion walks recognise custom-named done statuses (e.g. "Deployed") */
       rememberDoneStatuses(issues);
+      /* learn the "Change Request Complexity" custom field id (S/M/L/XL ladder) */
+      detectComplexityField(issues);
       logDiag('info', 'Board load succeeded', {
         boardId: board.id,
         strategy: attempt.name,
@@ -4740,6 +4801,7 @@ const GROUP_LABELS = {
   time: 'Time', status: 'Status', assignee: 'Assignee', type: 'Issue type',
   priority: 'Priority', label: 'First label', bottleneck: 'Bottleneck stage',
   stage: 'Stakeholder vs team', ageBucket: 'Age bucket', assigneeState: 'Assigned vs unassigned',
+  complexity: 'Complexity',
 };
 
 /* which groupings each metric kind supports */
@@ -4749,6 +4811,7 @@ const GROUPS_FOR_KIND = {
     ['status', 'Status'], ['assignee', 'Assignee'], ['type', 'Issue type'],
     ['priority', 'Priority'], ['label', 'First label'], ['bottleneck', 'Bottleneck stage'],
     ['ageBucket', 'Age bucket'], ['assigneeState', 'Assigned vs unassigned'],
+    ['complexity', 'Complexity'],
   ],
   statusTime: [['status', 'Each status'], ['stage', 'Stakeholder vs team']],
 };
@@ -4768,6 +4831,7 @@ const GROUP_I18N = {
   time: 'group.time', status: 'group.status', assignee: 'group.assignee', type: 'group.type',
   priority: 'group.priority', label: 'group.label', bottleneck: 'group.bottleneck',
   stage: 'group.stage', ageBucket: 'group.ageBucket', assigneeState: 'group.assigneeState',
+  complexity: 'group.complexity',
 };
 const RANGE_I18N = ['range.30', 'range.90', 'range.182', 'range.365', 'range.0'];
 const AGE_BUCKET_I18N = ['age.le2d', 'age.3_7d', 'age.1_2w', 'age.2_4w', 'age.1_3mo', 'age.3_6mo', 'age.6moPlus'];
@@ -4779,6 +4843,7 @@ const BUILTIN_TITLE_I18N = {
   phaseDelays: 'chart.title.phaseDelays', typeDist: 'chart.title.typeDist', assigneeLoad: 'chart.title.assigneeLoad',
   priorityDist: 'chart.title.priorityDist', doneByAssignee: 'chart.title.doneByAssignee', ageBuckets: 'chart.title.ageBuckets',
   unassigned: 'chart.title.unassigned', assigneeCycle: 'chart.title.assigneeCycle',
+  complexityDist: 'chart.title.complexityDist', complexityDone: 'chart.title.complexityDone',
 };
 const BUILTIN_SUB_I18N = {
   pipeline: 'chart.sub.pipeline', throughput: 'chart.sub.throughput', createdTrend: 'chart.sub.createdTrend',
@@ -4787,6 +4852,7 @@ const BUILTIN_SUB_I18N = {
   phaseDelays: 'chart.sub.phaseDelays', typeDist: 'chart.sub.typeDist', assigneeLoad: 'chart.sub.assigneeLoad',
   priorityDist: 'chart.sub.priorityDist', doneByAssignee: 'chart.sub.doneByAssignee', ageBuckets: 'chart.sub.ageBuckets',
   unassigned: 'chart.sub.unassigned', assigneeCycle: 'chart.sub.assigneeCycle',
+  complexityDist: 'chart.sub.complexityDist', complexityDone: 'chart.sub.complexityDone',
 };
 /* translated view of a chart def (built-ins only; custom defs keep their own titles) */
 function defTitle(def) { return def.builtin ? t(BUILTIN_TITLE_I18N[def.id], def.title) : def.title; }
@@ -4831,6 +4897,11 @@ const BUILTIN_DEFS = [
   /* 'unassigned' (Assignment Gaps) removed — it left a solo chart in the last
      grid row; the remaining 14 standard charts pair up evenly */
   { id: 'assigneeCycle', title: 'Cycle Time Leaderboard', subtitle: 'Avg create → resolve per assignee · resolved issues only', type: 'hbar', metric: 'avgCycle', groupBy: 'assignee', bucket: 'week', range: 182, filter: 'done', topN: 10, split: 'none', color: 'cyan', wide: false, centerTotal: false },
+  /* Complexity Distribution pair — the [P] boards carry a "Change Request Complexity"
+     select field (Small (S) / Medium (M) / Large (L) / eXtra Large (XL)). Two variants
+     keep the dashboard grid paired: open work and completed work. */
+  { id: 'complexityDist', title: 'Complexity Distribution', subtitle: 'Open issues by Change Request Complexity (S/M/L/XL)', type: 'doughnut', metric: 'count', groupBy: 'complexity', bucket: 'week', range: 0, filter: 'open', topN: 0, split: 'none', color: 'violet', wide: false, centerTotal: true },
+  { id: 'complexityDone', title: 'Complexity Completed', subtitle: 'Completed issues by Change Request Complexity (S/M/L/XL)', type: 'hbar', metric: 'count', groupBy: 'complexity', bucket: 'week', range: 182, filter: 'done', topN: 0, split: 'none', color: 'green', wide: false, centerTotal: false },
 ];
 
 function chartStoreKey() { return CHART_STORE_PREFIX + (state.conn?.domain || 'default'); }
@@ -4973,6 +5044,7 @@ function groupKeyOf(def, f) {
     case 'priority': return f.priority?.name || 'None';
     case 'label': return Array.isArray(f.labels) && f.labels.length ? f.labels[0] : 'No label';
     case 'bottleneck': return classifyBottleneck(f.status?.name);
+    case 'complexity': return complexityOf(f) || 'No complexity';
     default: return f.status?.name || 'Unknown';
   }
 }
@@ -4989,6 +5061,10 @@ function groupKeyLabel(def, k) {
   if (def.groupBy === 'ageBucket') return ageBucketLabel(k);
   if (def.groupBy === 'bottleneck') return bottleneckLabel(k);
   if (def.groupBy === 'stage') return stageLabel(k);
+  if (def.groupBy === 'complexity') {
+    /* compact the long select values ("Small (S)") into the ladder letters */
+    return k === 'No complexity' ? t('group.noComplexity') : complexityShortLabel(k);
+  }
   if (def.groupBy === 'assigneeState') {
     if (k === 'Unassigned') return t('group.unassigned');
     if (k === 'Assigned') return t('group.assigned');
@@ -5172,6 +5248,7 @@ function buildCategoryData(def, issues) {
   }));
   if (def.groupBy === 'bottleneck') rows.sort((a, b) => BOTTLENECK_ORDER.indexOf(a.k) - BOTTLENECK_ORDER.indexOf(b.k));
   else if (def.groupBy === 'ageBucket') rows.sort((a, b) => AGE_BUCKETS.findIndex(([l]) => l === a.k) - AGE_BUCKETS.findIndex(([l]) => l === b.k));
+  else if (def.groupBy === 'complexity') rows.sort((a, b) => complexityRank(a.k) - complexityRank(b.k));
   else rows.sort((a, b) => b.v - a.v);
 
   let labels = rows.map((r) => r.k);
@@ -5185,6 +5262,10 @@ function buildCategoryData(def, issues) {
     colors = labels.map((l) => ramp[AGE_BUCKETS.findIndex(([b]) => b === l)] || '#64748b');
   }
   else if (def.groupBy === 'assigneeState') colors = labels.map((k) => (k === 'Unassigned' ? '#f87171' : '#34d399'));
+  else if (def.groupBy === 'complexity') {
+    /* fixed S→XL heat ramp: green → amber → orange → red; 'No complexity' stays grey */
+    colors = labels.map((k) => (COMPLEXITY_COLORS[complexityShortLabel(k)] || '#64748b'));
+  }
   else if (def.groupBy === 'stage') colors = labels.map((k) => (k === 'Stakeholder gates' ? '#fbbf24' : '#22d3ee'));
   else colors = labels.map((_, i) => PALETTE[i % PALETTE.length]);
   /* translate display labels only after color mapping (which matches on raw keys) */
