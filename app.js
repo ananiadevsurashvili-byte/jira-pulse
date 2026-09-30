@@ -164,6 +164,7 @@ const I18N = {
     'tl.any': 'All', 'tl.searchPh': 'Search tasks…',
     'tl.count': '{n} tasks', 'tl.empty': 'No tasks match the current filters.',
     'ilist.empty': 'No issue data available for this selection.',
+    'ilist.count': '{n} issue(s)',
     'ilist.openJira': 'open in Jira',
     'ilist.noLink': 'connect to Jira to open issues',
     'ilist.unassigned': 'Unassigned',
@@ -339,6 +340,8 @@ const I18N = {
     'pub.publishFailed': 'Publish failed: {m}',
     'auth.sessionRejected': 'Session rejected by Jira ({s}). Please reconnect with a fresh API token.',
     'cmp.startFailed': 'Could not start compare mode.',
+    'chart.noneYet': 'No charts on this board yet — click ＋ New chart to build one.',
+    'chart.hiddenStrip': 'Hidden charts:',
     'chart.restored': 'Chart restored.',
     'chart.titleRequired': 'Please enter a chart title.',
     'chart.addedAll': 'Chart added to all boards.',
@@ -717,6 +720,7 @@ const I18N = {
     'tl.any': 'ყველა', 'tl.searchPh': 'დავალებების ძებნა…',
     'tl.count': '{n} დავალება', 'tl.empty': 'ფილტრებს ვერცერთი დავალება არ ერგება.',
     'ilist.empty': 'ამ შერჩევისთვის დავალების მონაცემები არ არის.',
+    'ilist.count': '{n} დავალება',
     'ilist.openJira': 'Jira-ში გახსნა',
     'ilist.noLink': 'დაუკავშირდით Jira-ს დავალებების გასახსნელად',
     'ilist.unassigned': 'დაუნიშნავი',
@@ -1086,6 +1090,8 @@ const I18N = {
     'badge.noData': 'მონაცემები არ არის',
     'badge.changelogOkTitle': 'changelog-ის მონაცემები ხელმისაწვდომია',
     'badge.changelog': 'Changelog',
+    'chart.noneYet': 'ამ დაფაზე დიაგრამები ჯერ არ არის — დაამატეთ „＋ ახალი დიაგრამა".',
+    'chart.hiddenStrip': 'დამალული დიაგრამები:',
     'ins.bottleneck': '<b>{n}</b> ღია დავალება ახლა იდგება <b>{cat}</b>-ში',
     'ins.slowest': 'ახლა ყველაზე ნელი ეტაპია: <b>{s}</b> · საშ. {d}',
     'ins.throughput': 'გამტარუნარიანობა <b>{p}%</b> წინა 30 დღესთან შედარებით',
@@ -1882,7 +1888,14 @@ function upgradedBuiltinDef(id) {
 function pubChartDefs() {
   return (pubState.snapshot?.chartDefs || [])
     .filter((d) => !REMOVED_BUILTIN_IDS.has(d.id))
-    .map((d) => (d.builtin && upgradedBuiltinDef(d.id) ? { ...upgradedBuiltinDef(d.id) } : { ...d }));
+    .map((d) => {
+      /* upgraded built-ins are spread from the raw BUILTIN_DEFS entry, which does
+         NOT carry the builtin flag (effectiveCharts() adds it only in the admin
+         app) — without it defTitle()/defSubtitle() skip the i18n maps and render
+         the hardcoded English title (the "untranslated chart" bug). */
+      const up = d.builtin && upgradedBuiltinDef(d.id);
+      return up ? { ...up, builtin: true, scope: 'global' } : { ...d };
+    });
 }
 
 /* ---------- chart click → issue list modal ---------- */
@@ -1962,7 +1975,7 @@ function openIssueListModal(chartTitle, pointLabel, keys, seriesLabel) {
   const base = jiraIssueBase();
   $('#issueListTitle').textContent = `${chartTitle}${seriesLabel ? ' — ' + seriesLabel : ''} · ${pointLabel || ''}`;
   $('#issueListSub').textContent = rows.length
-    ? `${rows.length} issue${rows.length === 1 ? '' : 's'}${base ? '' : ' · ' + t('ilist.noLink')}`
+    ? `${tReplace('ilist.count', { n: rows.length })}${base ? '' : ' · ' + t('ilist.noLink')}`
     : t('ilist.empty');
   const body = $('#issueListBody');
   body.innerHTML = rows.length
@@ -4557,7 +4570,7 @@ function buildCompareChartData(def, mA, issuesA, hcA, mB, issuesB, hcB, nameAPar
       extraSub: `${escapeHtml(nameB)} ${t('cmp.outerRing')}`,
       centerValue: Math.round(dsA.reduce((s, v) => s + v, 0)),
       centerValueB: Math.round(dsB.reduce((s, v) => s + v, 0)),
-      centerLabel: dataA.centerLabel || 'issues',
+      centerLabel: dataA.centerLabel || t('cmp.issues'),
     };
   }
 
@@ -5170,7 +5183,7 @@ function buildCategoryData(def, issues) {
     duration: metric.duration,
     subtitle,
     centerValue: metric.duration ? fmtDuration(totalVal) : Math.round(totalVal),
-    centerLabel: metric.duration ? 'avg' : 'issues',
+    centerLabel: metric.duration ? t('cmp.avg') : t('cmp.issues'),
   };
 }
 
@@ -5488,7 +5501,7 @@ function renderCharts(defs, m) {
   state.charts = {};
 
   if (!defs.length) {
-    grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">No charts on this board yet — click <b>＋ New chart</b> to build one.</div>';
+    grid.innerHTML = '<div class="card glass chart-card wide" style="text-align:center;padding:34px;color:var(--muted)">' + escapeHtml(t('chart.noneYet')) + '</div>';
   } else {
     grid.innerHTML = defs.map((d) => chartCardHTML(d, !d.builtin ? false : !!store.overrides[d.id])).join('');
   }
@@ -5496,7 +5509,7 @@ function renderCharts(defs, m) {
   /* hidden built-ins restore strip */
   const strip = $('#hiddenChartsStrip');
   if (store.hidden.length) {
-    strip.innerHTML = 'Hidden charts: ' + store.hidden.map((id) => {
+    strip.innerHTML = escapeHtml(t('chart.hiddenStrip')) + ' ' + store.hidden.map((id) => {
       const b = BUILTIN_DEFS.find((x) => x.id === id);
       return `<button class="link-btn" data-restore="${id}">${escapeHtml(b ? b.title : id)} ↺</button>`;
     }).join(' ');
