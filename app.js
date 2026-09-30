@@ -1465,8 +1465,17 @@ function pubClearSession() {
 }
 
 /* shared "viewer verified" path: hide the gate, show the content, render.
-   Used by Google sign-in, the email code and the session restore. */
+   Used by Google sign-in, the email code and the session restore. Also does
+   the full screen swap (hide setup/app chrome, show the pub overlay) because
+   the session-restore boot path lands here WITHOUT showPubScreen() having
+   run — without this the default-visible setup screen stays on screen. */
 function pubEnterVerified() {
+  hide($('#setupScreen'));
+  hide($('#topbar'));
+  hide($('#dashScreen'));
+  hide($('#boardsScreen'));
+  state.inShareScreen = true;
+  show($('#pubScreen'));
   $('#pubContent').classList.remove('hidden');
   $('#pubAuthBox').classList.add('hidden');
   updatePubUserChip();
