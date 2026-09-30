@@ -27,14 +27,44 @@ const RELAYS = [
   { key: 'corsproxy', build: (url, conn) =>
       'https://corsproxy.io/?' + (conn?.proxyApiKey ? 'key=' + encodeURIComponent(conn.proxyApiKey) + '&' : '') + 'url=' + encodeURIComponent(url), keyless: false },
 ];
-const ISSUE_FIELDS = ['summary', 'status', 'resolutiondate', 'created', 'updated', 'issuetype', 'assignee', 'priority', 'labels', 'customfield_10226', 'customfield_10230', 'customfield_10231', 'customfield_10232', 'customfield_10233', 'customfield_10234'];
+const ISSUE_FIELDS = ['summary', 'status', 'resolutiondate', 'created', 'updated', 'issuetype', 'assignee', 'priority', 'labels'];
 
-/* complexity field detection: Jira custom fields carry cryptic ids (customfield_NNNNN).
-   On first load we scan the issue set for a select-style field whose option values
-   look like the org's complexity ladder (Small (S) / Medium (M) / Large (L) /
-   eXtra Large (XL)) and remember its id — the chart engine reads it via complexityOf(). */
+/* complexity field discovery: Jira custom fields carry cryptic ids (customfield_NNNNN)
+   that differ per instance, and the search API SILENTLY DROPS unknown ids from the
+   `fields` param — hardcoding them breaks on every other tenant. So we look the field
+   up by NAME in /rest/api/3/field ("Change Request Complexity" → customfield_10945 on
+   the current instance), remember its id, and append it to the fetch field list.
+   A value-shape scan over the loaded issue set stays as a fallback validator. */
 let COMPLEXITY_FIELD_ID = null;
+let complexityFieldDiscovery = null;   /* in-flight / settled discovery promise */
 const COMPLEXITY_VALUE_RE = /^(small\s*\(s\)|medium\s*\(m\)|large\s*\(l\)|e?xtra\s*large\s*\(xl\)|[smlx])$/i;
+
+/* Ask Jira's field catalog for the complexity field id. Runs once per session;
+   failures resolve to null so board loads never block on it. */
+function discoverComplexityFieldId() {
+  if (COMPLEXITY_FIELD_ID) return Promise.resolve(COMPLEXITY_FIELD_ID);
+  if (complexityFieldDiscovery) return complexityFieldDiscovery;
+  complexityFieldDiscovery = (async () => {
+    try {
+      const fields = await api('/rest/api/3/field');
+      /* prefer the exact well-known name, then any custom select whose name hints complexity */
+      const wanted = fields.find((f) => f && f.custom && /change request complexity/i.test(f.name || ''))
+        || fields.find((f) => f && f.custom && /complexity/i.test(f.name || ''));
+      if (wanted && wanted.id) {
+        COMPLEXITY_FIELD_ID = wanted.id;
+        if (!ISSUE_FIELDS.includes(wanted.id)) ISSUE_FIELDS.push(wanted.id);
+        logDiag('info', 'Complexity field discovered', { field: wanted.id, name: wanted.name });
+      } else {
+        logDiag('info', 'No complexity field in Jira field catalog', {});
+      }
+    } catch (err) {
+      logDiag('warn', 'Complexity field discovery failed', { error: String(err && err.message || err) });
+    }
+    return COMPLEXITY_FIELD_ID;
+  })();
+  return complexityFieldDiscovery;
+}
+
 function detectComplexityField(issues) {
   if (COMPLEXITY_FIELD_ID) return COMPLEXITY_FIELD_ID;
   const hits = new Map();
@@ -50,8 +80,11 @@ function detectComplexityField(issues) {
   }
   let best = null, bestN = 0;
   for (const [k, n] of hits) if (n > bestN) { best = k; bestN = n; }
-  COMPLEXITY_FIELD_ID = best;   /* may be null — the chart then shows "no data" */
-  if (best) logDiag('info', 'Complexity field detected', { field: best, samples: bestN });
+  if (best) {
+    COMPLEXITY_FIELD_ID = best;
+    if (!ISSUE_FIELDS.includes(best)) ISSUE_FIELDS.push(best);
+    logDiag('info', 'Complexity field detected', { field: best, samples: bestN });
+  }
   return COMPLEXITY_FIELD_ID;
 }
 /* canonical display order + short labels for the complexity ladder */
@@ -3611,6 +3644,9 @@ async function loadBoardIssues(board) {
   state.hasChangelog = true;
   state.boardLoadMeta = { source: '', note: '' };
   const ctx = await resolveBoardContext(board);
+  /* resolve the complexity custom field id BEFORE fetching so the first search
+     already requests it (Jira silently drops unknown field ids, so guessing is futile) */
+  await discoverComplexityFieldId();
 
   /* The board endpoints (/rest/agile|software/.../issue) reliably return `created`
      but usually OMIT `resolutiondate` and never honour `expand=changelog`, which breaks

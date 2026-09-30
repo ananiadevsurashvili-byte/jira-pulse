@@ -203,6 +203,21 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
   const MAX_TOTAL = 600;
   const withChangelog = mode === 'full';
 
+  /* discover the "Change Request Complexity" custom field id from the field catalog
+     (ids differ per Jira instance and unknown ids are silently dropped from `fields`)
+     so the complexity distribution charts work for public viewers too */
+  let complexityFieldId = '';
+  try {
+    const fResp = await get('/rest/api/3/field');
+    if (fResp.ok) {
+      const catalog: any[] = await fResp.json();
+      const wanted = catalog.find((f) => f && f.custom && /change request complexity/i.test(f.name || ''))
+        || catalog.find((f) => f && f.custom && /complexity/i.test(f.name || ''));
+      if (wanted?.id) complexityFieldId = String(wanted.id);
+    }
+  } catch { /* best-effort — charts just show "no data" without it */ }
+  const SEARCH_FIELDS = complexityFieldId ? `${FIELDS},${complexityFieldId}` : FIELDS;
+
   async function searchJql(jql: string): Promise<any[] | null> {
     const out: any[] = [];
     let pageSize = withChangelog ? 25 : 50;
@@ -213,7 +228,7 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
       while (out.length < MAX_TOTAL) {
         const qp = new URLSearchParams();
         qp.set('jql', jql);
-        qp.set('fields', FIELDS);
+        qp.set('fields', SEARCH_FIELDS);
         qp.set('maxResults', String(pageSize));
         if (withChangelog) qp.set('expand', 'changelog');
         if (nextPageToken) qp.set('nextPageToken', nextPageToken);
@@ -245,7 +260,7 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
     const out: any[] = [];
     let startAt = 0;
     while (out.length < cap) {
-      const resp = await get(`/rest/agile/1.0/board/${bid}/issue?startAt=${startAt}&maxResults=50&fields=${encodeURIComponent(FIELDS)}`).catch(() => null);
+      const resp = await get(`/rest/agile/1.0/board/${bid}/issue?startAt=${startAt}&maxResults=50&fields=${encodeURIComponent(SEARCH_FIELDS)}`).catch(() => null);
       if (!resp || !resp.ok) return out.length ? out : null;
       let page: any;
       try { page = await resp.json(); } catch { return out.length ? out : null; }
