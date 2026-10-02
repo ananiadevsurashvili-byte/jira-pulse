@@ -266,6 +266,32 @@ body {
 }
 .board-copy-link { font-size: 0.9rem; opacity: 0.7; padding: 4px 6px; border-radius: 8px; flex: 0 0 auto; }
 .board-copy-link:hover { opacity: 1; background: rgba(99,102,241,.12); }
+
+/* ── per-board publish-status dropdown (admin panel, outside the card info) ──
+   Sits in the card head's right side above the copy-link button. Green tint =
+   visible to org viewers; amber/grey tint = hidden. Both themes styled. */
+.board-pub-status {
+  appearance: none; -webkit-appearance: none;
+  font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em;
+  padding: 3px 20px 3px 9px; border-radius: 999px; cursor: pointer;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6' viewBox='0 0 8 6'%3E%3Cpath d='M0 1.2 1.2 0 4 2.9 6.8 0 8 1.2 4 5.2z' fill='%23a5b4fc'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 7px center;
+  color: #6ee7b7; border: 1px solid rgba(52, 211, 153, 0.45);
+  background-color: rgba(52, 211, 153, 0.08);
+  transition: background-color .12s ease, border-color .12s ease, color .12s ease, opacity .12s ease;
+}
+.board-pub-status.st-unpublished {
+  color: var(--muted); border-color: rgba(148, 163, 184, 0.4);
+  background-color: rgba(148, 163, 184, 0.08);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6' viewBox='0 0 8 6'%3E%3Cpath d='M0 1.2 1.2 0 4 2.9 6.8 0 8 1.2 4 5.2z' fill='%2394a3b8'/%3E%3C/svg%3E");
+}
+.board-pub-status:hover { border-color: rgba(52, 211, 153, 0.75); }
+.board-pub-status:disabled { opacity: 0.55; cursor: progress; }
+body.light .board-pub-status { color: #047857; border-color: rgba(5, 150, 105, 0.45); background-color: rgba(5, 150, 105, 0.08); }
+body.light .board-pub-status.st-unpublished { color: #64748b; border-color: rgba(100, 116, 139, 0.45); background-color: rgba(100, 116, 139, 0.08); }
+/* native option list readability across themes */
+.board-pub-status option { background: #161a2b; color: #e2e8f0; }
+body.light .board-pub-status option { background: #ffffff; color: #1e2540; }
 .board-meta { display: flex; gap: 6px; flex-wrap: wrap; }
 .board-card-foot {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
@@ -654,6 +680,35 @@ body {
   transition: background 0.12s ease;
 }
 .chart-range-apply:hover { background: rgba(99, 102, 241, 1); }
+
+/* ── range dropdown · LIGHT theme variants ──
+   The base styles above are tuned for the dark surfaces; in light mode the menu
+   would render as a translucent dark panel and the indigo "active" text would
+   be near-invisible. These overrides give both themes a clearly readable,
+   distinctly styled dropdown with the same geometry. */
+body.light .chart-range-menu {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.18);
+  box-shadow: 0 16px 40px rgba(30, 41, 82, 0.22);
+}
+body.light .chart-range-opt { color: #5d6584; }
+body.light .chart-range-opt:hover { background: rgba(99, 102, 241, 0.1); color: #1e2540; }
+body.light .chart-range-opt.active { color: #4f46e5; }
+body.light .chart-range-custom { border-top-color: rgba(15, 23, 42, 0.1); }
+body.light .chart-range-date {
+  background: #ffffff; border-color: rgba(15, 23, 42, 0.2); color: #1e2540;
+  color-scheme: light;
+}
+
+/* ── range dropdown · DARK theme hardening ──
+   `--panel-strong` is translucent on the dark glass theme, so cupertino menus
+   could bleed background through. Give the dark menu an opaque surface and a
+   slightly stronger hover so option selection is clearly visible. */
+.chart-range-menu {
+  background: #161a2b;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.55);
+}
+body:not(.light) .chart-range-opt:hover { background: rgba(99, 102, 241, 0.18); }
 
 .scope-chip {
   display: inline-flex; align-items: center; gap: 4px;

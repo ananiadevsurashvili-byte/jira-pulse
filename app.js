@@ -443,6 +443,15 @@ const I18N = {
     'pub.publishedLive': 'Published — viewer link copied. Data is always live; republish only when charts/boards change.',
     'pub.publishedNext': 'Published. Viewers will see it on next sign-in.',
     'pub.publishFailed': 'Publish failed: {m}',
+    'pub.status.title': 'Board visibility for organization viewers',
+    'pub.status.published': 'Published',
+    'pub.status.unpublished': 'Unpublished',
+    'pub.status.publishedOk': 'Board {n} is now visible to viewers.',
+    'pub.status.unpublishedOk': 'Board {n} is now hidden from viewers.',
+    'pub.status.failed': 'Visibility change failed: {m}',
+    'pub.status.noConfig': 'Nothing published yet — publish first, then switch visibility.',
+    'pub.status.notPublishable': 'This board is not in the published set — publish it first.',
+    'cmp.pubMasterSkip': 'The master [P] board cannot be picked for comparison — select individual [P] boards instead.',
     'auth.sessionRejected': 'Session rejected by Jira ({s}). Please reconnect with a fresh API token.',
     'cmp.startFailed': 'Could not start compare mode.',
     'chart.noneYet': 'No charts on this board yet — click ＋ New chart to build one.',
@@ -1027,6 +1036,15 @@ const I18N = {
     'pub.publishedLive': 'გამოქვეყნდა — მნახველის ბმული დაკოპირებულია. მონაცემები ყოველთვის პირდაპირია; ხელახლა გამოქვეყნება მხოლოდ გრაფიკების/დაფების ცვლილებისას არის საჭირო.',
     'pub.publishedNext': 'გამოქვეყნდა. მნახველები შემდეგი შესვლისას დაინახავენ.',
     'pub.publishFailed': 'გამოქვეყნება ვერ მოხერხდა: {m}',
+    'pub.status.title': 'დაფის ხილვადობა ორგანიზაციის მნახველებისთვის',
+    'pub.status.published': 'გამოქვეყნებული',
+    'pub.status.unpublished': 'დამალული',
+    'pub.status.publishedOk': 'დაფა {n} ახლა ხილულია მნახველებისთვის.',
+    'pub.status.unpublishedOk': 'დაფა {n} ახლა დამალულია მნახველებისგან.',
+    'pub.status.failed': 'ხილვადობის ცვლილება ვერ მოხერხდა: {m}',
+    'pub.status.noConfig': 'ჯერ არაფერია გამოქვეყნებული — ჯერ გამოაქვეყნეთ, მერე შეცვალეთ ხილვადობა.',
+    'pub.status.notPublishable': 'ეს დაფა გამოქვეყნებულ სიაში არ არის — ჯერ გამოაქვეყნეთ.',
+    'cmp.pubMasterSkip': 'გაერთიანებული [P] დაფა ვერ აირჩევა შედარებისთვის — აირჩიეთ ცალკე [P] დაფები.',
     'auth.sessionRejected': 'Jira-მ სესია უარყო ({s}). გახსენით ხელახლა კავშირი ახალი API ტოკენით.',
     'cmp.startFailed': 'შედარების რეჟიმი ვერ დაიწყო.',
     'chart.restored': 'გრაფიკი აღდგენილია.',
@@ -1989,9 +2007,28 @@ function pubVerifyCode() {
 const _pubBoardCache = new Map();   /* boardId:mode → { rec, ts } per-session memo (30 s) */
 const PUB_LIVE_TTL = 30 * 1000;
 
+/* master [P] board on the pub side: the synthetic "All [P] boards" entry appears
+   in the published board list first (before the real [P] boards) whenever at
+   least one [P] board is published and visible. Its id is reserved, mirroring
+   the admin app. */
+const PUB_MASTER_ID = 900000001;
+const MASTER_PUB_TAG = '_srcBoardName';
+function isPubMasterId(id) { return parseInt(id, 10) === PUB_MASTER_ID; }
+function pubMasterEntry() {
+  return { boardId: PUB_MASTER_ID, name: t('master.pName'), projectName: '', master: true };
+}
+/* [P] boards currently visible in the published config (real boards only) */
+function pubPBoards(cfg) {
+  const boards = (cfg && Array.isArray(cfg.boards)) ? cfg.boards : [];
+  return boards.filter((b) => b.published !== false && (/^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || '')));
+}
+
 /* fetch live issues for a board + compute the full chart set.
    mode: 'full' (changelog, for chart views) | 'light' (metrics-only, fast). */
 async function pubLoadBoardLive(boardId, mode = 'full') {
+  /* master [P] board: merge the live issue pools of every visible [P] board
+     (same per-board project-wide search the admin merge uses) */
+  if (isPubMasterId(boardId)) return pubMasterLoad(mode);
   const memoKey = boardId + ':' + mode;
   const memo = _pubBoardCache.get(memoKey);
   if (memo && Date.now() - memo.ts < PUB_LIVE_TTL) {
@@ -2004,6 +2041,41 @@ async function pubLoadBoardLive(boardId, mode = 'full') {
   const rec = await pubFetchBoardLive(boardId, mode);
   _pubBoardCache.set(memoKey, { rec, ts: Date.now() });
   return _pubBuildBoardRec(rec, boardId);
+}
+
+/* the pub master [P] board loader — fetch every visible [P] board in parallel
+   (4 at a time), merge the pools, tag each issue with its source board name */
+async function pubMasterLoad(mode = 'full') {
+  const memoKey = PUB_MASTER_ID + ':' + mode;
+  const memo = _pubBoardCache.get(memoKey);
+  if (memo && Date.now() - memo.ts < PUB_LIVE_TTL) return _pubBuildBoardRec(memo.rec, PUB_MASTER_ID);
+  const cfg = await pubConfigGet({ force: true });
+  const pBoards = pubPBoards(cfg);
+  if (!pBoards.length) throw new Error('No [P] boards published.');
+  logDiag('info', 'Publish view: merging [P] boards for master board', { count: pBoards.length });
+  const results = await Promise.all(pBoards.map(async (b) => {
+    try {
+      const rec = await pubFetchBoardLive(b.boardId, mode);
+      return { name: b.name, issues: Array.isArray(rec.issues) ? rec.issues : [], ok: rec };
+    } catch (e) {
+      logDiag('warn', 'Pub master: [P] board segment failed — skipped', { boardId: b.boardId, message: e?.message });
+      return { name: b.name, issues: [], ok: null };
+    }
+  }));
+  const merged = [];
+  for (const r of results) {
+    for (const iss of r.issues) {
+      try { iss[MASTER_PUB_TAG] = r.name; } catch (_) { /* frozen object — best-effort */ }
+      merged.push(iss);
+    }
+  }
+  const rec = {
+    ok: true, boardId: PUB_MASTER_ID, source: 'master-p-merged',
+    mode, hasChangelog: results.some((r) => r.ok && r.ok.hasChangelog),
+    count: merged.length, fetchedAt: Date.now(), issues: merged,
+  };
+  _pubBoardCache.set(memoKey, { rec, ts: Date.now() });
+  return _pubBuildBoardRec(rec, PUB_MASTER_ID);
 }
 
 /* assemble the render record from a raw fetch result: metrics + freshly
@@ -2456,8 +2528,8 @@ async function renderPubContent() {
        minus admin-only chrome. Stats arrive live (4 in parallel) and each card
        updates in place, exactly like the admin page. */
     const pubCard = (b, i) => {
-      const initial = escapeHtml((b.name || '?').trim().charAt(0).toUpperCase());
-      const pBoard = /^\[P\]/i.test(b.projectName || '') || /^\[P\]/i.test(b.name || '');
+      const initial = b.master ? '∑' : escapeHtml((b.name || '?').trim().charAt(0).toUpperCase());
+      const pBoard = !!b.master || /^\[P\]/i.test(b.projectName || '') || /^\[P\]/i.test(b.name || '');
       /* pick-compare mode: cards become selectable slots (A/B) instead of links */
       const pick = pubState.pickCompare;
       const pickedA = pick && pick.a === b.boardId;
@@ -2470,28 +2542,29 @@ async function renderPubContent() {
           : (pick.a == null ? t('cmp.pubClickPickA') : pick.b == null ? t('cmp.pubClickPickB') : t('cmp.pubClickPickC')))
         : t('card.openDash');
       return `
-        <div class="board-card glass${pBoard ? ' p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}${pickedC ? ' pick-c' : ''}" data-bid="${b.boardId}" style="animation-delay:${Math.min(i * 35, 400)}ms">
+        <div class="board-card glass${pBoard ? ' p-board' : ''}${b.master ? ' master-p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}${pickedC ? ' pick-c' : ''}" data-bid="${b.boardId}" style="animation-delay:${Math.min(i * 35, 400)}ms">
           <div class="board-card-head">
             <div class="board-avatar" aria-hidden="true">${initial}</div>
             <div class="board-id-block">
               <h3 title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</h3>
               <div class="board-meta">
-                ${!pBoard && b.projectName ? `<span class="chip" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : ''}
+                ${b.master ? `<span class="chip chip-master">${escapeHtml(t('master.cardChip'))}</span>` : (!pBoard && b.projectName ? `<span class="chip" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : '')}
               </div>
             </div>
             ${pBoard ? '<span class="chip chip-p board-p-flag" title="[P]">[P]</span>' : ''}
             <div class="board-head-side">
-              ${admin ? `<button class="link-btn board-copy-link" data-copyboard="${b.boardId}" data-i18n-title="pub.copyBoardLink" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>` : ''}
+              ${admin && !b.master ? `<button class="link-btn board-copy-link" data-copyboard="${b.boardId}" data-i18n-title="pub.copyBoardLink" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>` : ''}
             </div>
           </div>
           <div class="board-stats" id="pubbstats_${b.boardId}">${boardStatsChipHtml(null)}</div>
           <div class="board-card-foot">
             <span class="board-open">${escapeHtml(openLabel)}</span>
-            ${b.projectName ? `<span class="board-proj muted" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : ''}
+            ${b.master ? `<span class="board-proj muted" title="${escapeHtml(t('master.cardDesc'))}">${escapeHtml(t('master.cardDesc'))}</span>` : (b.projectName ? `<span class="board-proj muted" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : '')}
           </div>
         </div>`;
     };
-    const P = boards.filter((b) => /^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || ''));
+    /* master card lives at the FRONT of the [P] group, mirroring the admin view */
+    const P = boards.filter((b) => b.master || /^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || ''));
     const others = boards.filter((b) => !(/^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || '')));
     let html = '';
     if (P.length) html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.orgBoards'))}</span><div class="boards-grid">${P.map(pubCard).join('')}</div></div>`;
@@ -2640,7 +2713,11 @@ function hidePubScreen() {
    straight back to the board the viewer was on before the refresh. */
 async function showPublicLanding(restore = false) {
   const cfg = await pubConfigGet();
-  const boards = (cfg && Array.isArray(cfg.boards)) ? cfg.boards : [];
+  /* per-board publish flag: boards the admin switched to "unpublished" are
+     removed from every viewer's list; the synthetic master [P] board entry is
+     prepended whenever at least one [P] board is published and visible. */
+  const boards = ((cfg && Array.isArray(cfg.boards)) ? cfg.boards : []).filter((b) => b.published !== false);
+  if (pubPBoards(cfg).length) boards.unshift(pubMasterEntry());
   const snapshot = {
     shareSeed: (cfg && cfg.shareSeed) || 'org',
     boardId: null,
@@ -2739,6 +2816,12 @@ async function createSnapshotFromModal() {
   const boards = scope === 'all' ? state.boards : state.boards.filter((b) => b.id === boardId);
   if (!boards.length) { toast(t('pub.noBoards'), 'warn'); return; }
 
+  /* preserve each board's Published/Unpublished flag from the previous config —
+     a plain republish must never silently re-show boards the admin hid */
+  const prevCfg = await pubConfigGet();
+  const prevPub = new Map(((prevCfg && Array.isArray(prevCfg.boards)) ? prevCfg.boards : [])
+    .map((b) => [b.boardId, b.published]));
+
   /* chart config = the current admin layout (built-ins incl. overrides + customs).
      Uses the board context of the FIRST published board so board-scoped custom
      charts survive; the defs are shared across all boards in this version. */
@@ -2753,7 +2836,10 @@ async function createSnapshotFromModal() {
     savedAt: Date.now(),
     domain: state.conn?.domain || '',
     chartDefs: defs,
-    boards: boards.map((b) => ({ boardId: b.id, name: b.name, projectName: b.location?.projectName || '' })),
+    boards: boards.map((b) => ({
+      boardId: b.id, name: b.name, projectName: b.location?.projectName || '',
+      ...(prevPub.has(b.id) && prevPub.get(b.id) === false ? { published: false } : {}),
+    })),
   };
 
   const btn = $('#pubCreateBtn');
@@ -3569,6 +3655,60 @@ function isPBoard(b) {
 
 /* render a single board card (shared by the grouped list + the sorter).
    In pick-compare mode cards switch from "open dashboard" to "select A/B". */
+/* per-board publish status: cfg.boards entries carry `published` (a board that
+   was published before the flag existed defaults to visible). 'unpublished'
+   boards are filtered out of every public viewer's board list instantly. */
+function cfgBoardPublished(cfg, boardId) {
+  const b = cfg && Array.isArray(cfg.boards) ? cfg.boards.find((x) => x.boardId === boardId) : null;
+  return !b || b.published !== false;   /* default: published */
+}
+
+/* admin-only: the Published/Unpublished dropdown rendered next to each board
+   card's title (on the card head, outside the info block). Reads its value
+   from the cached publish config (default: published — safe pre-publish). */
+function boardPubStatusHTML(b) {
+  if (!ADMIN_PANEL) return '';
+  const status = cfgBoardPublished(_pubConfigCache.cfg, b.id) ? 'published' : 'unpublished';
+  return `
+    <select class="board-pub-status" data-bid="${b.id}" title="${escapeHtml(t('pub.status.title'))}">
+      <option value="published"${status === 'published' ? ' selected' : ''}>${escapeHtml(t('pub.status.published'))}</option>
+      <option value="unpublished"${status === 'unpublished' ? ' selected' : ''}>${escapeHtml(t('pub.status.unpublished'))}</option>
+    </select>`;
+}
+
+/* wire the per-board publish-status dropdowns (admin only): switching an
+   option writes the flag into the relay config immediately, so every public
+   viewer gains/loses that board on their next config load (≤60 s TTL). */
+function wireBoardPubStatuses(grid) {
+  if (!ADMIN_PANEL || !grid) return;
+  grid.querySelectorAll('.board-pub-status').forEach((sel) => {
+    sel.addEventListener('click', (ev) => ev.stopPropagation());   /* don't open the board */
+    sel.addEventListener('change', async () => {
+      const bid = parseInt(sel.dataset.bid, 10);
+      const published = sel.value === 'published';
+      const prev = sel.getAttribute('data-prev') || (published ? 'unpublished' : 'published');
+      sel.disabled = true;
+      try {
+        const cfg = await pubConfigGet({ force: true });
+        if (!cfg || !Array.isArray(cfg.boards)) throw new Error(t('pub.status.noConfig'));
+        const b = cfg.boards.find((x) => x.boardId === bid);
+        if (!b) throw new Error(t('pub.status.notPublishable'));
+        b.published = published;
+        await pubConfigSet(cfg);   /* also refreshes _pubConfigCache */
+        sel.setAttribute('data-prev', sel.value);
+        sel.classList.toggle('st-unpublished', !published);
+        toast(tReplace(published ? 'pub.status.publishedOk' : 'pub.status.unpublishedOk', { n: String(bid) }), 'ok');
+      } catch (e) {
+        logDiag('warn', 'Publish-status change failed', { boardId: bid, message: e?.message });
+        toast(tReplace('pub.status.failed', { m: e?.message || 'unknown' }), 'warn');
+        sel.value = prev;   /* revert the control to the effective config state */
+      } finally {
+        sel.disabled = false;
+      }
+    });
+  });
+}
+
 function boardCardHTML(b, i) {
   const pick = state.pickCompare;
   const pickedA = pick && pick.a === b.id;
@@ -3596,6 +3736,7 @@ function boardCardHTML(b, i) {
         </div>
         ${pBoard ? '<span class="chip chip-p board-p-flag" title="[P]">[P]</span>' : ''}
         <div class="board-head-side">
+          ${ADMIN_PANEL ? boardPubStatusHTML(b) : ''}
           <button class="link-btn board-copy-link" data-copyboard="${b.id}" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>
         </div>
       </div>
@@ -3666,6 +3807,22 @@ function renderBoardCards() {
   });
   /* kick off the background stats enrichment (cached boards render instantly) */
   enrichBoardStats().catch((e) => logDiag('warn', 'Board stats enrichment stopped', { message: e?.message }));
+  /* per-board Published/Unpublished dropdowns (admin panel only) */
+  loadPubCfgForStatuses().then(() => {
+    grid.querySelectorAll('.board-pub-status').forEach((sel) => {
+      const on = cfgBoardPublished(_pubConfigCache.cfg, parseInt(sel.dataset.bid, 10));
+      sel.value = on ? 'published' : 'unpublished';
+      sel.setAttribute('data-prev', sel.value);
+      sel.classList.toggle('st-unpublished', !on);
+    });
+    wireBoardPubStatuses(grid);
+  }).catch((e) => logDiag('warn', 'Publish-status init failed', { message: e?.message }));
+}
+
+/* fetch the publish config fresh, then reflect each board card's status select.
+   Best-effort: a missing config leaves every select at the default "Published". */
+async function loadPubCfgForStatuses() {
+  if (ADMIN_PANEL) await pubConfigGet({ force: true });
 }
 
 /* board-context cache: avoids re-hitting 3–4 Jira endpoints every time you re-open a board.
@@ -4772,6 +4929,8 @@ function togglePubPickCompareMode() {
 function togglePubPickCompare(board) {
   const pick = pubState.pickCompare;
   if (!pick) return;
+  /* the synthetic master [P] board is not a real board — exclude from compare */
+  if (isPubMasterId(board.boardId)) { toast(t('cmp.pubMasterSkip'), 'warn'); return; }
   if (pick.a === board.boardId) { pick.a = pick.b; pick.b = pick.c; pick.c = null; }
   else if (pick.b === board.boardId) { pick.b = pick.c; pick.c = null; }
   else if (pick.c === board.boardId) { pick.c = null; }
@@ -5598,8 +5757,14 @@ function buildTimeSeries(def, issues, ctx) {
      partial slice — e.g. Apr reads 0 while its issues land in an unlabeled
      phantom bucket). Snap the window to full calendar months instead. */
   if (bucket === 'month') {
+    /* calendar-month alignment: months have uneven lengths, so a ceil(days/30.4)
+       bucket count misaligns counts vs labels. Snap the window to full calendar
+       months — but the window START comes from the SELECTED range (preset day
+       count or custom from-date), never from the oldest issue in the pool, or
+       changing the range dropdown would visibly change nothing. */
+    const winStartMs = hasCustom ? customWin.from : (rangeDays ? ANCHOR - rangeDays * DAY : oldest);
     const nowD = new Date(ANCHOR);
-    const oldestD = new Date(hasCustom ? Math.max(customWin.from, oldest) : oldest);
+    const oldestD = new Date(Math.max(winStartMs, oldest));
     nBuckets = Math.max(1,
       (nowD.getFullYear() * 12 + nowD.getMonth()) - (oldestD.getFullYear() * 12 + oldestD.getMonth()) + 1);
     nBuckets = Math.min(nBuckets, 400);
