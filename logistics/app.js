@@ -146,8 +146,8 @@ const I18N = {
     'lg.th.assignee': 'Assignee',
     'lg.th.created': 'Registered',
     'lg.th.updated': 'Updated',
-    'lg.mini.reporter': 'Reporter',
-    'lg.mini.assignee': 'Assignee',
+    'lg.mini.reporter': 'Rep.',
+    'lg.mini.assignee': 'Asg.',
     'lg.mini.created': 'Reg.',
     'lg.mini.updated': 'Upd.',
     'lg.th.direction': 'Logistics direction',
@@ -873,16 +873,16 @@ function lgRowHtml(r) {
   const descHtml = descPreview
     ? `<div class="lg-desc" ${r.descFull !== descPreview ? `title="${escapeHtml(r.descFull)}"` : ''}>${escapeHtml(descPreview)}</div>`
     : '';
-  /* people column: reporter + assignee stacked on one row each, mini labels
-     keep it clear which name is which while saving a whole column of space.
-     labels are abbreviated (Georgian needs it, English fits anyway) */
+  /* people column: reporter + assignee each on one line. Labels are small
+     isolated chips (assignee chip is accent-tinted) so the name text starts
+     after a clear visual boundary instead of a glued dot+space */
   const who = (name) => name
     ? escapeHtml(name)
     : `<span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`;
   const peopleHtml =
     `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.reporter'))}"><span class="lg-mini-label">${escapeHtml(t('lg.mini.reporter'))}</span>` +
     `<span class="lg-mini-value">${who(r.reporter)}</span></div>` +
-    `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.assignee'))}"><span class="lg-mini-label">${escapeHtml(t('lg.mini.assignee'))}</span>` +
+    `<div class="lg-mini-row lg-row-asg" title="${escapeHtml(t('lg.th.assignee'))}"><span class="lg-mini-label assignee-chip">${escapeHtml(t('lg.mini.assignee'))}</span>` +
     `<span class="lg-mini-value">${who(r.assignee)}</span></div>`;
   /* dates column: registered + updated stacked, same mini-label pattern.
      labels are abbreviated (Reg./Upd.) to keep the column narrow; the full

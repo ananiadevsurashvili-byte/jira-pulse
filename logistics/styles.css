@@ -70,8 +70,8 @@ body.light #lgContent .data-table thead th { background: #eef1fa; }
 #lgContent .data-table thead th { padding: 6px 8px; }
 #lgContent .lg-col-key      { width: 88px;  min-width: 0; }
 #lgContent .lg-col-status   { width: 104px; min-width: 0; }
-#lgContent .lg-col-people   { width: 168px; min-width: 0; }
-#lgContent .lg-col-dates    { width: 148px; min-width: 0; }
+#lgContent .lg-col-people   { width: 200px; min-width: 0; }
+#lgContent .lg-col-dates    { width: 150px; min-width: 0; }
 #lgContent .lg-col-direction{ width: 158px; min-width: 0; max-width: none; }
 #lgContent .lg-col-comments { width: 252px; min-width: 0; max-width: none; }
 #lgContent .lg-col-title    { width: auto; min-width: 0; }
@@ -79,13 +79,15 @@ body.light #lgContent .data-table thead th { background: #eef1fa; }
 /* narrow windows: lean columns so ALL columns (incl. Comments) fit on screen
    with no horizontal scrolling; title absorbs the squeeze via 2-line clamp.
    Key keeps 84px — measured bold "LOG-3961" is 65.8px + 16px cell padding =
-   81.8px; under table-layout:fixed anything narrower bleeds into TITLE. */
+   81.8px; under table-layout:fixed anything narrower bleeds into TITLE.
+   People/Dates keep 152/124px — chips (42px) + real names need room; a
+   starved name column ellipsizes nearly every Georgian fullname. */
 @media (max-width: 1280px) {
   #lgContent .data-table { min-width: 0; }
   #lgContent .lg-col-key      { width: 84px; }
-  #lgContent .lg-col-status   { width: 90px; }
-  #lgContent .lg-col-people   { width: 138px; }
-  #lgContent .lg-col-dates    { width: 118px; }
+  #lgContent .lg-col-status   { width: 88px; }
+  #lgContent .lg-col-people   { width: 188px; }
+  #lgContent .lg-col-dates    { width: 122px; }
   #lgContent .lg-col-direction{ width: 128px; }
   #lgContent .lg-col-comments { width: 180px; }
 }
@@ -607,26 +609,37 @@ body.light #lgTableScroll::-webkit-scrollbar-track { background: rgba(15, 23, 42
 body.light #lgTableScroll::-webkit-scrollbar-thumb { background: rgba(30, 39, 73, 0.28); background-clip: padding-box; }
 body.light #lgTableScroll::-webkit-scrollbar-thumb:hover { background: rgba(30, 39, 73, 0.45); background-clip: padding-box; }
 
-/* merged people/dates cells: label + value on one line, two lines per cell
-   (Reporter + Assignee · Registered + Updated) — saves two full columns */
+/* merged people/dates cells: label-chip + value on one line, two lines per
+   cell (Reporter + Assignee · Registered + Updated) — saves two full columns.
+   chips are fixed-width so both rows' names align on a clean vertical line */
 .lg-mini-row {
-  display: flex; align-items: baseline; gap: 5px;
+  display: flex; align-items: center; gap: 7px;
   min-width: 0; line-height: 1.35;
 }
-.lg-mini-row + .lg-mini-row { margin-top: 1px; }
+.lg-mini-row + .lg-mini-row { margin-top: 5px; }
 .lg-mini-label {
   flex: 0 0 auto;
-  font-size: 0.62rem; font-weight: 600; letter-spacing: 0.05em;
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted); opacity: 0.75;
+  color: var(--muted);
+  background: var(--chip, rgba(148, 163, 184, 0.14));
+  border-radius: 4px;
+  padding: 1.5px 5px;
+  line-height: 1.25;
+  white-space: nowrap;
+  text-align: center;
+  min-width: 34px;
+  box-sizing: border-box;
 }
+.assignee-chip { color: #a5b4fc; background: rgba(99, 102, 241, 0.16); }
 .lg-mini-value {
   flex: 1 1 auto; min-width: 0;
   font-size: 0.78rem; font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   overflow-wrap: anywhere; /* fixed layout: long names must clip, not stretch */
 }
-body.light .lg-mini-label { color: #6b7394; }
+body.light .lg-mini-label { color: #5b647f; background: rgba(30, 39, 73, 0.07); }
+body.light .assignee-chip { color: #4f46e5; background: rgba(99, 102, 241, 0.12); }
 .lg-dates-cell .lg-mini-value { font-weight: 400; color: var(--muted); font-size: 0.76rem; }
 .lg-unassigned { color: var(--muted); font-style: italic; font-weight: 400; }
 
