@@ -165,6 +165,8 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
     authHeader = 'Basic ' + btoa(stored.email + ':' + stored.token);
     domain = stored.domain;
   }
+  /* normalize scheme: app may send scheme-less "x.atlassian.net" */
+  if (domain && !/^https:\/\//i.test(domain)) domain = 'https://' + domain;
   if (!domain || !/^https:\/\/[a-z0-9.-]+\.atlassian\.net$/i.test(domain)) {
     return json({ error: 'no usable Jira domain' }, 401);
   }
@@ -348,6 +350,8 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
     authHeader = 'Basic ' + btoa(stored.email + ':' + stored.token);
     domain = stored.domain;
   }
+  /* normalize scheme: app may send scheme-less "x.atlassian.net" */
+  if (domain && !/^https:\/\//i.test(domain)) domain = 'https://' + domain;
   if (!domain || !/^https:\/\/[a-z0-9.-]+\.atlassian\.net$/i.test(domain)) {
     return json({ error: 'no usable Jira domain' }, 401);
   }
