@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="../styles.css?v=8241341" />
-<link rel="stylesheet" href="styles.css?v=1" />
+<link rel="stylesheet" href="styles.css?v=2" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -113,16 +113,13 @@
       <div class="table-scroll">
         <table class="data-table">
           <thead><tr>
-            <th data-col="key"      data-i18n="lg.th.key">Key</th>
-            <th data-col="summary"  data-i18n="lg.th.summary">Summary</th>
-            <th data-col="status"   data-i18n="lg.th.status">Status</th>
-            <th data-col="assignee" data-i18n="lg.th.assignee">Assignee</th>
-            <th data-col="created"  data-i18n="lg.th.created">Created</th>
-            <th data-col="updated"  data-i18n="lg.th.updated">Updated</th>
-            <th data-col="direction" data-i18n="lg.th.direction">Logistics direction</th>
-            <th data-col="title"    data-i18n="lg.th.title">Title</th>
-            <th data-col="labels"   data-i18n="lg.th.labels">Labels</th>
-            <th data-col="links"    data-i18n="lg.th.links">Linked issues</th>
+            <th data-col="key" class="lg-col-key" data-i18n="lg.th.key">Key</th>
+            <th data-col="title" class="lg-col-title" data-i18n="lg.th.title">Title</th>
+            <th data-col="status" class="lg-col-status" data-i18n="lg.th.status">Status</th>
+            <th data-col="assignee" class="lg-col-assignee" data-i18n="lg.th.assignee">Assignee</th>
+            <th data-col="created" class="lg-col-date" data-i18n="lg.th.created">Registered</th>
+            <th data-col="updated" class="lg-col-date" data-i18n="lg.th.updated">Updated</th>
+            <th data-col="direction" class="lg-col-direction" data-i18n="lg.th.direction">Logistics direction</th>
           </tr></thead>
           <tbody id="lgTbody"></tbody>
         </table>
@@ -138,6 +135,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=1"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>

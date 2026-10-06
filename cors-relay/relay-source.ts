@@ -47,7 +47,7 @@ const CREDS_KEY = "jirapulse_creds_v1";
 
 /* ── Logistics viewer page (?cmd=desk) ── */
 const DESK_EXCLUDE_LABEL = "Internal";
-const DESK_FIELDS_BASE = "summary,status,created,updated,assignee,issuetype,labels,issuelinks";
+const DESK_FIELDS_BASE = "summary,description,status,created,updated,assignee,issuetype,labels,issuelinks";
 
 /* admin token: static shared secret minted at first deploy. It only guards
    WHICH config is written; the Jira data itself stays behind Jira auth. */

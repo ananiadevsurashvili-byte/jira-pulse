@@ -31,7 +31,7 @@ body.light .tl-select {
 
 /* ── table: sticky header, sortable columns, cells ────────────────────── */
 .table-scroll { position: relative; }
-#lgContent .data-table { min-width: 980px; }
+#lgContent .data-table { min-width: 900px; }
 #lgContent .data-table thead th {
   position: sticky; top: 0; z-index: 2;
   background: var(--panel);
@@ -49,39 +49,30 @@ body.light .tl-select {
 #lgContent .data-table thead th[data-sort="desc"]::after { content: '▼'; }
 body.light #lgContent .data-table thead th { background: #f4f6fc; }
 
+/* ── density: tighter rows + tuned column widths ────────────────────────
+   Narrow: key, status, dates · Wide: title (with description underneath) */
+#lgContent .data-table td { padding: 5px 10px; vertical-align: top; }
+#lgContent .data-table thead th { padding: 7px 10px; }
+#lgContent .lg-col-key      { width: 86px;  min-width: 86px; }
+#lgContent .lg-col-status   { width: 118px; min-width: 118px; }
+#lgContent .lg-col-assignee { width: 150px; min-width: 130px; max-width: 190px; }
+#lgContent .lg-col-date     { width: 118px; min-width: 112px; }
+#lgContent .lg-col-direction{ width: 170px; min-width: 150px; max-width: 240px; }
+#lgContent .lg-col-title    { min-width: 280px; }
+
 .lg-nowrap { white-space: nowrap; }
-.lg-summary-cell { max-width: 320px; }
-.lg-chips-cell { white-space: normal; }
-
-/* unassigned placeholder */
+.lg-key-cell a { font-weight: 700; }
+.lg-title-cell { max-width: 480px; }
+.lg-task-title { font-weight: 600; }
+.lg-desc {
+  margin-top: 1px;
+  font-size: 0.76rem; line-height: 1.35; color: var(--muted);
+  max-width: 460px;
+  overflow: hidden; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+body.light .lg-desc { color: #6b7394; }
 .lg-unassigned { color: var(--muted); font-style: italic; }
-
-/* ── label chips ──────────────────────────────────────────────────────── */
-.lg-label-chip {
-  display: inline-block; margin: 1px 3px 1px 0; padding: 2px 9px;
-  border-radius: 999px; font-size: 0.68rem; font-weight: 600;
-  background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.35);
-  color: #a5b4fc; white-space: nowrap;
-}
-body.light .lg-label-chip {
-  background: rgba(79, 70, 229, 0.08); border-color: rgba(79, 70, 229, 0.3);
-  color: #4f46e5;
-}
-
-/* ── linked-issue chips (mini key links) ──────────────────────────────── */
-.lg-link-chip {
-  display: inline-block; margin: 1px 3px 1px 0; padding: 2px 8px;
-  border-radius: 999px; font-size: 0.68rem; font-weight: 600;
-  color: #7dd3fc; background: rgba(56, 189, 248, 0.1);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  text-decoration: none; transition: background 0.12s ease;
-}
-.lg-link-chip:hover { background: rgba(56, 189, 248, 0.2); text-decoration: none; }
-body.light .lg-link-chip {
-  color: #0369a1; background: rgba(14, 165, 233, 0.08);
-  border-color: rgba(14, 165, 233, 0.3);
-}
-body.light .lg-link-chip:hover { background: rgba(14, 165, 233, 0.16); }
 
 /* ── count chip is shared; give it breathing room in the toolbar ──────── */
 #lgCount { flex-shrink: 0; }

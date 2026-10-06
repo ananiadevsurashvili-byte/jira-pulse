@@ -8,8 +8,8 @@
 
      • gate: Google sign-in (org-domain restricted) + email one-time code
      • data: relay ?cmd=desk — all LOG issues EXCEPT label "Internal"
-     • table: key↗ / summary / status / assignee / registered / updated /
-       logistics direction / title / labels / linked issues
+     • table: key↗ / title (summary) with description under it / status /
+       assignee / registered / updated / logistics direction
      • global search + per-column filters + click-to-sort headers
 
    IMPORTANT: this file is intentionally standalone (reuse-by-copy). The
@@ -123,15 +123,12 @@ const I18N = {
     'lg.searchPh': 'Search tasks…',
     'lg.filterAll': 'All',
     'lg.th.key': 'Key',
-    'lg.th.summary': 'Summary',
+    'lg.th.title': 'Title',
     'lg.th.status': 'Status',
     'lg.th.assignee': 'Assignee',
     'lg.th.created': 'Registered',
     'lg.th.updated': 'Updated',
     'lg.th.direction': 'Logistics direction',
-    'lg.th.title': 'Title',
-    'lg.th.labels': 'Labels',
-    'lg.th.links': 'Linked issues',
     'lg.sortTitle': 'Click to sort',
     'lg.filterStatus': 'Filter by status',
     'lg.filterAssignee': 'Filter by assignee',
@@ -185,15 +182,12 @@ const I18N = {
     'lg.searchPh': 'ამოცანების ძებნა…',
     'lg.filterAll': 'ყველა',
     'lg.th.key': 'კოდი',
-    'lg.th.summary': 'დასახელება',
+    'lg.th.title': 'დასახელება',
     'lg.th.status': 'სტატუსი',
     'lg.th.assignee': 'აღმასრულებელი',
     'lg.th.created': 'რეგისტრაციის თარიღი',
     'lg.th.updated': 'ბოლო განახლება',
     'lg.th.direction': 'მიმართულება',
-    'lg.th.title': 'სათაური',
-    'lg.th.labels': 'ლეიბლები',
-    'lg.th.links': 'დაკავშირებული',
     'lg.sortTitle': 'დასალაგებლად დააჭირეთ',
     'lg.filterStatus': 'სტატუსით ფილტრი',
     'lg.filterAssignee': 'აღმასრულებლით ფილტრი',
@@ -636,27 +630,42 @@ function lgNormCustom(v) {
   return '';
 }
 
+/* Jira ADF (Atlassian Document Format) → plain text, one line per block */
+function lgAdfText(doc) {
+  if (doc == null) return '';
+  if (typeof doc === 'string') return doc;
+  if (Array.isArray(doc)) return doc.map(lgAdfText).filter(Boolean).join('\n');
+  if (typeof doc !== 'object') return '';
+  let text = '';
+  if (Array.isArray(doc.content)) text = lgAdfText(doc.content);
+  else if (doc.text != null) text = String(doc.text);
+  /* paragraph-level nodes get a newline after them for readability */
+  if (doc.type === 'paragraph' || doc.type === 'heading' || doc.type === 'bulletList' ||
+      doc.type === 'orderedList' || doc.type === 'codeBlock' || doc.type === 'blockquote') {
+    return text ? text + '\n' : '';
+  }
+  return text;
+}
+
+/* first line(s) of the description for the compact table cell */
+function lgDescPreview(raw) {
+  const full = lgAdfText(raw).replace(/\r/g, '');
+  if (!full.trim()) return { one: '', full: '' };
+  const lines = full.split('\n').map((s) => s.trim()).filter(Boolean);
+  return { one: lines[0] || '', full: lines.join('\n') };
+}
+
 /* relay issues → flat display rows (with defense-in-depth Internal filter) */
 function lgNormalize(data) {
   const dirId = data.fieldIds?.direction || null;
-  const ttlId = data.fieldIds?.title || null;
   const rows = [];
   for (const iss of (data.issues || [])) {
     const f = iss.fields || {};
     const labels = (f.labels || []).map(String);
     if (labels.some((l) => l.toLowerCase() === DESK_EXCLUDE_LABEL)) continue;
 
-    let direction = dirId ? lgNormCustom(f[dirId]) : '';
-    let title = ttlId ? lgNormCustom(f[ttlId]) : '';
-    if (!title && !ttlId) {
-      /* no "Title" field in the catalog — conservative fallback: the first
-         customfield holding a plain title-like string (not the direction) */
-      for (const [k, v] of Object.entries(f)) {
-        if (!/^customfield_\d+$/.test(k)) continue;
-        if (dirId && k === dirId) continue;
-        if (typeof v === 'string' && v.trim().length >= 2 && v.length <= 120) { title = v.trim(); break; }
-      }
-    }
+    const direction = dirId ? lgNormCustom(f[dirId]) : '';
+    const desc = lgDescPreview(f.description);
 
     const num = parseInt(String(iss.key).split('-')[1], 10) || 0;
     rows.push({
@@ -664,17 +673,13 @@ function lgNormalize(data) {
       num,
       href: 'https://' + JIRA_DOMAIN + '/browse/' + encodeURIComponent(iss.key),
       summary: f.summary || '',
+      descOne: desc.one,
+      descFull: desc.full,
       status: f.status?.name || '',
       assignee: f.assignee?.displayName || '',
       created: f.created ? Date.parse(f.created) : 0,
       updated: f.updated ? Date.parse(f.updated) : 0,
       direction,
-      title,
-      labels: labels.filter((l) => l.toLowerCase() !== DESK_EXCLUDE_LABEL),
-      links: (f.issuelinks || []).map((l) => {
-        const other = l.inwardIssue || l.outwardIssue;
-        return other ? { key: other.key, summary: other.fields?.summary || '' } : null;
-      }).filter(Boolean),
     });
   }
   return rows;
@@ -718,8 +723,7 @@ function lgFiltered() {
     if (lgState.filters.direction && r.direction !== lgState.filters.direction) return false;
     if (!q) return true;
     const hay = [
-      r.key, r.summary, r.status, r.assignee, r.direction, r.title,
-      r.labels.join(' '), r.links.map((l) => l.key).join(' '),
+      r.key, r.summary, r.descFull, r.status, r.assignee, r.direction,
     ].join(' ').toLowerCase();
     return hay.includes(q);
   });
@@ -728,7 +732,7 @@ function lgFiltered() {
   rows.sort((a, b) => {
     let r;
     if (col === 'created' || col === 'updated') r = (a[col] || 0) - (b[col] || 0);
-    else if (col === 'key' || col === 'links') r = a.num - b.num;   /* LOG-123 → 123 */
+    else if (col === 'key') r = a.num - b.num;   /* LOG-123 → 123 */
     else r = String(a[col] || '').localeCompare(String(b[col] || ''), undefined, { sensitivity: 'base' });
     return r * mul;
   });
@@ -741,26 +745,21 @@ function lgRowHtml(r) {
   const assignee = r.assignee
     ? escapeHtml(r.assignee)
     : `<span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`;
-  const title = r.title ? escapeHtml(r.title) : '<span class="muted">—</span>';
   const direction = r.direction ? escapeHtml(r.direction) : '<span class="muted">—</span>';
-  const labels = r.labels.length
-    ? r.labels.map((l) => `<span class="lg-label-chip">${escapeHtml(l)}</span>`).join(' ')
-    : '<span class="muted">—</span>';
-  const links = r.links.length
-    ? r.links.map((l) =>
-        `<a class="lg-link-chip" href="https://${JIRA_DOMAIN}/browse/${encodeURIComponent(l.key)}" target="_blank" rel="noopener" title="${escapeHtml(l.summary || l.key)}">${escapeHtml(l.key)}</a>`).join(' ')
-    : '<span class="muted">—</span>';
+  /* Title cell: task title (summary) with the description line under it */
+  const descHtml = r.descOne
+    ? `<div class="lg-desc" ${r.descFull !== r.descOne ? `title="${escapeHtml(r.descFull)}"` : ''}>${escapeHtml(r.descOne)}</div>`
+    : '';
   return `<tr>
-    <td class="lg-nowrap">${keyLink}</td>
-    <td class="lg-summary-cell">${escapeHtml(r.summary || '—')}</td>
+    <td class="lg-nowrap lg-key-cell">${keyLink}</td>
+    <td class="lg-title-cell">
+      <div class="lg-task-title">${escapeHtml(r.summary || '—')}</div>${descHtml}
+    </td>
     <td><span class="status-pill">${escapeHtml(r.status || '—')}</span></td>
     <td>${assignee}</td>
-    <td class="muted lg-nowrap">${fmtDateLong(r.created)}</td>
-    <td class="muted lg-nowrap">${fmtDateLong(r.updated)}</td>
-    <td>${direction}</td>
-    <td>${title}</td>
-    <td class="lg-chips-cell">${labels}</td>
-    <td class="lg-chips-cell">${links}</td>
+    <td class="muted lg-nowrap lg-date-cell">${fmtDateLong(r.created)}</td>
+    <td class="muted lg-nowrap lg-date-cell">${fmtDateLong(r.updated)}</td>
+    <td class="lg-direction-cell">${direction}</td>
   </tr>`;
 }
 
@@ -769,7 +768,7 @@ function lgRenderRows() {
   const rows = all.slice(0, LG_MAX_ROWS);
   $('#lgTbody').innerHTML = rows.length
     ? rows.map(lgRowHtml).join('')
-    : `<tr><td colspan="10" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('lg.empty'))}</td></tr>`;
+    : `<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('lg.empty'))}</td></tr>`;
   $('#lgCount').textContent = tReplace('lg.count', { n: all.length });
   $('#lgShowing').textContent = all.length > rows.length
     ? tReplace('lg.showing', { n: rows.length, total: all.length })
@@ -794,7 +793,7 @@ async function lgLoad(force) {
   try {
     const data = await lgFetchDesk(force);
     lgState.rows = lgNormalize(data);
-    lgState.fieldIds = data.fieldIds || { direction: null, title: null };
+    lgState.fieldIds = data.fieldIds || { direction: null };
     $('#lgFetchedAt').textContent = tReplace('lg.updatedAt', { t: fmtDateTime(data.fetchedAt) });
     lgBuildFilterBar();
     lgRenderRows();
