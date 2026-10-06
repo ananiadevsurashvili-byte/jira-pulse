@@ -48,7 +48,7 @@ const PUB_SESSION_TTL = 30 * 24 * 60 * 60 * 1000;   /* 30 days */
 
 /* table tuning */
 const LG_LIVE_TTL = 30 * 1000;    /* in-memory data cache */
-const LG_MAX_ROWS = 400;          /* rendered-row cap (filters still apply to all) */
+const LG_MAX_ROWS = 1000;         /* rendered-row cap (filters still apply to all) */
 
 /* ── state ─────────────────────────────────────────────────────────── */
 let lgState = {
@@ -57,8 +57,9 @@ let lgState = {
   codeSent: false,
   rows: [],            /* normalized task rows */
   fieldIds: { direction: null, title: null },
+  truncated: false,
   q: '',               /* global search text */
-  filters: { status: '', assignee: '', direction: '' },
+  filters: { status: '', reporter: '', assignee: '', direction: '' },
   sort: { col: 'created', dir: 'desc' },
   loading: false,
 };
@@ -125,14 +126,19 @@ const I18N = {
     'lg.th.key': 'Key',
     'lg.th.title': 'Title',
     'lg.th.status': 'Status',
+    'lg.th.reporter': 'Reporter',
     'lg.th.assignee': 'Assignee',
     'lg.th.created': 'Registered',
     'lg.th.updated': 'Updated',
     'lg.th.direction': 'Logistics direction',
+    'lg.th.comments': 'Comments',
     'lg.sortTitle': 'Click to sort',
     'lg.filterStatus': 'Filter by status',
+    'lg.filterReporter': 'Filter by reporter',
     'lg.filterAssignee': 'Filter by assignee',
     'lg.filterDirection': 'Filter by direction',
+    'lg.commentsCount': '{n} comments',
+    'lg.truncated': 'Jira returned more tasks than can be synced — showing the newest.',
     'lg.loading': 'Loading tasks…',
     'lg.empty': 'No tasks match the current filters.',
     'lg.unassigned': 'Unassigned',
@@ -184,14 +190,19 @@ const I18N = {
     'lg.th.key': 'კოდი',
     'lg.th.title': 'დასახელება',
     'lg.th.status': 'სტატუსი',
+    'lg.th.reporter': 'მომხსენებელი',
     'lg.th.assignee': 'აღმასრულებელი',
     'lg.th.created': 'რეგისტრაციის თარიღი',
     'lg.th.updated': 'ბოლო განახლება',
     'lg.th.direction': 'მიმართულება',
+    'lg.th.comments': 'კომენტარები',
     'lg.sortTitle': 'დასალაგებლად დააჭირეთ',
     'lg.filterStatus': 'სტატუსით ფილტრი',
+    'lg.filterReporter': 'მომხსენებლით ფილტრი',
     'lg.filterAssignee': 'აღმასრულებლით ფილტრი',
     'lg.filterDirection': 'მიმართულებით ფილტრი',
+    'lg.commentsCount': '{n} კომენტარი',
+    'lg.truncated': 'Jira-მა ამოცანების იმაზე მეტი დააბრუნა, რამდენის სინქრონიზაციაც შესაძლებელია — ნაჩვენებია უახლესი.',
     'lg.loading': 'ამოცანები იტვირთება…',
     'lg.empty': 'ფილტრებს ვერცერთი ამოცანა არ ემთხვევა.',
     'lg.unassigned': 'გაუნაწილებელი',
@@ -341,6 +352,16 @@ function fmtDateTime(v) {
   if (isNaN(d.getTime())) return '—';
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) +
     ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
+/* ── status → semantic color bucket ──────────────────────────────────
+   One bucket per workflow family; CSS gives each a colored pill. */
+function lgStatusClass(status) {
+  const s = String(status || '').toLowerCase();
+  if (/^(done|closed|resolved|complete|completed|cancelled|canceled)/.test(s)) return 'lg-st-done';
+  if (/^(in progress|in review|review|testing|qa|in development|reopened)/.test(s)) return 'lg-st-progress';
+  if (/^(waiting|pending|blocked|hold|on hold|escalated|open|to do|backlog|new)/.test(s)) return 'lg-st-wait';
+  return 'lg-st-other';
 }
 
 /* ── login gate rendering ──────────────────────────────────────────── */
@@ -667,6 +688,14 @@ function lgNormalize(data) {
     const direction = dirId ? lgNormCustom(f[dirId]) : '';
     const desc = lgDescPreview(f.description);
 
+    /* comments come pre-slimmed from the relay: last 3, plain-text bodies */
+    const rawComments = Array.isArray(f.comment) ? f.comment : [];
+    const comments = rawComments.map((c) => ({
+      author: String(c?.author || ''),
+      created: c?.created ? Date.parse(c.created) : 0,
+      body: String(c?.body || '').replace(/\r/g, '').trim(),
+    })).filter((c) => c.body);
+
     const num = parseInt(String(iss.key).split('-')[1], 10) || 0;
     rows.push({
       key: iss.key,
@@ -676,10 +705,12 @@ function lgNormalize(data) {
       descOne: desc.one,
       descFull: desc.full,
       status: f.status?.name || '',
+      reporter: f.reporter?.displayName || '',
       assignee: f.assignee?.displayName || '',
       created: f.created ? Date.parse(f.created) : 0,
       updated: f.updated ? Date.parse(f.updated) : 0,
       direction,
+      comments,
     });
   }
   return rows;
@@ -692,7 +723,7 @@ function lgDistinct(col) {
   return [...s].sort((a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }));
 }
 
-/* per-column dropdowns: status / assignee / direction */
+/* per-column dropdowns: status / reporter / assignee / direction */
 function lgBuildFilterBar() {
   const bar = $('#lgFilterBar');
   if (!bar) return;
@@ -704,6 +735,7 @@ function lgBuildFilterBar() {
   };
   bar.innerHTML =
     mk('lgFStatus', 'status', 'lg.filterStatus') +
+    mk('lgFReporter', 'reporter', 'lg.filterReporter') +
     mk('lgFAssignee', 'assignee', 'lg.filterAssignee') +
     mk('lgFDir', 'direction', 'lg.filterDirection');
   bar.querySelectorAll('select').forEach((sel) => {
@@ -719,11 +751,13 @@ function lgFiltered() {
   const q = lgState.q.trim().toLowerCase();
   const rows = lgState.rows.filter((r) => {
     if (lgState.filters.status && r.status !== lgState.filters.status) return false;
+    if (lgState.filters.reporter && r.reporter !== lgState.filters.reporter) return false;
     if (lgState.filters.assignee && r.assignee !== lgState.filters.assignee) return false;
     if (lgState.filters.direction && r.direction !== lgState.filters.direction) return false;
     if (!q) return true;
     const hay = [
-      r.key, r.summary, r.descFull, r.status, r.assignee, r.direction,
+      r.key, r.summary, r.descFull, r.status, r.reporter, r.assignee, r.direction,
+      r.comments.map((c) => c.author + ' ' + c.body).join(' '),
     ].join(' ').toLowerCase();
     return hay.includes(q);
   });
@@ -733,6 +767,7 @@ function lgFiltered() {
     let r;
     if (col === 'created' || col === 'updated') r = (a[col] || 0) - (b[col] || 0);
     else if (col === 'key') r = a.num - b.num;   /* LOG-123 → 123 */
+    else if (col === 'comments') r = a.comments.length - b.comments.length;
     else r = String(a[col] || '').localeCompare(String(b[col] || ''), undefined, { sensitivity: 'base' });
     return r * mul;
   });
@@ -742,9 +777,6 @@ function lgFiltered() {
 function lgRowHtml(r) {
   const keyLink = `<a href="${escapeHtml(r.href)}" target="_blank" rel="noopener" title="${escapeHtml(r.summary)}">` +
     `${escapeHtml(r.key)}<span class="ilist-ext" aria-hidden="true">↗</span></a>`;
-  const assignee = r.assignee
-    ? escapeHtml(r.assignee)
-    : `<span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`;
   const direction = r.direction
     ? `<div class="lg-dir-text">${escapeHtml(r.direction)}</div>`
     : '<span class="muted">—</span>';
@@ -752,16 +784,33 @@ function lgRowHtml(r) {
   const descHtml = r.descOne
     ? `<div class="lg-desc" ${r.descFull !== r.descOne ? `title="${escapeHtml(r.descFull)}"` : ''}>${escapeHtml(r.descOne)}</div>`
     : '';
+  /* reporter shows above assignee in the same people cell */
+  const peopleHtml =
+    `<div class="lg-person">${r.reporter ? `<span class="lg-person-role" data-i18n="lg.th.reporter">${escapeHtml(t('lg.th.reporter'))}</span>${escapeHtml(r.reporter)}` : ''}` +
+    `${r.assignee
+      ? `<span class="lg-person-role">${escapeHtml(t('lg.th.assignee'))}</span>${escapeHtml(r.assignee)}`
+      : `<span class="lg-person-role">${escapeHtml(t('lg.th.assignee'))}</span><span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`}` +
+    `</div>`;
+  /* comments: synced from Jira — stacked preview, full text on hover */
+  const commentsHtml = r.comments.length
+    ? `<div class="lg-comments" title="${escapeHtml(r.comments.map((c) => (c.author ? c.author + ': ' : '') + c.body).join('\n———\n'))}">` +
+      r.comments.map((c) =>
+        `<div class="lg-comment"><span class="lg-comment-author">${escapeHtml(c.author || '—')}</span>` +
+        `<span class="lg-comment-body">${escapeHtml(c.body.length > 90 ? c.body.slice(0, 90) + '…' : c.body)}</span></div>`
+      ).join('') +
+      `</div>`
+    : '<span class="muted">—</span>';
   return `<tr>
     <td class="lg-nowrap lg-key-cell">${keyLink}</td>
     <td class="lg-title-cell">
       <div class="lg-task-title">${escapeHtml(r.summary || '—')}</div>${descHtml}
     </td>
-    <td><span class="status-pill">${escapeHtml(r.status || '—')}</span></td>
-    <td>${assignee}</td>
+    <td><span class="status-pill ${lgStatusClass(r.status)}">${escapeHtml(r.status || '—')}</span></td>
+    <td class="lg-people-cell">${peopleHtml}</td>
     <td class="muted lg-nowrap lg-date-cell">${fmtDateLong(r.created)}</td>
     <td class="muted lg-nowrap lg-date-cell">${fmtDateLong(r.updated)}</td>
     <td class="lg-direction-cell">${direction}</td>
+    <td class="lg-comments-cell">${commentsHtml}</td>
   </tr>`;
 }
 
@@ -770,7 +819,7 @@ function lgRenderRows() {
   const rows = all.slice(0, LG_MAX_ROWS);
   $('#lgTbody').innerHTML = rows.length
     ? rows.map(lgRowHtml).join('')
-    : `<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('lg.empty'))}</td></tr>`;
+    : `<tr><td colspan="9" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('lg.empty'))}</td></tr>`;
   $('#lgCount').textContent = tReplace('lg.count', { n: all.length });
   $('#lgShowing').textContent = all.length > rows.length
     ? tReplace('lg.showing', { n: rows.length, total: all.length })
@@ -796,7 +845,9 @@ async function lgLoad(force) {
     const data = await lgFetchDesk(force);
     lgState.rows = lgNormalize(data);
     lgState.fieldIds = data.fieldIds || { direction: null };
-    $('#lgFetchedAt').textContent = tReplace('lg.updatedAt', { t: fmtDateTime(data.fetchedAt) });
+    lgState.truncated = !!data.truncated;
+    $('#lgFetchedAt').textContent = tReplace('lg.updatedAt', { t: fmtDateTime(data.fetchedAt) }) +
+      (lgState.truncated ? ' · ⚠ ' + t('lg.truncated') : '');
     lgBuildFilterBar();
     lgRenderRows();
   } catch (e) {

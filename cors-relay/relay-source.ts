@@ -47,7 +47,21 @@ const CREDS_KEY = "jirapulse_creds_v1";
 
 /* ── Logistics viewer page (?cmd=desk) ── */
 const DESK_EXCLUDE_LABEL = "Internal";
-const DESK_FIELDS_BASE = "summary,description,status,created,updated,assignee,issuetype,labels,issuelinks";
+const DESK_FIELDS_BASE = "summary,description,status,created,updated,assignee,reporter,labels,comment";
+
+/* ADF (Atlassian Document Format) body → plain text, one line per block */
+function adfToText(doc: any): string {
+  if (doc == null) return "";
+  if (typeof doc === "string") return doc;
+  if (Array.isArray(doc)) return doc.map(adfToText).filter(Boolean).join("\n");
+  if (typeof doc !== "object") return "";
+  let text = "";
+  if (Array.isArray(doc.content)) text = adfToText(doc.content);
+  else if (doc.text != null) text = String(doc.text);
+  const blocks = ["paragraph", "heading", "bulletList", "orderedList", "codeBlock", "blockquote"];
+  if (blocks.includes(doc.type)) return text ? text + "\n" : "";
+  return text;
+}
 
 /* admin token: static shared secret minted at first deploy. It only guards
    WHICH config is written; the Jira data itself stays behind Jira auth. */
@@ -401,15 +415,21 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
   const SEARCH_FIELDS = [DESK_FIELDS_BASE, directionFieldId, titleFieldId]
     .filter(Boolean).join(',');
 
-  /* paged search — same shape as handleBoardCmd.searchJql (no changelog here) */
-  const MAX_TOTAL = 600;
+  /* paged search — same shape as handleBoardCmd.searchJql (no changelog here).
+     MAX_TOTAL 4000 with two full re-fetch passes: effectively syncs ALL LOG
+     tasks (currently ~2.4k, headroom to grow). jqlTotal + truncated report
+     how many issues Jira actually matched, so truncation is visible. */
+  const MAX_TOTAL = 4000;
+  let jqlTotal = 0;
+  let jqlTruncated = false;
   async function searchJql(jql: string): Promise<any[] | null> {
     const out: any[] = [];
-    let pageSize = 50;
-    for (let pass = 0; pass < 6; pass++) {
+    let pageSize = 100;
+    for (let pass = 0; pass < 2; pass++) {
       out.length = 0;
       let nextPageToken: string | null = null;
       let ok = true;
+      let sawLast = false;
       while (out.length < MAX_TOTAL) {
         const qp = new URLSearchParams();
         qp.set('jql', jql);
@@ -428,13 +448,17 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
         else {
           let page: any;
           try { page = await resp.json(); } catch { return null; }
+          if (typeof page.total === 'number') jqlTotal = page.total;
           if (Array.isArray(page.issues)) out.push(...page.issues);
-          if (page.isLast === true || !page.nextPageToken) break;
+          if (page.isLast === true || !page.nextPageToken) { sawLast = true; break; }
           nextPageToken = page.nextPageToken;
         }
         if (!ok) break;
       }
-      if (ok) return out.slice(0, MAX_TOTAL);
+      if (ok) {
+        jqlTruncated = !sawLast || out.length > MAX_TOTAL;
+        return out.slice(0, MAX_TOTAL);
+      }
       pageSize = Math.max(1, Math.floor(pageSize / 2));
     }
     return null;
@@ -449,11 +473,29 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
   issues = issues.filter((i) => !((i.fields?.labels || []) as string[])
     .some((l: unknown) => String(l).toLowerCase() === DESK_EXCLUDE_LABEL.toLowerCase()));
 
+  /* slim comments: keep only the LAST 3 per issue, flattened to plain text —
+     keeps the payload small (description ADF is already dropped by the API
+     when "comment" is requested as a list of bodies). */
+  for (const iss of issues) {
+    const comments = iss.fields?.comment?.comments;
+    if (Array.isArray(comments) && comments.length) {
+      iss.fields.comment = comments.slice(-3).map((c: any) => ({
+        author: String(c?.author?.displayName || ''),
+        created: String(c?.created || ''),
+        body: adfToText(c?.body),
+      }));
+    } else {
+      delete iss.fields.comment;
+    }
+  }
+
   return json({
     ok: true,
     cmd: 'desk',
     project,
     count: issues.length,
+    jqlTotal: jqlTotal || issues.length,
+    truncated: jqlTruncated || jqlTotal > issues.length,
     fetchedAt: Date.now(),
     fieldIds: { direction: directionFieldId || null, title: titleFieldId || null },
     fieldNames: { direction: directionFieldName, title: titleFieldName },
