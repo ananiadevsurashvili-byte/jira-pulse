@@ -1,0 +1,88 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   JiraPulse · Logistics Desk (logistics/styles.css)
+
+   Page-specific styles only — the shared visual language (orbs, glass
+   cards, topbar, pub-user-chip, data-table, status-pill, toast) comes
+   from ../styles.css. Everything here is additive and scoped to /logistics/.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── login gate: give the inline Google placeholder a stable block size ── */
+#lgAuthBox { max-width: 420px; margin: 0 auto; }
+#lgGoogleBtn.google-btn { justify-content: center; min-height: 44px; }
+/* Google's rendered button replaces the placeholder's inner content */
+#lgGoogleBtn > div { width: 100% !important; }
+
+/* ── filter bar selects (sibling of .tl-search) ───────────────────────── */
+#lgFilterBar { flex-wrap: wrap; }
+.tl-select {
+  width: auto; min-width: 150px; max-width: 230px;
+  padding: 8px 30px 8px 12px; font-size: 0.8rem; font-weight: 500;
+  border: 1px solid var(--border); border-radius: 9px;
+  background-color: rgba(255, 255, 255, 0.04); color: var(--text);
+  color-scheme: dark; cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b93ad' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 11px center;
+}
+.tl-select:focus { outline: none; border-color: var(--accent); }
+body.light .tl-select {
+  background-color: rgba(255, 255, 255, 0.9); color: #1e2540; color-scheme: light;
+}
+
+/* ── table: sticky header, sortable columns, cells ────────────────────── */
+.table-scroll { position: relative; }
+#lgContent .data-table { min-width: 980px; }
+#lgContent .data-table thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--panel);
+  cursor: pointer; user-select: none; white-space: nowrap;
+}
+#lgContent .data-table thead th::after {
+  content: '↕';
+  display: inline-block; margin-left: 6px;
+  font-size: 0.68rem; color: var(--muted); opacity: 0.45;
+  transition: opacity 0.12s ease;
+}
+#lgContent .data-table thead th:hover::after { opacity: 1; }
+#lgContent .data-table thead th.lg-sorted::after { opacity: 1; color: var(--accent); font-weight: 700; }
+#lgContent .data-table thead th[data-sort="asc"]::after { content: '▲'; }
+#lgContent .data-table thead th[data-sort="desc"]::after { content: '▼'; }
+body.light #lgContent .data-table thead th { background: #f4f6fc; }
+
+.lg-nowrap { white-space: nowrap; }
+.lg-summary-cell { max-width: 320px; }
+.lg-chips-cell { white-space: normal; }
+
+/* unassigned placeholder */
+.lg-unassigned { color: var(--muted); font-style: italic; }
+
+/* ── label chips ──────────────────────────────────────────────────────── */
+.lg-label-chip {
+  display: inline-block; margin: 1px 3px 1px 0; padding: 2px 9px;
+  border-radius: 999px; font-size: 0.68rem; font-weight: 600;
+  background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.35);
+  color: #a5b4fc; white-space: nowrap;
+}
+body.light .lg-label-chip {
+  background: rgba(79, 70, 229, 0.08); border-color: rgba(79, 70, 229, 0.3);
+  color: #4f46e5;
+}
+
+/* ── linked-issue chips (mini key links) ──────────────────────────────── */
+.lg-link-chip {
+  display: inline-block; margin: 1px 3px 1px 0; padding: 2px 8px;
+  border-radius: 999px; font-size: 0.68rem; font-weight: 600;
+  color: #7dd3fc; background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  text-decoration: none; transition: background 0.12s ease;
+}
+.lg-link-chip:hover { background: rgba(56, 189, 248, 0.2); text-decoration: none; }
+body.light .lg-link-chip {
+  color: #0369a1; background: rgba(14, 165, 233, 0.08);
+  border-color: rgba(14, 165, 233, 0.3);
+}
+body.light .lg-link-chip:hover { background: rgba(14, 165, 233, 0.16); }
+
+/* ── count chip is shared; give it breathing room in the toolbar ──────── */
+#lgCount { flex-shrink: 0; }
+#lgToolbar { justify-content: space-between; }

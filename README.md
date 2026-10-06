@@ -36,6 +36,10 @@ Uses Jira Cloud REST APIs: `agile/1.0/board`, `agile/1.0/board/{id}/issue?expand
 
 Deployed as a static site on **GitHub Pages**.
 
+## 🚚 Logistics Desk
+
+A companion mini-app at [/logistics/](https://ananiadevsurashvili-byte.github.io/jira-pulse/logistics/) — the same org login (Google + email code, @caucasusauto.com only) showing a live, filterable task list of the **LOG Service-Desk project** (tasks labeled *Internal* are excluded).
+
 ## 🔒 Privacy
 
 Everything runs in your browser. There is no backend — nothing is logged or stored anywhere except your own browser's local storage. Clear it anytime via **Settings → Clear local data**.

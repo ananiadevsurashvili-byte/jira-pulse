@@ -22,6 +22,9 @@
  *   ?cmd=publish:set   (POST body: config)      → overwrites the whole config [admin only]
  *   ?cmd=publish:clear                          → removes the config          [admin only]
  *   ?cmd=board&bid=<id>&mode=<light|full>       → live issues for one board   [public]
+ *   ?cmd=desk&project=<KEY>&domain=<host>       → live Service Desk issues for one
+ *                                                 project, excluding label "Internal"
+ *                                                 (Logistics viewer page)      [public]
  *
  * Admin auth for writes: the request must carry the publish-admin token.
  * The token is a shared secret minted when the admin publishes; it is sent as
@@ -41,6 +44,10 @@ const ALLOWED_HOST = /(^|\.)atlassian\.net$/i;
 const PUB_KEY = "jirapulse_publish_v1";
 const ADMIN_KEY = "jirapulse_publish_admin_v1";
 const CREDS_KEY = "jirapulse_creds_v1";
+
+/* ── Logistics viewer page (?cmd=desk) ── */
+const DESK_EXCLUDE_LABEL = "Internal";
+const DESK_FIELDS_BASE = "summary,status,created,updated,assignee,issuetype,labels,issuelinks";
 
 /* admin token: static shared secret minted at first deploy. It only guards
    WHICH config is written; the Jira data itself stays behind Jira auth. */
@@ -113,6 +120,10 @@ async function handler(request: Request): Promise<Response> {
          admin's stored read-only Jira credentials (set once via creds:set). */
       if (cmd === 'board') {
         return await handleBoardCmd(u, request);
+      }
+
+      if (cmd === 'desk') {
+        return await handleDeskCmd(u, request);
       }
 
       return json({ error: 'unknown cmd: ' + cmd }, 400);
@@ -300,6 +311,149 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
     hasChangelog,
     count: issues.length,
     fetchedAt: Date.now(),
+    issues,
+  });
+}
+
+/* ─────────────── live Service Desk fetch for the Logistics page ───────────────
+   Sibling of handleBoardCmd for Service Desk projects that have no agile board.
+   ?cmd=desk&project=<KEY>&domain=<host>&directionField=<id>&titleField=<id>
+   Returns ALL project issues EXCLUDING label "Internal" (Jira's NOT IN on the
+   multi-value labels field has "any value" edge semantics, so we re-filter the
+   results server-side too — the viewer page filters a third time client-side).
+   Credentials: viewer's own Authorization header wins; else the admin's stored
+   read-only Jira credentials (same rules as ?cmd=board). */
+async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
+  const project = (u.searchParams.get('project') || '').trim().toUpperCase();
+  if (!/^[A-Z][A-Z0-9_]{0,9}$/.test(project)) {
+    return json({ error: 'invalid project' }, 400);
+  }
+  const domainParam = (u.searchParams.get('domain') || '').trim();
+
+  /* credentials: identical rules to handleBoardCmd */
+  let authHeader = request.headers.get('authorization') || '';
+  let domain = '';
+  const stored = await blob.getJSON(CREDS_KEY);
+  if (authHeader) {
+    if (domainParam && /(^|\.)atlassian\.net$/i.test(domainParam)) {
+      domain = domainParam;
+    } else {
+      domain = stored?.domain || '';
+    }
+  }
+  if (!authHeader) {
+    if (!stored?.domain || !stored?.email || !stored?.token) {
+      return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
+    }
+    authHeader = 'Basic ' + btoa(stored.email + ':' + stored.token);
+    domain = stored.domain;
+  }
+  if (!domain || !/^https:\/\/[a-z0-9.-]+\.atlassian\.net$/i.test(domain)) {
+    return json({ error: 'no usable Jira domain' }, 401);
+  }
+  const base = domain.replace(/\/+$/, '');
+
+  const jh: Record<string, string> = {
+    'Authorization': authHeader,
+    'Accept': 'application/json',
+    'User-Agent': 'JiraPulse-Relay/1.0',
+  };
+  const get = async (path: string): Promise<Response> => {
+    return await fetch(base + path, { method: 'GET', headers: jh, redirect: 'follow' });
+  };
+
+  /* ── custom field discovery: "Logistics direction" + "Title" ──
+     (ids differ per instance; overridable via query params) */
+  let directionFieldId = (u.searchParams.get('directionField') || '').trim();
+  let titleFieldId = (u.searchParams.get('titleField') || '').trim();
+  let directionFieldName = '';
+  let titleFieldName = '';
+  let titleCandidates: { id: string; name: string }[] = [];
+  try {
+    const fResp = await get('/rest/api/3/field');
+    if (fResp.ok) {
+      const catalog: any[] = await fResp.json();
+      if (!directionFieldId) {
+        const dir = catalog.find((f) => f && f.custom && /^logistics direction$/i.test(f.name || ''))
+          || catalog.find((f) => f && f.custom && /logistics/i.test(f.name || ''));
+        if (dir?.id) { directionFieldId = String(dir.id); directionFieldName = String(dir.name || ''); }
+      }
+      if (!titleFieldId) {
+        /* strict auto-match only (exact names); anything else that merely
+           CONTAINS "title" is reported as a candidate list instead, so a
+           wrong look-alike field (e.g. "Problem Title Reminder Red") can
+           never hijack the column */
+        const ttl = catalog.find((f) => f && f.custom && /^title$/i.test(f.name || ''))
+          || catalog.find((f) => f && f.custom && /^request title$/i.test(f.name || ''));
+        if (ttl?.id) { titleFieldId = String(ttl.id); titleFieldName = String(ttl.name || ''); }
+        titleCandidates = catalog
+          .filter((f) => f && f.custom && /title/i.test(f.name || ''))
+          .slice(0, 12)
+          .map((f) => ({ id: String(f.id), name: String(f.name) }));
+      }
+    }
+  } catch { /* best-effort — columns just come back empty without it */ }
+
+  const SEARCH_FIELDS = [DESK_FIELDS_BASE, directionFieldId, titleFieldId]
+    .filter(Boolean).join(',');
+
+  /* paged search — same shape as handleBoardCmd.searchJql (no changelog here) */
+  const MAX_TOTAL = 600;
+  async function searchJql(jql: string): Promise<any[] | null> {
+    const out: any[] = [];
+    let pageSize = 50;
+    for (let pass = 0; pass < 6; pass++) {
+      out.length = 0;
+      let nextPageToken: string | null = null;
+      let ok = true;
+      while (out.length < MAX_TOTAL) {
+        const qp = new URLSearchParams();
+        qp.set('jql', jql);
+        qp.set('fields', SEARCH_FIELDS);
+        qp.set('maxResults', String(pageSize));
+        if (nextPageToken) qp.set('nextPageToken', nextPageToken);
+        let resp: Response;
+        try {
+          resp = await get(`/rest/api/3/search/jql?${qp.toString()}`);
+        } catch (e) {
+          return null;
+        }
+        if (resp.status === 413 && pageSize > 1) { ok = false; }        // shrink & restart
+        else if (resp.status === 410 || resp.status === 400) return null; // endpoint disabled / bad JQL
+        else if (!resp.ok) return null;
+        else {
+          let page: any;
+          try { page = await resp.json(); } catch { return null; }
+          if (Array.isArray(page.issues)) out.push(...page.issues);
+          if (page.isLast === true || !page.nextPageToken) break;
+          nextPageToken = page.nextPageToken;
+        }
+        if (!ok) break;
+      }
+      if (ok) return out.slice(0, MAX_TOTAL);
+      pageSize = Math.max(1, Math.floor(pageSize / 2));
+    }
+    return null;
+  }
+
+  const jql = `project in ("${project}") AND (labels is EMPTY OR labels NOT IN ("${DESK_EXCLUDE_LABEL}")) ORDER BY created DESC`;
+  let issues = await searchJql(jql);
+  if (!issues) return json({ error: 'could not load project issues from Jira' }, 502);
+
+  /* server-side re-filter: JQL NOT IN on multi-value fields can still match
+     issues that carry the excluded label among others */
+  issues = issues.filter((i) => !((i.fields?.labels || []) as string[])
+    .some((l: unknown) => String(l).toLowerCase() === DESK_EXCLUDE_LABEL.toLowerCase()));
+
+  return json({
+    ok: true,
+    cmd: 'desk',
+    project,
+    count: issues.length,
+    fetchedAt: Date.now(),
+    fieldIds: { direction: directionFieldId || null, title: titleFieldId || null },
+    fieldNames: { direction: directionFieldName, title: titleFieldName },
+    titleCandidates,
     issues,
   });
 }

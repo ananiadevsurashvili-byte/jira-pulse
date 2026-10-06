@@ -81,6 +81,16 @@ const badProxy = await call('/?url=' + encodeURIComponent('https://evil.example.
 console.log('proxy with disallowed host (expect 403):', badProxy.status, JSON.stringify(badProxy.body));
 ok = ok && badProxy.status === 403;
 
+/* ── desk cmd (Logistics page) ── */
+const badDesk = await call('/?cmd=desk&project=LOG!');
+console.log('desk with invalid project (expect 400):', badDesk.status, JSON.stringify(badDesk.body));
+ok = ok && badDesk.status === 400;
+
+const desk = await call('/?cmd=desk&project=LOG');
+console.log('desk LOG (200 with stored creds / 401 without):', desk.status,
+  String(JSON.stringify(desk.body)).slice(0, 160));
+ok = ok && (desk.status === 200 || desk.status === 401);
+
 // clean the test config back out so the app starts from a clean slate
 const clear = await call('/?cmd=publish:clear', {
   method: 'POST',

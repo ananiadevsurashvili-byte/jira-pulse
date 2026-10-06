@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JiraPulse · Logistics Desk</title>
+<meta name="description" content="Logistics Service Desk task list — live LOG project issues, org-only access." />
+<meta name="robots" content="noindex" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../styles.css?v=8241341" />
+<link rel="stylesheet" href="styles.css?v=1" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+<script src="https://accounts.google.com/gsi/client" async></script>
+</head>
+<body>
+<div class="orb orb-a" aria-hidden="true"></div>
+<div class="orb orb-b" aria-hidden="true"></div>
+<div class="orb orb-c" aria-hidden="true"></div>
+
+<!-- ══════════ TOP BAR ══════════ -->
+<header class="topbar pub-topbar">
+  <div class="brand" id="lgBrandBtn" role="button" tabindex="0" data-i18n-title="lg.toMain" title="Go to JiraPulse dashboards">
+    <svg viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="8" fill="url(#lgl)"/><defs><linearGradient id="lgl" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M6 21l4-7 4 5 5-10 7 12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>Jira<b>Pulse</b></span>
+    <span class="admin-badge org-badge" data-i18n-text="lg.orgBadge">Logistics</span>
+  </div>
+  <div class="topbar-center">
+    <span id="lgHeadTitle" class="header-title" data-i18n="lg.headTitle">Logistics desk</span>
+  </div>
+  <div class="topbar-right">
+    <span class="lang-switch" role="group" aria-label="Language">
+      <button class="lang-btn" data-lang="en" type="button">EN</button>
+      <button class="lang-btn" data-lang="ka" type="button">ქა</button>
+    </span>
+    <span class="theme-switch" role="group" aria-label="Theme" data-i18n-title="theme.title" title="Switch color theme">
+      <button class="theme-btn" data-theme="dark" type="button" data-i18n-title="theme.dark" title="Dark theme">🌙</button>
+      <button class="theme-btn" data-theme="light" type="button" data-i18n-title="theme.light" title="Light theme">☀️</button>
+    </span>
+    <span id="lgUserChip" class="pub-user-chip hidden">
+      <span id="lgUserAvatar" class="pub-avatar" aria-hidden="true"></span>
+      <span id="lgUserName" class="pub-user-name"></span>
+      <span class="pub-chip-caret" aria-hidden="true">▾</span>
+      <button id="lgSignOutBtn" class="pub-signout hidden" type="button" data-i18n="pub.signOut" data-i18n-title="pub.signOutTitle" title="Sign out and return to the login screen">⎋ Sign out</button>
+    </span>
+  </div>
+</header>
+
+<main class="main">
+  <!-- ══════════ LOGIN GATE ══════════ -->
+  <section id="lgGate">
+    <div class="screen-head dash-head">
+      <div class="pub-hero">
+        <h2 class="pub-hero-title" data-i18n="lg.title">Logistics desk</h2>
+        <p class="muted pub-hero-sub" data-i18n="lg.subtitle">Live LOG service-desk tasks · restricted to @caucasusauto.com</p>
+        <p id="lgStatus" class="muted" style="margin-top:8px"></p>
+      </div>
+    </div>
+
+    <div id="lgAuthBox" class="glass" style="padding:28px">
+      <div style="margin-bottom:14px">
+        <div id="lgGoogleBtn" class="google-btn" style="display:inline-flex;align-items:center;gap:10px;padding:10px 18px;border-radius:10px;border:1px solid var(--border);background:var(--panel);cursor:pointer;font-size:0.88rem;font-weight:600;color:var(--text)">
+          <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.05c0-.8-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          <span data-i18n="pub.google">Sign in with Google</span>
+        </div>
+      </div>
+
+      <div style="text-align:center;color:var(--muted);font-size:0.78rem;margin-bottom:14px" data-i18n="pub.orEmail">— or with email —</div>
+
+      <label><span data-i18n="settings.email">Email</span>
+        <input id="lgEmail" class="input" type="text" data-i18n-placeholder="pub.emailPh" placeholder="you@caucasusauto.com" />
+      </label>
+      <div style="margin-top:10px">
+        <button id="lgSendBtn" class="btn btn-primary" data-i18n="pub.send">Send code</button>
+      </div>
+
+      <div id="lgCodeWrap" class="hidden" style="margin-top:14px">
+        <label><span data-i18n="pub.accessCode">Access code</span>
+          <input id="lgCode" class="input" type="text" data-i18n-placeholder="pub.codePh" placeholder="6-digit code" maxlength="6" />
+        </label>
+        <div style="margin-top:10px;display:flex;gap:10px">
+          <button id="lgVerifyBtn" class="btn btn-primary hidden" data-i18n="pub.verify">Verify</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ TASK LIST (post-login) ══════════ -->
+  <section id="lgContent" class="hidden">
+    <div class="screen-head dash-head">
+      <div class="pub-hero">
+        <h2 class="pub-hero-title" data-i18n="lg.listTitle">LOG tasks</h2>
+        <p class="muted pub-hero-sub" data-i18n="lg.listSub">All service-desk requests · items labeled “Internal” are hidden</p>
+      </div>
+      <div class="dash-head-right" style="display:flex;align-items:center;gap:10px">
+        <span id="lgFetchedAt" class="muted small"></span>
+        <button id="lgRefreshBtn" class="btn btn-ghost">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+          <span data-i18n="lg.refresh">Refresh</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="lgError" class="form-error hidden" style="margin-bottom:14px"></div>
+
+    <div class="card glass table-card">
+      <div class="tl-filterbar" id="lgToolbar">
+        <input id="lgSearch" class="input tl-search" type="text" data-i18n-placeholder="lg.searchPh" placeholder="Search tasks…" />
+        <span id="lgCount" class="pub-count-chip"></span>
+      </div>
+      <div class="tl-filterbar" id="lgFilterBar"></div>
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr>
+            <th data-col="key"      data-i18n="lg.th.key">Key</th>
+            <th data-col="summary"  data-i18n="lg.th.summary">Summary</th>
+            <th data-col="status"   data-i18n="lg.th.status">Status</th>
+            <th data-col="assignee" data-i18n="lg.th.assignee">Assignee</th>
+            <th data-col="created"  data-i18n="lg.th.created">Created</th>
+            <th data-col="updated"  data-i18n="lg.th.updated">Updated</th>
+            <th data-col="direction" data-i18n="lg.th.direction">Logistics direction</th>
+            <th data-col="title"    data-i18n="lg.th.title">Title</th>
+            <th data-col="labels"   data-i18n="lg.th.labels">Labels</th>
+            <th data-col="links"    data-i18n="lg.th.links">Linked issues</th>
+          </tr></thead>
+          <tbody id="lgTbody"></tbody>
+        </table>
+      </div>
+      <div id="lgShowing" class="muted small" style="padding:8px 4px 2px"></div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer" data-i18n="lg.footer">
+  JiraPulse · Logistics desk — live Jira data, org-only access
+</footer>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js?v=1"></script>
+</body>
+</html>
