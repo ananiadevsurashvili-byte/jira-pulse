@@ -32,11 +32,19 @@ body.light .tl-select {
 /* ── table: sticky header, sortable columns, cells ────────────────────── */
 .table-scroll { position: relative; }
 /* fixed layout: columns take exactly their specified widths (long names/URLs
-   can't inflate them), title absorbs the slack, ellipsis actually works */
-#lgContent .data-table { width: 100%; min-width: 1134px; table-layout: fixed; }
+   can't inflate them), title absorbs the slack, ellipsis actually works.
+   border-separate: with border-collapse:collapse Chromium paints collapsed
+   cell borders in a layer that scrolls UNDER sticky th backgrounds → row
+   text ghosts through the header while scrolling. separate + spacing 0
+   renders identically but fixes the sticky painting. */
+#lgContent .data-table {
+  width: 100%; min-width: 1134px; table-layout: fixed;
+  border-collapse: separate; border-spacing: 0;
+}
 #lgContent .data-table thead th {
   position: sticky; top: 0; z-index: 2;
-  background: var(--panel);
+  /* fully opaque: translucent panel let row content bleed through while scrolling */
+  background: #10162c;
   cursor: pointer; user-select: none; white-space: nowrap;
 }
 /* carets only on real sortable columns (merged ths sort via their halves) */
@@ -50,7 +58,7 @@ body.light .tl-select {
 #lgContent .data-table thead th[data-col].lg-sorted::after { opacity: 1; color: var(--accent); font-weight: 700; }
 #lgContent .data-table thead th[data-col][data-sort="asc"]::after { content: '▲'; }
 #lgContent .data-table thead th[data-col][data-sort="desc"]::after { content: '▼'; }
-body.light #lgContent .data-table thead th { background: #f4f6fc; }
+body.light #lgContent .data-table thead th { background: #eef1fa; }
 
 /* ── wider desk: the shared .main caps at 1240px, which pushed Comments
    off-screen — lift the cap for the logistics page only ───────────────── */
@@ -110,6 +118,17 @@ body.light .lg-dir-text { color: #6b7394; }
 /* ── count chip is shared; give it breathing room in the toolbar ──────── */
 #lgCount { flex-shrink: 0; }
 #lgToolbar { justify-content: space-between; }
+
+/* ── filter dropdowns: visible mini label above each select ───────────── */
+.lg-filter-item { display: flex; flex-direction: column; gap: 4px; flex: 0 1 auto; }
+.lg-filter-label {
+  font-size: 0.62rem; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--muted); opacity: 0.85;
+  padding-left: 2px;
+}
+body.light .lg-filter-label { color: #6b7394; opacity: 1; }
+#lgFilterBar { align-items: flex-end; gap: 10px; }
+#lgFilterBar .tl-select { min-width: 150px; max-width: 260px; }
 
 /* ── page-size switcher (compact select at the toolbar's right end) ────── */
 .lg-page-select {
@@ -275,11 +294,24 @@ body.light .lg-card-comment { background: #f6f8fd; border-color: #dfe4f2; }
 .lg-scroll-wrap { position: relative; }
 
 /* bound the table height: vertical scroll happens inside the scroller
-   (sticky header keeps working) so the page itself stays put */
+   (sticky header keeps working) so the page itself stays put.
+   dvh keeps it correct on mobile browsers where 100vh overstates the view */
 #lgTableScroll {
-  max-height: calc(100vh - 340px);
-  min-height: 260px;
+  /* fill the viewport: header (~57) + head block + toolbar + filter bar + card
+     padding + footer leave roughly 320px of chrome — the rest goes to rows */
+  max-height: calc(100vh - 320px);
+  max-height: calc(100dvh - 320px);
+  min-height: 320px;
   overflow-y: auto;
+}
+
+/* on big screens the card eats all remaining height and the page never scrolls */
+@media (min-width: 1100px) {
+  body:has(#lgContent:not(.hidden)) { overflow-y: hidden; }
+  body:has(#lgContent:not(.hidden)) .site-footer { display: none; }
+  #lgContent .table-card { display: flex; flex-direction: column; height: calc(100dvh - 175px); }
+  #lgContent .table-card .lg-scroll-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  #lgContent .table-card #lgTableScroll { flex: 1 1 auto; min-height: 0; max-height: none; }
 }
 
 .lg-scroll-btn {

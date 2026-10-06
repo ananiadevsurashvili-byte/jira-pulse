@@ -130,6 +130,10 @@ const I18N = {
     'lg.showing': 'Showing {n} of {total} — refine filters to see more',
     'lg.searchPh': 'Search tasks…',
     'lg.filterAll': 'All',
+    'lg.fLabel.status': 'Status',
+    'lg.fLabel.reporter': 'Reporter',
+    'lg.fLabel.assignee': 'Assignee',
+    'lg.fLabel.direction': 'Direction',
     'lg.pageSizeTitle': 'Tasks shown per page',
     'lg.pageSize': '{n} / page',
     'lg.th.key': 'Key',
@@ -206,6 +210,10 @@ const I18N = {
     'lg.showing': 'ნაჩვენებია {n} / {total} — შეავიწროვეთ ფილტრები დანარჩენის სანახავად',
     'lg.searchPh': 'ამოცანების ძებნა…',
     'lg.filterAll': 'ყველა',
+    'lg.fLabel.status': 'სტატუსი',
+    'lg.fLabel.reporter': 'მომხსენებელი',
+    'lg.fLabel.assignee': 'აღმასრულებელი',
+    'lg.fLabel.direction': 'მიმართულება',
     'lg.pageSizeTitle': 'გვერდზე ნაჩვენები ამოცანები',
     'lg.pageSize': '{n} / გვერდი',
     'lg.th.key': 'კოდი',
@@ -787,21 +795,24 @@ function lgDistinct(col) {
   return [...s].sort((a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }));
 }
 
-/* per-column dropdowns: status / reporter / assignee / direction */
+/* per-column dropdowns: status / reporter / assignee / direction.
+   each select sits under a visible mini label so it's clear what filters what */
 function lgBuildFilterBar() {
   const bar = $('#lgFilterBar');
   if (!bar) return;
   const mk = (id, col, labelKey) => {
     const opts = lgDistinct(col).map((v) =>
       `<option value="${escapeHtml(v)}"${lgState.filters[col] === v ? ' selected' : ''}>${escapeHtml(v)}</option>`).join('');
-    return `<select id="${id}" class="input tl-select" data-col="${col}" title="${escapeHtml(t(labelKey))}">` +
-      `<option value="">${escapeHtml(t('lg.filterAll'))}</option>${opts}</select>`;
+    return `<div class="lg-filter-item">` +
+      `<span class="lg-filter-label">${escapeHtml(t(labelKey))}</span>` +
+      `<select id="${id}" class="input tl-select" data-col="${col}" aria-label="${escapeHtml(t(labelKey))}">` +
+      `<option value="">${escapeHtml(t('lg.filterAll'))}</option>${opts}</select></div>`;
   };
   bar.innerHTML =
-    mk('lgFStatus', 'status', 'lg.filterStatus') +
-    mk('lgFReporter', 'reporter', 'lg.filterReporter') +
-    mk('lgFAssignee', 'assignee', 'lg.filterAssignee') +
-    mk('lgFDir', 'direction', 'lg.filterDirection');
+    mk('lgFStatus', 'status', 'lg.fLabel.status') +
+    mk('lgFReporter', 'reporter', 'lg.fLabel.reporter') +
+    mk('lgFAssignee', 'assignee', 'lg.fLabel.assignee') +
+    mk('lgFDir', 'direction', 'lg.fLabel.direction');
   bar.querySelectorAll('select').forEach((sel) => {
     sel.addEventListener('change', () => {
       lgState.filters[sel.dataset.col] = sel.value;
