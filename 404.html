@@ -20,18 +20,22 @@
 </style>
 <script>
   /* GitHub Pages project site: every missing path serves this 404 page.
-     Links that omit the repo segment (github.io/logistics/ instead of
-     github.io/jira-pulse/logistics/) land here — forward them to the
-     real product URL, preserving query (?v=…) and hash (#…). */
+     Forward them to the real product URL, preserving query (?v=…) and
+     hash (#…). Namespace-agnostic: works under the current
+     ananiadevsurashvili-byte.github.io host AND under a future renamed
+     host (e.g. jirapulse.github.io) — the repo segment is derived from
+     the hostname's first label instead of being hard-coded. */
   (function () {
+    var host = location.hostname;            /* e.g. jirapulse.github.io */
+    var repo = '/' + host.split('.')[0];     /* → '/jirapulse'          */
     var p = location.pathname;
     var to;
-    if (p === '/jira-pulse' || p.indexOf('/jira-pulse/') === 0) {
+    if (p === repo || p.indexOf(repo + '/') === 0) {
       /* already inside the project but at a missing path → app root */
-      to = '/jira-pulse/';
+      to = repo + '/';
     } else {
       /* missing repo segment → prepend it (covers /logistics/, /, /admin/…) */
-      to = '/jira-pulse' + p;
+      to = repo + p;
     }
     to += location.search + location.hash;
     window.location.replace(to);
