@@ -137,6 +137,16 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=4"></script>
+<!-- ══════════ TASK CARD POPUP (Jira-style full detail, in-app) ══════════ -->
+<div id="lgCardOverlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="lgCardTitle">
+  <div class="modal lg-card-modal" role="document">
+    <button id="lgCardClose" class="lg-card-close" type="button" aria-label="Close" data-i18n-title="lg.card.close" title="Close">
+      <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l10 10M15 5L5 15"/></svg>
+    </button>
+    <div id="lgCardBody" class="lg-card-body"></div>
+  </div>
+</div>
+
+<script src="app.js?v=5"></script>
 </body>
 </html>

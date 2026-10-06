@@ -62,6 +62,7 @@ let lgState = {
   filters: { status: '', reporter: '', assignee: '', direction: '' },
   sort: { col: 'created', dir: 'desc' },
   loading: false,
+  cardKey: null,       /* task currently open in the detail card */
 };
 let _lgCache = null;   /* { data, ts } */
 let toastTimer = null;
@@ -142,6 +143,10 @@ const I18N = {
     'lg.loading': 'Loading tasks…',
     'lg.empty': 'No tasks match the current filters.',
     'lg.unassigned': 'Unassigned',
+    'lg.card.noDescription': 'No description',
+    'lg.card.noComments': 'No comments yet',
+    'lg.card.close': 'Close',
+    'lg.descLabel': 'Description',
     'lg.errorLoad': 'Could not load LOG tasks ({m}).',
     'lg.errorNoCreds': 'No Jira credentials available for the relay. The admin must connect once from the main JiraPulse app (which stores relay creds), then reload this page.',
     'lg.footer': 'JiraPulse · Logistics desk — live Jira data, org-only access',
@@ -206,6 +211,10 @@ const I18N = {
     'lg.loading': 'ამოცანები იტვირთება…',
     'lg.empty': 'ფილტრებს ვერცერთი ამოცანა არ ემთხვევა.',
     'lg.unassigned': 'გაუნაწილებელი',
+    'lg.card.noDescription': 'აღწერა არ არის',
+    'lg.card.noComments': 'კომენტარები ჯერ არ არის',
+    'lg.card.close': 'დახურვა',
+    'lg.descLabel': 'აღწერა',
     'lg.errorLoad': 'LOG ამოცანების ჩატვირთვა ვერ მოხერხდა ({m}).',
     'lg.errorNoCreds': 'რელეისთვის Jira-ს ავტორიზაცია მიუწვდომელია. ადმინმა ერთხელ უნდა დაუკავშირდეს ძირითად JiraPulse აპლიკაციას (ინახავს relay-ის ავტორიზაციას) და შემდეგ გადატვირთოს ეს გვერდი.',
     'lg.footer': 'JiraPulse · ლოჯისტიკის დესკი — პირდაპირი Jira მონაცემები, მხოლოდ ორგანიზაციისთვის',
@@ -775,8 +784,9 @@ function lgFiltered() {
 }
 
 function lgRowHtml(r) {
-  const keyLink = `<a href="${escapeHtml(r.href)}" target="_blank" rel="noopener" title="${escapeHtml(r.summary)}">` +
-    `${escapeHtml(r.key)}<span class="ilist-ext" aria-hidden="true">↗</span></a>`;
+  /* key + title open the in-app task card instead of navigating to Jira */
+  const keyLink = `<a href="#" class="lg-open-card" data-key="${escapeHtml(r.key)}" title="${escapeHtml(r.summary)}">` +
+    `${escapeHtml(r.key)}<span class="ilist-ext" aria-hidden="true">⤢</span></a>`;
   const direction = r.direction
     ? `<div class="lg-dir-text">${escapeHtml(r.direction)}</div>`
     : '<span class="muted">—</span>';
@@ -803,7 +813,7 @@ function lgRowHtml(r) {
   return `<tr>
     <td class="lg-nowrap lg-key-cell">${keyLink}</td>
     <td class="lg-title-cell">
-      <div class="lg-task-title">${escapeHtml(r.summary || '—')}</div>${descHtml}
+      <div class="lg-task-title"><a href="#" class="lg-open-card lg-title-link" data-key="${escapeHtml(r.key)}">${escapeHtml(r.summary || '—')}</a></div>${descHtml}
     </td>
     <td><span class="status-pill ${lgStatusClass(r.status)}">${escapeHtml(r.status || '—')}</span></td>
     <td class="lg-people-cell">${peopleHtml}</td>
@@ -830,6 +840,93 @@ function lgRenderRows() {
     th.classList.toggle('lg-sorted', active);
     th.setAttribute('data-sort', active ? lgState.sort.dir : '');
   });
+  /* keep the open card in sync with fresh data (e.g. after Refresh) */
+  if (lgState.cardKey) {
+    const still = all.some((r) => r.key === lgState.cardKey) || lgState.rows.some((r) => r.key === lgState.cardKey);
+    if (still) lgRenderCard(); else lgCloseCard();
+  }
+}
+
+/* ── task card: Jira-style full detail popup, rendered in-app ────────────
+   Opens from the task key or title click. Never navigates to Jira — all
+   data comes from the synced rows (relay), so it also works offline. */
+function lgFindTask(key) {
+  return lgState.rows.find((r) => r.key === key) || null;
+}
+
+function lgOpenCard(key) {
+  const task = lgFindTask(key);
+  if (!task) return;
+  lgState.cardKey = key;
+  lgRenderCard();
+  show($('#lgCardOverlay'));
+  $('#lgCardClose').focus();
+}
+
+function lgCloseCard() {
+  lgState.cardKey = null;
+  hide($('#lgCardOverlay'));
+}
+
+function lgRenderCard() {
+  const r = lgFindTask(lgState.cardKey);
+  if (!r) return;
+
+  const statusPill = `<span class="status-pill ${lgStatusClass(r.status)}">${escapeHtml(r.status || '—')}</span>`;
+
+  const personBlock = (roleKey, name, unassigned) => {
+    const val = name
+      ? escapeHtml(name)
+      : `<span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`;
+    return `<div class="lg-card-person">
+      <span class="lg-person-role" data-i18n="${roleKey}">${escapeHtml(t(roleKey))}</span>
+      <span class="lg-card-person-name${name ? '' : ' lg-unassigned'}">${val}</span>
+    </div>`;
+  };
+
+  const metaItem = (labelKey, value) =>
+    `<div class="lg-card-meta-item">
+      <span class="lg-person-role" data-i18n="${labelKey}">${escapeHtml(t(labelKey))}</span>
+      <span>${value}</span>
+    </div>`;
+
+  const commentsHtml = r.comments.length
+    ? r.comments.map((c) =>
+        `<div class="lg-card-comment">
+          <div class="lg-card-comment-head">
+            <span class="lg-comment-author">${escapeHtml(c.author || '—')}</span>
+            <span class="lg-card-comment-date">${fmtDateTime(c.created)}</span>
+          </div>
+          <div class="lg-card-comment-body">${escapeHtml(c.body)}</div>
+        </div>`
+      ).join('')
+    : `<div class="muted">${escapeHtml(t('lg.card.noComments'))}</div>`;
+
+  $('#lgCardBody').innerHTML = `
+    <div class="lg-card-top">
+      ${statusPill}
+      <span class="lg-card-key">${escapeHtml(r.key)}</span>
+    </div>
+    <h3 class="lg-card-title">${escapeHtml(r.summary || '—')}</h3>
+    <div class="lg-card-people">
+      ${personBlock('lg.th.reporter', r.reporter, false)}
+      ${personBlock('lg.th.assignee', r.assignee, true)}
+    </div>
+    <div class="lg-card-meta">
+      ${metaItem('lg.th.created', fmtDateTime(r.created))}
+      ${metaItem('lg.th.updated', fmtDateTime(r.updated))}
+      ${r.direction ? metaItem('lg.th.direction', escapeHtml(r.direction)) : ''}
+    </div>
+    <div class="lg-card-section">
+      <span class="lg-person-role" data-i18n="lg.descLabel">${escapeHtml(t('lg.descLabel') || 'Description')}</span>
+      <div class="lg-card-desc">${r.descFull
+        ? escapeHtml(r.descFull)
+        : `<span class="muted">${escapeHtml(t('lg.card.noDescription'))}</span>`}</div>
+    </div>
+    <div class="lg-card-section">
+      <span class="lg-person-role" data-i18n="lg.th.comments">${escapeHtml(t('lg.th.comments'))}</span>
+      <div class="lg-card-comments">${commentsHtml}</div>
+    </div>`;
 }
 
 /* ── load pipeline ─────────────────────────────────────────────────── */
@@ -906,6 +1003,18 @@ document.addEventListener('DOMContentLoaded', () => {
       lgRenderRows();
     });
   });
+
+  /* task card: open from key/title clicks (delegated), close on button,
+     overlay click or Escape — never navigates to Jira */
+  $('#lgTbody').addEventListener('click', (e) => {
+    const link = e.target.closest('.lg-open-card');
+    if (!link) return;
+    e.preventDefault();
+    lgOpenCard(link.dataset.key);
+  });
+  $('#lgCardClose').addEventListener('click', lgCloseCard);
+  $('#lgCardOverlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) lgCloseCard(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lgState.cardKey) lgCloseCard(); });
 
   /* identity chip + sign-out */
   $('#lgUserChip').addEventListener('click', toggleLgSignOut);
