@@ -841,13 +841,22 @@ function lgRowHtml(r) {
   const descHtml = r.descOne
     ? `<div class="lg-desc" ${r.descFull !== r.descOne ? `title="${escapeHtml(r.descFull)}"` : ''}>${escapeHtml(r.descOne)}</div>`
     : '';
-  /* people columns: plain names — reporter and assignee each in their own cell */
-  const reporterHtml = r.reporter
-    ? escapeHtml(r.reporter)
+  /* people column: reporter + assignee stacked on one row each, mini labels
+     keep it clear which name is which while saving a whole column of space */
+  const who = (name) => name
+    ? escapeHtml(name)
     : `<span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`;
-  const assigneeHtml = r.assignee
-    ? escapeHtml(r.assignee)
-    : `<span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`;
+  const peopleHtml =
+    `<div class="lg-mini-row"><span class="lg-mini-label">${escapeHtml(t('lg.th.reporter'))}</span>` +
+    `<span class="lg-mini-value">${who(r.reporter)}</span></div>` +
+    `<div class="lg-mini-row"><span class="lg-mini-label">${escapeHtml(t('lg.th.assignee'))}</span>` +
+    `<span class="lg-mini-value">${who(r.assignee)}</span></div>`;
+  /* dates column: registered + updated stacked, same mini-label pattern */
+  const datesHtml =
+    `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.created'))}"><span class="lg-mini-label">${escapeHtml(t('lg.th.created'))}</span>` +
+    `<span class="lg-mini-value lg-date-cell">${fmtDateLong(r.created)}</span></div>` +
+    `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.updated'))}"><span class="lg-mini-label">${escapeHtml(t('lg.th.updated'))}</span>` +
+    `<span class="lg-mini-value lg-date-cell">${fmtDateLong(r.updated)}</span></div>`;
   /* comments: synced from Jira — stacked preview, full text on hover */
   const commentsHtml = r.comments.length
     ? `<div class="lg-comments" title="${escapeHtml(r.comments.map((c) => (c.author ? c.author + ': ' : '') + c.body).join('\n———\n'))}">` +
@@ -863,10 +872,8 @@ function lgRowHtml(r) {
       <div class="lg-task-title"><a href="#" class="lg-open-card lg-title-link" data-key="${escapeHtml(r.key)}">${escapeHtml(r.summary || '—')}</a></div>${descHtml}
     </td>
     <td><span class="status-pill ${lgStatusClass(r.status)}">${escapeHtml(r.status || '—')}</span></td>
-    <td class="lg-reporter-cell">${reporterHtml}</td>
-    <td class="lg-assignee-cell">${assigneeHtml}</td>
-    <td class="muted lg-nowrap lg-date-cell">${fmtDateLong(r.created)}</td>
-    <td class="muted lg-nowrap lg-date-cell">${fmtDateLong(r.updated)}</td>
+    <td class="lg-people-cell">${peopleHtml}</td>
+    <td class="lg-dates-cell">${datesHtml}</td>
     <td class="lg-direction-cell">${direction}</td>
     <td class="lg-comments-cell">${commentsHtml}</td>
   </tr>`;
@@ -877,16 +884,21 @@ function lgRenderRows() {
   const rows = all.slice(0, lgState.pageSize);
   $('#lgTbody').innerHTML = rows.length
     ? rows.map(lgRowHtml).join('')
-    : `<tr><td colspan="9" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('lg.empty'))}</td></tr>`;
+    : `<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('lg.empty'))}</td></tr>`;
   $('#lgCount').textContent = tReplace('lg.count', { n: all.length });
   $('#lgShowing').textContent = all.length > rows.length
     ? tReplace('lg.showing', { n: rows.length, total: all.length })
     : '';
-  /* sort carets on the active column */
+  /* sort carets: whole columns + the split halves inside People/Dates */
   document.querySelectorAll('#lgContent thead th[data-col]').forEach((th) => {
     const active = th.dataset.col === lgState.sort.col;
     th.classList.toggle('lg-sorted', active);
     th.setAttribute('data-sort', active ? lgState.sort.dir : '');
+  });
+  document.querySelectorAll('#lgContent thead .lg-th-split[data-col]').forEach((sp) => {
+    const active = sp.dataset.col === lgState.sort.col;
+    sp.classList.toggle('lg-sorted', active);
+    sp.setAttribute('data-sort', active ? lgState.sort.dir : '');
   });
   /* keep the open card in sync with fresh data (e.g. after Refresh) */
   if (lgState.cardKey) {
@@ -1056,6 +1068,20 @@ document.addEventListener('DOMContentLoaded', () => {
         lgState.sort.dir = lgState.sort.dir === 'asc' ? 'desc' : 'asc';
       } else {
         lgState.sort = { col, dir: (col === 'created' || col === 'updated' || col === 'key') ? 'desc' : 'asc' };
+      }
+      lgRenderRows();
+    });
+  });
+
+  /* split header halves (Reporter/Assignee, Registered/Updated) sort too */
+  document.querySelectorAll('#lgContent thead .lg-th-split[data-col]').forEach((sp) => {
+    sp.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const col = sp.dataset.col;
+      if (lgState.sort.col === col) {
+        lgState.sort.dir = lgState.sort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        lgState.sort = { col, dir: (col === 'created' || col === 'updated') ? 'desc' : 'asc' };
       }
       lgRenderRows();
     });
