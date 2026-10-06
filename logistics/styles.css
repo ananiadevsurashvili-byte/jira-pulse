@@ -55,8 +55,8 @@ body.light #lgContent .data-table thead th { background: #f4f6fc; }
 #lgContent .data-table thead th { padding: 7px 10px; }
 #lgContent .lg-col-key      { width: 86px;  min-width: 86px; }
 #lgContent .lg-col-status   { width: 128px; min-width: 128px; }
-#lgContent .lg-col-reporter { width: 140px; min-width: 120px; max-width: 170px; }
-#lgContent .lg-col-assignee { width: 140px; min-width: 120px; max-width: 170px; }
+#lgContent .lg-col-reporter { width: 160px; min-width: 140px; max-width: 190px; }
+#lgContent .lg-col-assignee { width: 160px; min-width: 140px; max-width: 190px; }
 #lgContent .lg-col-date     { width: 118px; min-width: 112px; }
 #lgContent .lg-col-direction{ width: 190px; min-width: 170px; max-width: 240px; }
 #lgContent .lg-col-comments { width: 250px; min-width: 210px; max-width: 300px; }
@@ -235,3 +235,76 @@ body.light .lg-card-comment { background: #f6f8fd; border-color: #dfe4f2; }
 /* title links inside the table look like text, not URLs */
 .lg-title-link { color: inherit; text-decoration: none; }
 .lg-title-link:hover { color: var(--accent); }
+
+/* ── horizontal scroll: visible scrollbar + edge scroll buttons ──────────
+   .lg-scroll-wrap holds the two chevron buttons and the table scroller;
+   buttons float over the table edges and hide when there is nothing to
+   scroll towards. The custom scrollbar makes dragging obvious on Windows. */
+.lg-scroll-wrap { position: relative; }
+
+/* bound the table height: vertical scroll happens inside the scroller
+   (sticky header keeps working) so the page itself stays put */
+#lgTableScroll {
+  max-height: calc(100vh - 340px);
+  min-height: 260px;
+  overflow-y: auto;
+}
+
+.lg-scroll-btn {
+  position: absolute;
+  top: 170px;
+  z-index: 30;
+  width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  background: rgba(24, 28, 46, 0.85);
+  border: 1px solid var(--border);
+  color: var(--text);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transition: opacity 0.18s ease, background-color 0.15s ease, transform 0.12s ease;
+}
+.lg-scroll-btn:hover {
+  background: rgba(99, 102, 241, 0.35);
+  border-color: var(--accent);
+}
+.lg-scroll-btn:active { transform: scale(0.94); }
+.lg-scroll-left  { left: 10px; }
+.lg-scroll-right { right: 10px; }
+.lg-scroll-hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+body.light .lg-scroll-btn {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.18);
+  color: #1e2749;
+}
+body.light .lg-scroll-btn:hover { background: #eef0fe; }
+
+/* always-visible horizontal scrollbar so dragging works everywhere */
+#lgTableScroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.22) transparent; }
+#lgTableScroll::-webkit-scrollbar { height: 11px; }
+#lgTableScroll::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.04); border-radius: 999px; }
+#lgTableScroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+#lgTableScroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.38); background-clip: padding-box; }
+#lgTableScroll::-webkit-scrollbar-corner { background: transparent; }
+body.light #lgTableScroll { scrollbar-color: rgba(30, 39, 73, 0.28) transparent; }
+body.light #lgTableScroll::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.05); }
+body.light #lgTableScroll::-webkit-scrollbar-thumb { background: rgba(30, 39, 73, 0.28); background-clip: padding-box; }
+body.light #lgTableScroll::-webkit-scrollbar-thumb:hover { background: rgba(30, 39, 73, 0.45); background-clip: padding-box; }
+
+/* plain-name people cells (reporter / assignee, one per column) */
+.lg-reporter-cell, .lg-assignee-cell {
+  font-size: 0.8rem; line-height: 1.35;
+  max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.lg-reporter-cell { color: var(--muted); }
+.lg-assignee-cell { font-weight: 500; }

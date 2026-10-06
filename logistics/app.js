@@ -147,6 +147,8 @@ const I18N = {
     'lg.card.noComments': 'No comments yet',
     'lg.card.close': 'Close',
     'lg.descLabel': 'Description',
+    'lg.scrollLeft': 'Scroll left',
+    'lg.scrollRight': 'Scroll right',
     'lg.errorLoad': 'Could not load LOG tasks ({m}).',
     'lg.errorNoCreds': 'No Jira credentials available for the relay. The admin must connect once from the main JiraPulse app (which stores relay creds), then reload this page.',
     'lg.footer': 'JiraPulse · Logistics desk — live Jira data, org-only access',
@@ -215,6 +217,8 @@ const I18N = {
     'lg.card.noComments': 'კომენტარები ჯერ არ არის',
     'lg.card.close': 'დახურვა',
     'lg.descLabel': 'აღწერა',
+    'lg.scrollLeft': 'ჩამოსქროლე მარცხნივ',
+    'lg.scrollRight': 'ჩამოსქროლე მარჯვნივ',
     'lg.errorLoad': 'LOG ამოცანების ჩატვირთვა ვერ მოხერხდა ({m}).',
     'lg.errorNoCreds': 'რელეისთვის Jira-ს ავტორიზაცია მიუწვდომელია. ადმინმა ერთხელ უნდა დაუკავშირდეს ძირითად JiraPulse აპლიკაციას (ინახავს relay-ის ავტორიზაციას) და შემდეგ გადატვირთოს ეს გვერდი.',
     'lg.footer': 'JiraPulse · ლოჯისტიკის დესკი — პირდაპირი Jira მონაცემები, მხოლოდ ორგანიზაციისთვის',
@@ -259,6 +263,7 @@ function setLang(lang) {
   /* re-render dynamic surfaces so runtime strings follow the language */
   try {
     if (lgState.verified && lgState.rows.length) { lgBuildFilterBar(); lgRenderRows(); }
+    if (lgState.cardKey) { lgRenderCard(); }   /* open card follows the language too */
   } catch { /* noop */ }
 }
 
@@ -348,19 +353,41 @@ function loadConn() {
   } catch (_) { return null; }
 }
 
-/* ── date formatting (copied + a datetime variant) ─────────────────── */
-function fmtDateLong(v) {
-  if (!v) return '—';
+/* ── date formatting (copied + a datetime variant) ───────────────────
+   Dates follow the active UI language (en / ka) so Georgian users see
+   Georgian month names everywhere — table cells and the task card.
+   Georgian month names are rendered manually because some Chromium
+   builds ship without ka-GE ICU data (Intl silently falls back to en). */
+const LG_MONTHS_KA = ['იან', 'თებ', 'მარ', 'აპრ', 'მაი', 'ივნ', 'ივლ', 'აგვ', 'სექ', 'ოქტ', 'ნოე', 'დეკ'];
+
+function lgKaDate(d) {
+  return `${d.getDate()} ${LG_MONTHS_KA[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function lgKaTime(d) {
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function lgParseDate(v) {
+  if (!v) return null;
   const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
-  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function fmtDateLong(v) {
+  const d = lgParseDate(v);
+  if (!d) return '—';
+  return LANG === 'ka' ? lgKaDate(d) : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 function fmtDateTime(v) {
-  if (!v) return '—';
-  const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
-  if (isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) +
-    ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const d = lgParseDate(v);
+  if (!d) return '—';
+  if (LANG === 'ka') return `${lgKaDate(d)} ${lgKaTime(d)}`;
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) +
+    ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 }
 
 /* ── status → semantic color bucket ──────────────────────────────────
@@ -794,13 +821,13 @@ function lgRowHtml(r) {
   const descHtml = r.descOne
     ? `<div class="lg-desc" ${r.descFull !== r.descOne ? `title="${escapeHtml(r.descFull)}"` : ''}>${escapeHtml(r.descOne)}</div>`
     : '';
-  /* reporter shows above assignee in the same people cell */
-  const peopleHtml =
-    `<div class="lg-person">${r.reporter ? `<span class="lg-person-role" data-i18n="lg.th.reporter">${escapeHtml(t('lg.th.reporter'))}</span>${escapeHtml(r.reporter)}` : ''}` +
-    `${r.assignee
-      ? `<span class="lg-person-role">${escapeHtml(t('lg.th.assignee'))}</span>${escapeHtml(r.assignee)}`
-      : `<span class="lg-person-role">${escapeHtml(t('lg.th.assignee'))}</span><span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`}` +
-    `</div>`;
+  /* people columns: plain names — reporter and assignee each in their own cell */
+  const reporterHtml = r.reporter
+    ? escapeHtml(r.reporter)
+    : `<span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`;
+  const assigneeHtml = r.assignee
+    ? escapeHtml(r.assignee)
+    : `<span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`;
   /* comments: synced from Jira — stacked preview, full text on hover */
   const commentsHtml = r.comments.length
     ? `<div class="lg-comments" title="${escapeHtml(r.comments.map((c) => (c.author ? c.author + ': ' : '') + c.body).join('\n———\n'))}">` +
@@ -816,7 +843,8 @@ function lgRowHtml(r) {
       <div class="lg-task-title"><a href="#" class="lg-open-card lg-title-link" data-key="${escapeHtml(r.key)}">${escapeHtml(r.summary || '—')}</a></div>${descHtml}
     </td>
     <td><span class="status-pill ${lgStatusClass(r.status)}">${escapeHtml(r.status || '—')}</span></td>
-    <td class="lg-people-cell">${peopleHtml}</td>
+    <td class="lg-reporter-cell">${reporterHtml}</td>
+    <td class="lg-assignee-cell">${assigneeHtml}</td>
     <td class="muted lg-nowrap lg-date-cell">${fmtDateLong(r.created)}</td>
     <td class="muted lg-nowrap lg-date-cell">${fmtDateLong(r.updated)}</td>
     <td class="lg-direction-cell">${direction}</td>
@@ -1015,6 +1043,25 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#lgCardClose').addEventListener('click', lgCloseCard);
   $('#lgCardOverlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) lgCloseCard(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lgState.cardKey) lgCloseCard(); });
+
+  /* horizontal scroll controls: buttons nudge the table, edge buttons and
+     scrollbar visibility follow the scroll position */
+  const scroller = $('#lgTableScroll');
+  const updateScrollBtns = () => {
+    const max = scroller.scrollWidth - scroller.clientWidth;
+    $('#lgScrollLeft').classList.toggle('lg-scroll-hidden', scroller.scrollLeft <= 4);
+    $('#lgScrollRight').classList.toggle('lg-scroll-hidden', scroller.scrollLeft >= max - 4);
+  };
+  $('#lgScrollLeft').addEventListener('click', () => {
+    scroller.scrollBy({ left: -Math.round(scroller.clientWidth * 0.7), behavior: 'smooth' });
+  });
+  $('#lgScrollRight').addEventListener('click', () => {
+    scroller.scrollBy({ left: Math.round(scroller.clientWidth * 0.7), behavior: 'smooth' });
+  });
+  scroller.addEventListener('scroll', updateScrollBtns, { passive: true });
+  window.addEventListener('resize', updateScrollBtns, { passive: true });
+  setInterval(updateScrollBtns, 1200);   /* rows re-render changes scrollWidth */
+  updateScrollBtns();
 
   /* identity chip + sign-out */
   $('#lgUserChip').addEventListener('click', toggleLgSignOut);
