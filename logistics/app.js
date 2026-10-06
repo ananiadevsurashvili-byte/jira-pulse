@@ -745,7 +745,9 @@ function lgRowHtml(r) {
   const assignee = r.assignee
     ? escapeHtml(r.assignee)
     : `<span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`;
-  const direction = r.direction ? escapeHtml(r.direction) : '<span class="muted">—</span>';
+  const direction = r.direction
+    ? `<div class="lg-dir-text">${escapeHtml(r.direction)}</div>`
+    : '<span class="muted">—</span>';
   /* Title cell: task title (summary) with the description line under it */
   const descHtml = r.descOne
     ? `<div class="lg-desc" ${r.descFull !== r.descOne ? `title="${escapeHtml(r.descFull)}"` : ''}>${escapeHtml(r.descOne)}</div>`
