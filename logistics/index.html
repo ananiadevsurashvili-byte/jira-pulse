@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="../styles.css?v=8241341" />
-<link rel="stylesheet" href="styles.css?v=11" />
+<link rel="stylesheet" href="styles.css?v=12" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -88,18 +88,14 @@
 
   <!-- ══════════ TASK LIST (post-login) ══════════ -->
   <section id="lgContent" class="hidden">
-    <div class="screen-head dash-head">
-      <div class="pub-hero">
-        <h2 class="pub-hero-title" data-i18n="lg.listTitle">LOG tasks</h2>
-        <p class="muted pub-hero-sub" data-i18n="lg.listSub">All service-desk requests · items labeled “Internal” are hidden</p>
-      </div>
-      <div class="dash-head-right" style="display:flex;align-items:center;gap:10px">
-        <span id="lgFetchedAt" class="muted small"></span>
-        <button id="lgRefreshBtn" class="btn btn-ghost">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
-          <span data-i18n="lg.refresh">Refresh</span>
-        </button>
-      </div>
+    <div class="screen-head dash-head lg-list-head">
+      <h2 class="pub-hero-title lg-list-title" data-i18n="lg.listTitle">LOG tasks</h2>
+      <p class="muted lg-list-sub" data-i18n="lg.listSub" title="All service-desk requests · items labeled “Internal” are hidden">All service-desk requests · items labeled “Internal” are hidden</p>
+      <span class="lg-head-spacer"></span>
+      <span id="lgFetchedAt" class="muted small lg-fetched"></span>
+      <button id="lgRefreshBtn" class="btn btn-ghost lg-refresh" data-i18n-title="lg.refresh" title="Refresh">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+      </span>
     </div>
 
     <div id="lgError" class="form-error hidden" style="margin-bottom:14px"></div>
@@ -165,6 +161,6 @@
   </div>
 </div>
 
-<script src="app.js?v=12"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>

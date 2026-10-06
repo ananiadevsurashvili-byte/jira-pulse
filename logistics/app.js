@@ -862,14 +862,16 @@ function lgFiltered() {
 
 function lgRowHtml(r) {
   /* key + title open the in-app task card instead of navigating to Jira */
-  const keyLink = `<a href="#" class="lg-open-card" data-key="${escapeHtml(r.key)}" title="${escapeHtml(r.summary)}">` +
-    `${escapeHtml(r.key)}<span class="ilist-ext" aria-hidden="true">⤢</span></a>`;
+  const keyLink = `<a href="#" class="lg-open-card" data-key="${escapeHtml(r.key)}" title="${escapeHtml(r.summary)}">${escapeHtml(r.key)}</a>`;
   const direction = r.direction
     ? `<div class="lg-dir-text">${escapeHtml(r.direction)}</div>`
     : '<span class="muted">—</span>';
-  /* Title cell: task title (summary) with the description line under it */
-  const descHtml = r.descOne
-    ? `<div class="lg-desc" ${r.descFull !== r.descOne ? `title="${escapeHtml(r.descFull)}"` : ''}>${escapeHtml(r.descOne)}</div>`
+  /* Title cell: task title (summary) with the description line under it.
+     The preview is skipped when it just echoes the summary — showing the
+     same text twice truncating differently read as a rendering glitch. */
+  const descPreview = (r.descOne && r.descOne !== r.summary) ? r.descOne : '';
+  const descHtml = descPreview
+    ? `<div class="lg-desc" ${r.descFull !== descPreview ? `title="${escapeHtml(r.descFull)}"` : ''}>${escapeHtml(descPreview)}</div>`
     : '';
   /* people column: reporter + assignee stacked on one row each, mini labels
      keep it clear which name is which while saving a whole column of space.
@@ -1105,8 +1107,7 @@ async function lgLoad(force) {
   lgState.loading = true;
   hide($('#lgError'));
   const btn = $('#lgRefreshBtn');
-  const label = btn.querySelector('span');
-  if (label) label.textContent = t('lg.refreshing');
+  btn.classList.toggle('lg-spinning', true);
   btn.disabled = true;
   /* skeleton rows + spinner banner while the relay answers — the list never
      sits empty, it shimmers instead */
@@ -1133,7 +1134,7 @@ async function lgLoad(force) {
     show($('#lgError'));
   } finally {
     lgState.loading = false;
-    if (label) label.textContent = t('lg.refresh');
+    btn.classList.toggle('lg-spinning', false);
     btn.disabled = false;
   }
 }

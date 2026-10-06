@@ -68,7 +68,7 @@ body.light #lgContent .data-table thead th { background: #eef1fa; }
    Narrow: key, status, dates · Wide: title (with description underneath) */
 #lgContent .data-table td { padding: 3px 8px; vertical-align: top; }
 #lgContent .data-table thead th { padding: 6px 8px; }
-#lgContent .lg-col-key      { width: 78px;  min-width: 0; }
+#lgContent .lg-col-key      { width: 88px;  min-width: 0; }
 #lgContent .lg-col-status   { width: 104px; min-width: 0; }
 #lgContent .lg-col-people   { width: 168px; min-width: 0; }
 #lgContent .lg-col-dates    { width: 148px; min-width: 0; }
@@ -77,15 +77,26 @@ body.light #lgContent .data-table thead th { background: #eef1fa; }
 #lgContent .lg-col-title    { width: auto; min-width: 0; }
 
 /* narrow windows: lean columns so ALL columns (incl. Comments) fit on screen
-   with no horizontal scrolling; title absorbs the squeeze via 2-line clamp */
+   with no horizontal scrolling; title absorbs the squeeze via 2-line clamp.
+   Key keeps 84px — measured bold "LOG-3961" is 65.8px + 16px cell padding =
+   81.8px; under table-layout:fixed anything narrower bleeds into TITLE. */
 @media (max-width: 1280px) {
   #lgContent .data-table { min-width: 0; }
-  #lgContent .lg-col-key      { width: 68px; }
-  #lgContent .lg-col-status   { width: 94px; }
-  #lgContent .lg-col-people   { width: 148px; }
-  #lgContent .lg-col-dates    { width: 126px; }
-  #lgContent .lg-col-direction{ width: 132px; }
-  #lgContent .lg-col-comments { width: 200px; }
+  #lgContent .lg-col-key      { width: 84px; }
+  #lgContent .lg-col-status   { width: 90px; }
+  #lgContent .lg-col-people   { width: 138px; }
+  #lgContent .lg-col-dates    { width: 118px; }
+  #lgContent .lg-col-direction{ width: 128px; }
+  #lgContent .lg-col-comments { width: 180px; }
+}
+/* small laptops (the common 1366×768 class): tighten everything vertical —
+   slimmer paddings and 1-line people/dates cells buy back ~4 visible rows */
+@media (max-width: 1440px) {
+  #lgContent .data-table td { padding: 4px 8px; }
+  #lgContent .data-table thead th { padding: 5px 8px; }
+  .lg-desc { -webkit-line-clamp: 1; font-size: 0.72rem; }
+  .lg-dir-text { -webkit-line-clamp: 2; }
+  .lg-comment-body { -webkit-line-clamp: 1; }
 }
 
 .lg-nowrap { white-space: nowrap; }
@@ -118,6 +129,104 @@ body.light .lg-dir-text { color: #6b7394; }
 /* ── count chip is shared; give it breathing room in the toolbar ──────── */
 #lgCount { flex-shrink: 0; }
 #lgToolbar { justify-content: space-between; }
+
+/* ── compact chrome: toolbars & filters use the minimum vertical space ── */
+#lgContent .tl-filterbar { margin-bottom: 10px; gap: 8px; }
+#lgContent #lgSearch {
+  padding: 6px 12px;
+  height: 32px;
+  max-width: 280px;
+  font-size: 0.8rem;
+}
+#lgCount {
+  font-size: 0.78rem;
+  padding: 3px 12px;
+  min-width: 0;
+}
+.glass.lg-loading { margin-bottom: 10px; }
+
+/* ── one-row filter bar: no stacked labels, just inline selects ──────────
+   A labelled select costs label-height + select-height per column; replacing
+   labels with a shared leading chip gets all four filters on one 32px row. */
+#lgFilterBar { align-items: center; gap: 8px; }
+#lgFilterBar .lg-filter-item { flex-direction: row; align-items: center; gap: 6px; }
+#lgFilterBar .lg-filter-label { padding: 0; }
+#lgFilterBar .tl-select {
+  padding: 5px 24px 5px 9px;
+  font-size: 0.78rem;
+  height: 32px;
+  box-sizing: border-box;
+  min-width: 128px;
+  max-width: 200px;
+  background-position: right 9px center;
+}
+
+/* ── compact list header ────────────────────────────────────────────────
+   One slim line: title · subtitle · updated-at · icon-only refresh.
+   The old block stacked a 1.7rem title over a subtitle with generous
+   margins above/below — on a small laptop it alone pushed ~4 rows off. */
+#lgContent .lg-list-head {
+  margin: 0 0 10px;
+  padding: 0;
+  gap: 12px;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+#lgContent .lg-list-title {
+  font-size: 1.12rem;
+  margin: 0;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+#lgContent .lg-list-sub {
+  margin: 0;
+  min-width: 0;
+  flex: 0 1 auto;
+  font-size: 0.76rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 0;
+}
+/* subtitle tick comes from .pub-hero-sub; restore it compactly */
+#lgContent .lg-list-sub::before {
+  content: '';
+  display: inline-block;
+  vertical-align: middle;
+  width: 4px;
+  height: 13px;
+  border-radius: 2px;
+  margin-right: 8px;
+  background: linear-gradient(180deg, #818cf8, #22d3ee);
+}
+#lgContent .lg-head-spacer { flex: 1 1 auto; }
+#lgContent .lg-fetched {
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+/* icon-only refresh: square ghost button, spins while loading */
+#lgContent .lg-refresh {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9px;
+}
+#lgContent .lg-refresh svg { width: 15px; height: 15px; }
+#lgContent .lg-refresh.lg-spinning svg { animation: lgRefSpin 0.9s linear infinite; }
+@keyframes lgRefSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  #lgContent .lg-refresh.lg-spinning svg { animation: none; }
+}
+body.light #lgContent .lg-list-sub { color: #6b7394; }
 
 /* ── filter dropdowns: visible mini label above each select ───────────── */
 .lg-filter-item { display: flex; flex-direction: column; gap: 4px; flex: 0 1 auto; }
@@ -416,26 +525,35 @@ body.light .lg-card-comment { background: #f6f8fd; border-color: #dfe4f2; border
    dvh keeps it correct on mobile browsers where 100vh overstates the view */
 #lgTableScroll {
   /* fill the viewport: header (~57) + head block + toolbar + filter bar + card
-     padding + footer leave roughly 320px of chrome — the rest goes to rows.
+     padding leave roughly 265px of chrome — the rest goes to rows.
      overflow-y: scroll (not auto) + stable gutter: an appearing scrollbar
      would otherwise force a full-table reflow on every background append */
   overflow-y: scroll;
   scrollbar-gutter: stable;
-  max-height: calc(100vh - 320px);
-  max-height: calc(100dvh - 320px);
-  min-height: 320px;
+  max-height: calc(100vh - 265px);
+  max-height: calc(100dvh - 265px);
+  min-height: 220px;
 }
 
-/* on big screens the card eats all remaining height and the page never scrolls.
-   Uses a body class toggled by JS (lg-list-active) instead of body:has(...) —
-   :has() re-matches against the entire DOM on every insertion and makes
-   rendering thousands of rows pathologically slow. */
-@media (min-width: 1100px) {
+/* every laptop/desktop viewport: the card eats all remaining height and the
+   page never scrolls — previously this only applied ≥1100px wide, so the
+   common 1366×768 screens got a tiny un-managed slice of table + a whole
+   page of scroll. Uses a body class toggled by JS (lg-list-active) instead
+   of body:has(...) — :has() re-matches against the entire DOM on every
+   insertion and makes rendering thousands of rows pathologically slow. */
+@media (min-width: 900px) {
   body.lg-list-active { overflow-y: hidden; }
   body.lg-list-active .site-footer { display: none; }
-  body.lg-list-active #lgContent .table-card { display: flex; flex-direction: column; height: calc(100dvh - 175px); }
+  /* measured chrome above the card: topbar 54 + list head 30 + toolbar 40 +
+     filter bar 58 + main padding-top 24 + head margin 10 ≈ 216 */
+  body.lg-list-active #lgContent .table-card {
+    display: flex; flex-direction: column;
+    height: calc(100dvh - 132px);
+    padding: 12px 16px 10px;
+  }
   body.lg-list-active #lgContent .table-card .lg-scroll-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
   body.lg-list-active #lgContent .table-card #lgTableScroll { flex: 1 1 auto; min-height: 0; max-height: none; }
+  body.lg-list-active #lgContent .table-card .tl-filterbar { margin-bottom: 8px; }
 }
 
 .lg-scroll-btn {
