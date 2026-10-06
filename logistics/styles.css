@@ -90,6 +90,16 @@ body.light .lg-dir-text { color: #6b7394; }
 #lgCount { flex-shrink: 0; }
 #lgToolbar { justify-content: space-between; }
 
+/* ── page-size switcher (compact select at the toolbar's right end) ────── */
+.lg-page-select {
+  min-width: 0;
+  width: auto;
+  padding: 6px 26px 6px 10px;
+  font-size: 0.75rem;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
 /* ── colored status pills (dark + light) ─────────────────────────────────
    Buckets assigned client-side via lgStatusClass():
    done → green · in progress → blue · waiting/open → amber · other → neutral */

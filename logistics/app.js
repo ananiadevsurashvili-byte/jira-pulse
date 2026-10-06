@@ -48,7 +48,6 @@ const PUB_SESSION_TTL = 30 * 24 * 60 * 60 * 1000;   /* 30 days */
 
 /* table tuning */
 const LG_LIVE_TTL = 30 * 1000;    /* in-memory data cache */
-const LG_MAX_ROWS = 1000;         /* rendered-row cap (filters still apply to all) */
 
 /* ── state ─────────────────────────────────────────────────────────── */
 let lgState = {
@@ -63,7 +62,14 @@ let lgState = {
   sort: { col: 'created', dir: 'desc' },
   loading: false,
   cardKey: null,       /* task currently open in the detail card */
+  pageSize: 100,       /* rendered-row cap; switchable in the toolbar */
 };
+const LG_PAGE_SIZES = [50, 100, 200, 500, 1000, 10000];
+const LS_PAGE_SIZE = 'jp_lg_page_v1';
+try {
+  const saved = parseInt(localStorage.getItem(LS_PAGE_SIZE) || '', 10);
+  if (LG_PAGE_SIZES.includes(saved)) lgState.pageSize = saved;   // eslint-disable-line no-use-before-define
+} catch (_) {}
 let _lgCache = null;   /* { data, ts } */
 let toastTimer = null;
 
@@ -124,6 +130,8 @@ const I18N = {
     'lg.showing': 'Showing {n} of {total} — refine filters to see more',
     'lg.searchPh': 'Search tasks…',
     'lg.filterAll': 'All',
+    'lg.pageSizeTitle': 'Tasks shown per page',
+    'lg.pageSize': '{n} / page',
     'lg.th.key': 'Key',
     'lg.th.title': 'Title',
     'lg.th.status': 'Status',
@@ -194,6 +202,8 @@ const I18N = {
     'lg.showing': 'ნაჩვენებია {n} / {total} — შეავიწროვეთ ფილტრები დანარჩენის სანახავად',
     'lg.searchPh': 'ამოცანების ძებნა…',
     'lg.filterAll': 'ყველა',
+    'lg.pageSizeTitle': 'გვერდზე ნაჩვენები ამოცანები',
+    'lg.pageSize': '{n} / გვერდი',
     'lg.th.key': 'კოდი',
     'lg.th.title': 'დასახელება',
     'lg.th.status': 'სტატუსი',
@@ -262,9 +272,19 @@ function setLang(lang) {
   setLangButtons();
   /* re-render dynamic surfaces so runtime strings follow the language */
   try {
+    lgRenderPageSizeOptions();   /* option labels are language-specific */
     if (lgState.verified && lgState.rows.length) { lgBuildFilterBar(); lgRenderRows(); }
     if (lgState.cardKey) { lgRenderCard(); }   /* open card follows the language too */
   } catch { /* noop */ }
+}
+
+/* fill the page-size switcher with localized labels, keeping selection */
+function lgRenderPageSizeOptions() {
+  const sel = $('#lgPageSize');
+  if (!sel) return;
+  sel.innerHTML = LG_PAGE_SIZES.map((n) =>
+    `<option value="${n}"${lgState.pageSize === n ? ' selected' : ''}>${escapeHtml(tReplace('lg.pageSize', { n }))}</option>`
+  ).join('');
 }
 
 /* ── theme switcher (copied pattern from app.js) ───────────────────── */
@@ -854,7 +874,7 @@ function lgRowHtml(r) {
 
 function lgRenderRows() {
   const all = lgFiltered();
-  const rows = all.slice(0, LG_MAX_ROWS);
+  const rows = all.slice(0, lgState.pageSize);
   $('#lgTbody').innerHTML = rows.length
     ? rows.map(lgRowHtml).join('')
     : `<tr><td colspan="9" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('lg.empty'))}</td></tr>`;
@@ -1017,6 +1037,15 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#lgSearch').addEventListener('input', (e) => {
     clearTimeout(deb);
     deb = setTimeout(() => { lgState.q = e.target.value; lgRenderRows(); }, 250);
+  });
+
+  /* page-size switcher: 50 / 100 / 200 / 500 / 1000 / 10000 rows per page */
+  lgRenderPageSizeOptions();
+  const pageSizeSel = $('#lgPageSize');
+  pageSizeSel.addEventListener('change', () => {
+    lgState.pageSize = parseInt(pageSizeSel.value, 10) || 100;
+    try { localStorage.setItem(LS_PAGE_SIZE, String(lgState.pageSize)); } catch (_) {}
+    lgRenderRows();
   });
 
   /* click-to-sort headers */
