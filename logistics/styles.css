@@ -223,9 +223,104 @@ body.light #lgContent .data-table tbody tr:hover td { background: rgba(99, 102, 
 #lgContent .lg-date-cell { font-size: 0.76rem; }
 #lgContent .data-table thead th { font-size: 0.72rem; letter-spacing: 0.03em; }
 
+/* ── skeleton loading state: shimmer placeholder rows while fetching ─────
+   Shown by lgLoad() before the relay answers; replaced by real rows. */
+@keyframes lgShimmer {
+  0% { background-position: -460px 0; }
+  100% { background-position: 460px 0; }
+}
+.lg-skel {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05) 25%,
+    rgba(255, 255, 255, 0.14) 50%,
+    rgba(255, 255, 255, 0.05) 75%
+  );
+  background-size: 460px 100%;
+  animation: lgShimmer 1.15s linear infinite;
+  border-radius: 5px;
+  height: 10px;
+}
+body.light .lg-skel {
+  background: linear-gradient(
+    90deg,
+    rgba(30, 41, 80, 0.08) 25%,
+    rgba(30, 41, 80, 0.16) 50%,
+    rgba(30, 41, 80, 0.08) 75%
+  );
+  background-size: 460px 100%;
+}
+/* per-column skeleton shapes */
+.lg-skel-key { width: 56px; }
+.lg-skel-title { width: 92%; max-width: 300px; }
+.lg-skel-title + .lg-skel { margin-top: 6px; }
+.lg-skel-title-sub { width: 58%; max-width: 200px; height: 8px; opacity: 0.75; }
+.lg-skel-pill { width: 64px; height: 18px; border-radius: 999px; }
+.lg-skel-line { width: 72%; max-width: 120px; }
+.lg-skel-line + .lg-skel { margin-top: 6px; }
+.lg-skel-line2 { width: 52%; max-width: 100px; height: 8px; opacity: 0.75; }
+.lg-skel-cmt { width: 88%; max-width: 190px; }
+.lg-skel-cmt + .lg-skel { margin-top: 6px; }
+.lg-skel-cmt2 { width: 64%; max-width: 150px; height: 8px; opacity: 0.75; }
+/* skeleton rows are decorative — kill hover/zebra on them */
+tr.lg-skelling { pointer-events: none; }
+tr.lg-skelling td { background: transparent !important; }
+
+/* loading banner: "Loading tasks…" chip with a spinner, shown under the toolbar */
+.lg-loading {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 10px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  font-size: 0.8rem; font-weight: 600; color: var(--muted);
+  background: rgba(99, 102, 241, 0.09);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  width: fit-content;
+}
+body.light .lg-loading { background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.35); color: #4a5375; }
+.lg-loading .spinner { width: 14px; height: 14px; border-width: 2px; }
+
+/* refreshed rows get a brief accent flash so a Refresh visibly lands */
+@keyframes lgFreshIn { from { background-color: rgba(99, 102, 241, 0.16); } to { background-color: transparent; } }
+.lg-fresh td { animation: lgFreshIn 1.2s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .lg-fresh td { animation: none; }
+}
+
+/* "showing N of M" footer line: center it and add a soft top separator */
+#lgShowing {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px; padding-top: 8px !important;
+}
+
+/* count chip inside the toolbar pops a bit more (matches pub-count-chip look) */
+#lgCount {
+  min-width: 76px; text-align: center;
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.25);
+}
+/* empty states must not render as stray boxes/dashes (e.g. count chip before
+   the first render, showing-line with a full page) */
+#lgCount:empty, #lgShowing:empty { display: none; }
+
 /* ── task card popup (Jira-style full detail, in-app) ────────────────────
    Opens from the key / title click; never navigates to Jira. */
-.lg-card-modal { width: min(640px, 94vw); position: relative; }
+.lg-card-modal {
+  width: min(720px, 94vw);
+  position: relative;
+  padding-top: 30px;
+  /* clip the accent strip to the rounded corners, but keep vertical
+     scrolling from the shared .modal (max-height 92vh) */
+  overflow: hidden auto;
+}
+/* thin accent gradient strip along the top edge of the card */
+.lg-card-modal::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, #6366f1, #22d3ee 55%, transparent);
+  opacity: 0.85;
+  pointer-events: none;
+}
 .lg-card-body { display: flex; flex-direction: column; gap: 14px; }
 .lg-card-close {
   position: absolute; top: 14px; right: 14px;
@@ -233,28 +328,46 @@ body.light #lgContent .data-table tbody tr:hover td { background: rgba(99, 102, 
   display: flex; align-items: center; justify-content: center;
   background: rgba(255, 255, 255, 0.05); color: var(--muted);
   border: 1px solid var(--border); cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  z-index: 2;
 }
-.lg-card-close:hover { background: rgba(255, 255, 255, 0.12); color: var(--text); }
+.lg-card-close:hover {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: var(--accent);
+  color: var(--text);
+}
 body.light .lg-card-close { background: #eef1f8; color: #55607f; border-color: #d4daea; }
-body.light .lg-card-close:hover { background: #e2e7f3; color: #1e2540; }
+body.light .lg-card-close:hover { background: #e6e9fd; border-color: #6366f1; color: #1e2540; }
 
-.lg-card-top { display: flex; align-items: center; gap: 10px; padding-right: 40px; }
-.lg-card-key { font-weight: 800; font-size: 0.9rem; letter-spacing: 0.02em; color: var(--muted); }
-body.light .lg-card-key { color: #55607f; }
-.lg-card-title { font-size: 1.12rem; font-weight: 700; line-height: 1.35; margin: 0; padding-right: 24px; }
+.lg-card-top { display: flex; align-items: center; gap: 10px; padding-right: 40px; flex-wrap: wrap; }
+/* the task key reads as a chip, not plain text */
+.lg-card-key {
+  font-weight: 800; font-size: 0.78rem; letter-spacing: 0.04em;
+  color: var(--accent);
+  padding: 3px 10px; border-radius: 999px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+body.light .lg-card-key { color: #4f46e5; background: rgba(99, 102, 241, 0.1); border-color: rgba(99, 102, 241, 0.35); }
+.lg-card-title { font-size: 1.18rem; font-weight: 750; line-height: 1.35; margin: 0; padding-right: 24px; }
 
+/* hairline dividers separate the header block from detail sections */
+.lg-card-people, .lg-card-meta { padding-top: 12px; border-top: 1px solid var(--border); }
+body.light .lg-card-people, body.light .lg-card-meta { border-top-color: #e3e8f4; }
 .lg-card-people { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .lg-card-person {
   display: flex; flex-direction: column; gap: 2px;
   padding: 9px 12px; border-radius: 10px;
   background: rgba(255, 255, 255, 0.035); border: 1px solid var(--border);
+  transition: border-color 0.15s ease;
 }
+.lg-card-person:hover { border-color: rgba(99, 102, 241, 0.4); }
 body.light .lg-card-person { background: #f6f8fd; border-color: #dfe4f2; }
 .lg-card-person-name { font-weight: 600; font-size: 0.86rem; }
 
 .lg-card-meta { display: flex; flex-wrap: wrap; gap: 8px 22px; }
 .lg-card-meta-item { display: flex; flex-direction: column; gap: 2px; font-size: 0.82rem; }
+.lg-card-meta-item > :last-child { font-weight: 500; }
 
 .lg-card-section { display: flex; flex-direction: column; gap: 6px; }
 .lg-card-desc {
@@ -263,16 +376,21 @@ body.light .lg-card-person { background: #f6f8fd; border-color: #dfe4f2; }
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border); border-radius: 10px;
   padding: 10px 12px;
+  /* very long descriptions scroll inside their box instead of pushing the
+     comments below the fold */
+  max-height: 42vh; overflow-y: auto;
 }
 body.light .lg-card-desc { background: #f6f8fd; border-color: #dfe4f2; }
 
 .lg-card-comments { display: flex; flex-direction: column; gap: 8px; }
+/* quote feel: soft left accent bar on every comment */
 .lg-card-comment {
-  padding: 9px 12px; border-radius: 10px;
+  padding: 9px 12px 9px 14px; border-radius: 10px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
+  border-left: 3px solid rgba(99, 102, 241, 0.55);
 }
-body.light .lg-card-comment { background: #f6f8fd; border-color: #dfe4f2; }
+body.light .lg-card-comment { background: #f6f8fd; border-color: #dfe4f2; border-left-color: rgba(79, 70, 229, 0.45); }
 .lg-card-comment-head {
   display: flex; align-items: baseline; justify-content: space-between;
   gap: 10px; margin-bottom: 4px;
@@ -298,20 +416,26 @@ body.light .lg-card-comment { background: #f6f8fd; border-color: #dfe4f2; }
    dvh keeps it correct on mobile browsers where 100vh overstates the view */
 #lgTableScroll {
   /* fill the viewport: header (~57) + head block + toolbar + filter bar + card
-     padding + footer leave roughly 320px of chrome — the rest goes to rows */
+     padding + footer leave roughly 320px of chrome — the rest goes to rows.
+     overflow-y: scroll (not auto) + stable gutter: an appearing scrollbar
+     would otherwise force a full-table reflow on every background append */
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
   max-height: calc(100vh - 320px);
   max-height: calc(100dvh - 320px);
   min-height: 320px;
-  overflow-y: auto;
 }
 
-/* on big screens the card eats all remaining height and the page never scrolls */
+/* on big screens the card eats all remaining height and the page never scrolls.
+   Uses a body class toggled by JS (lg-list-active) instead of body:has(...) —
+   :has() re-matches against the entire DOM on every insertion and makes
+   rendering thousands of rows pathologically slow. */
 @media (min-width: 1100px) {
-  body:has(#lgContent:not(.hidden)) { overflow-y: hidden; }
-  body:has(#lgContent:not(.hidden)) .site-footer { display: none; }
-  #lgContent .table-card { display: flex; flex-direction: column; height: calc(100dvh - 175px); }
-  #lgContent .table-card .lg-scroll-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  #lgContent .table-card #lgTableScroll { flex: 1 1 auto; min-height: 0; max-height: none; }
+  body.lg-list-active { overflow-y: hidden; }
+  body.lg-list-active .site-footer { display: none; }
+  body.lg-list-active #lgContent .table-card { display: flex; flex-direction: column; height: calc(100dvh - 175px); }
+  body.lg-list-active #lgContent .table-card .lg-scroll-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  body.lg-list-active #lgContent .table-card #lgTableScroll { flex: 1 1 auto; min-height: 0; max-height: none; }
 }
 
 .lg-scroll-btn {

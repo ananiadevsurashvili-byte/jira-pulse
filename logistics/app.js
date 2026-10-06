@@ -63,8 +63,11 @@ let lgState = {
   loading: false,
   cardKey: null,       /* task currently open in the detail card */
   pageSize: 100,       /* rendered-row cap; switchable in the toolbar */
+  _renderJob: 0,       /* rAF id of an in-flight background row-append */
 };
 const LG_PAGE_SIZES = [50, 100, 200, 500, 1000, 10000];
+const LG_FIRST_CHUNK = 100;    /* rows painted synchronously before yielding */
+const LG_APPEND_CHUNK = 250;   /* rows appended per animation frame afterwards */
 const LS_PAGE_SIZE = 'jp_lg_page_v1';
 try {
   const saved = parseInt(localStorage.getItem(LS_PAGE_SIZE) || '', 10);
@@ -157,6 +160,8 @@ const I18N = {
     'lg.commentsCount': '{n} comments',
     'lg.truncated': 'Jira returned more tasks than can be synced — showing the newest.',
     'lg.loading': 'Loading tasks…',
+    'lg.loadingMore': 'Loading remaining tasks…',
+    'lg.loadingPage': '{done} of {total} tasks loaded…',
     'lg.empty': 'No tasks match the current filters.',
     'lg.unassigned': 'Unassigned',
     'lg.card.noDescription': 'No description',
@@ -237,6 +242,8 @@ const I18N = {
     'lg.commentsCount': '{n} კომენტარი',
     'lg.truncated': 'Jira-მა ამოცანების იმაზე მეტი დააბრუნა, რამდენის სინქრონიზაციაც შესაძლებელია — ნაჩვენებია უახლესი.',
     'lg.loading': 'ამოცანები იტვირთება…',
+    'lg.loadingMore': 'დარჩენილი ამოცანები იტვირთება…',
+    'lg.loadingPage': '{done} / {total} ამოცანა ჩაიტვირთა…',
     'lg.empty': 'ფილტრებს ვერცერთი ამოცანა არ ემთხვევა.',
     'lg.unassigned': 'გაუნაწილებელი',
     'lg.card.noDescription': 'აღწერა არ არის',
@@ -454,6 +461,7 @@ function renderLgGate() {
   $('#lgStatus').textContent = '';
   $('#lgStatus').className = 'muted';
   $('#lgContent').classList.add('hidden');
+  document.body.classList.remove('lg-list-active');
   $('#lgAuthBox').classList.remove('hidden');
   updateLgUserChip();
   /* re-render Google's official button — GSI wipes it when the gate was hidden */
@@ -465,6 +473,9 @@ function lgEnterVerified() {
   hide($('#lgGate'));
   $('#lgAuthBox').classList.add('hidden');
   show($('#lgContent'));
+  /* cheap hook for fill-height CSS (avoids body:has(...) which re-matches
+     against the whole DOM on every insertion and makes big renders crawl) */
+  document.body.classList.add('lg-list-active');
   updateLgUserChip();
   lgLoad(false);
 }
@@ -901,12 +912,89 @@ function lgRowHtml(r) {
   </tr>`;
 }
 
-function lgRenderRows() {
+/* ── skeleton rows: shimmer placeholders shown while the relay answers ─────
+   Column shapes mirror lgRowHtml's layout so the swap to real rows is calm. */
+function lgSkeletonRowsHtml(n) {
+  let rows = '';
+  for (let i = 0; i < n; i++) {
+    const w = (base, sub) => (i % 3 === 1 ? sub : base);
+    rows += `<tr class="lg-skelling" aria-hidden="true">
+      <td class="lg-nowrap lg-key-cell"><div class="lg-skel lg-skel-key"></div></td>
+      <td class="lg-title-cell"><div class="lg-skel lg-skel-title" style="width:${w(92, 78)}%"></div><div class="lg-skel lg-skel-title-sub"></div></td>
+      <td><div class="lg-skel lg-skel-pill" style="width:${w(64, 78)}px"></div></td>
+      <td class="lg-people-cell"><div class="lg-skel lg-skel-line"></div><div class="lg-skel lg-skel-line2"></div></td>
+      <td class="lg-dates-cell"><div class="lg-skel lg-skel-line"></div><div class="lg-skel lg-skel-line2"></div></td>
+      <td class="lg-direction-cell"><div class="lg-skel lg-skel-line" style="max-width:130px"></div><div class="lg-skel lg-skel-line2" style="max-width:110px"></div></td>
+      <td class="lg-comments-cell"><div class="lg-skel lg-skel-cmt"></div><div class="lg-skel lg-skel-cmt2"></div></td>
+    </tr>`;
+  }
+  return rows;
+}
+
+function lgRenderRows(opts) {
+  const fresh = !!(opts && opts.fresh);
   const all = lgFiltered();
   const rows = all.slice(0, lgState.pageSize);
-  $('#lgTbody').innerHTML = rows.length
-    ? rows.map(lgRowHtml).join('')
-    : `<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('lg.empty'))}</td></tr>`;
+  const tbody = $('#lgTbody');
+  const banner = $('#lgLoading');
+
+  /* cancel any in-flight background append from a previous render */
+  if (lgState._renderJob) {
+    cancelAnimationFrame(lgState._renderJob);
+    lgState._renderJob = null;
+  }
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('lg.empty'))}</td></tr>`;
+    if (banner) banner.classList.add('hidden');
+  } else {
+    /* first paint: LG_FIRST_CHUNK rows synchronously so the table is usable
+       immediately. Bigger page sizes keep appending in rAF chunks in the
+       background — that is what keeps 500–10000/page switches fast. */
+    tbody.innerHTML = rows.slice(0, LG_FIRST_CHUNK).map(lgRowHtml).join('');
+    if (rows.length > LG_FIRST_CHUNK) {
+      const rest = rows.slice(LG_FIRST_CHUNK);
+      const total = rows.length;
+      const msg = banner ? banner.querySelector('span:last-child') : null;
+      const showProgress = (done) => {
+        if (!banner) return;
+        banner.classList.remove('hidden');
+        if (msg) msg.textContent = tReplace('lg.loadingPage', { done, total });
+      };
+      showProgress(LG_FIRST_CHUNK);
+      let idx = 0;
+      let chunkSize = LG_APPEND_CHUNK;   /* local + mutable: growing a module
+                                            const would throw and kill the chain */
+      let lastT = 0;
+      const appendNext = (t) => {
+        /* adaptive chunk: while frames stay quick, grow up to 1000 so large
+           page sizes finish with fewer full-table layout passes */
+        if (lastT && t - lastT < 24 && chunkSize < 1000) {
+          chunkSize = Math.min(1000, chunkSize * 2);
+        }
+        lastT = t;
+        const slice = rest.slice(idx, idx + chunkSize);
+        idx += slice.length;
+        tbody.insertAdjacentHTML('beforeend', slice.map(lgRowHtml).join(''));
+        if (idx < rest.length) {
+          showProgress(LG_FIRST_CHUNK + idx);
+          lgState._renderJob = requestAnimationFrame(appendNext);
+        } else {
+          lgState._renderJob = null;
+          if (banner) banner.classList.add('hidden');
+        }
+      };
+      lgState._renderJob = requestAnimationFrame(appendNext);
+    } else if (banner) {
+      banner.classList.add('hidden');
+    }
+    /* on a Refresh, briefly tint the top rows so the update visibly lands */
+    if (fresh) {
+      tbody.querySelectorAll('tr').forEach((tr, i) => {
+        if (i < 12) tr.classList.add('lg-fresh');
+      });
+    }
+  }
   $('#lgCount').textContent = tReplace('lg.count', { n: all.length });
   $('#lgShowing').textContent = all.length > rows.length
     ? tReplace('lg.showing', { n: rows.length, total: all.length })
@@ -1020,6 +1108,13 @@ async function lgLoad(force) {
   const label = btn.querySelector('span');
   if (label) label.textContent = t('lg.refreshing');
   btn.disabled = true;
+  /* skeleton rows + spinner banner while the relay answers — the list never
+     sits empty, it shimmers instead */
+  const banner = $('#lgLoading');
+  if (banner) banner.classList.remove('hidden');
+  const tbody = $('#lgTbody');
+  const hadRows = lgState.rows.length > 0;
+  if (tbody && !hadRows) tbody.innerHTML = lgSkeletonRowsHtml(9);
   try {
     const data = await lgFetchDesk(force);
     lgState.rows = lgNormalize(data);
@@ -1028,8 +1123,10 @@ async function lgLoad(force) {
     $('#lgFetchedAt').textContent = tReplace('lg.updatedAt', { t: fmtDateTime(data.fetchedAt) }) +
       (lgState.truncated ? ' · ⚠ ' + t('lg.truncated') : '');
     lgBuildFilterBar();
-    lgRenderRows();
+    lgRenderRows({ fresh: true });
   } catch (e) {
+    if (tbody && !hadRows) tbody.innerHTML = '';
+    if (banner) banner.classList.add('hidden');
     $('#lgError').textContent = e?.status === 401
       ? t('lg.errorNoCreds')
       : tReplace('lg.errorLoad', { m: e?.message || 'error' });
