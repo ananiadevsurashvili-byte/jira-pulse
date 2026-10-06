@@ -31,54 +31,76 @@ body.light .tl-select {
 
 /* ── table: sticky header, sortable columns, cells ────────────────────── */
 .table-scroll { position: relative; }
-#lgContent .data-table { min-width: 900px; }
+/* fixed layout: columns take exactly their specified widths (long names/URLs
+   can't inflate them), title absorbs the slack, ellipsis actually works */
+#lgContent .data-table { width: 100%; min-width: 1134px; table-layout: fixed; }
 #lgContent .data-table thead th {
   position: sticky; top: 0; z-index: 2;
   background: var(--panel);
   cursor: pointer; user-select: none; white-space: nowrap;
 }
-#lgContent .data-table thead th::after {
+/* carets only on real sortable columns (merged ths sort via their halves) */
+#lgContent .data-table thead th[data-col]::after {
   content: '↕';
   display: inline-block; margin-left: 6px;
   font-size: 0.68rem; color: var(--muted); opacity: 0.45;
   transition: opacity 0.12s ease;
 }
-#lgContent .data-table thead th:hover::after { opacity: 1; }
-#lgContent .data-table thead th.lg-sorted::after { opacity: 1; color: var(--accent); font-weight: 700; }
-#lgContent .data-table thead th[data-sort="asc"]::after { content: '▲'; }
-#lgContent .data-table thead th[data-sort="desc"]::after { content: '▼'; }
+#lgContent .data-table thead th[data-col]:hover::after { opacity: 1; }
+#lgContent .data-table thead th[data-col].lg-sorted::after { opacity: 1; color: var(--accent); font-weight: 700; }
+#lgContent .data-table thead th[data-col][data-sort="asc"]::after { content: '▲'; }
+#lgContent .data-table thead th[data-col][data-sort="desc"]::after { content: '▼'; }
 body.light #lgContent .data-table thead th { background: #f4f6fc; }
+
+/* ── wider desk: the shared .main caps at 1240px, which pushed Comments
+   off-screen — lift the cap for the logistics page only ───────────────── */
+.main { max-width: 1560px; padding: 24px 20px 70px; }
 
 /* ── density: tighter rows + tuned column widths ────────────────────────
    Narrow: key, status, dates · Wide: title (with description underneath) */
-#lgContent .data-table td { padding: 5px 10px; vertical-align: top; }
-#lgContent .data-table thead th { padding: 7px 10px; }
-#lgContent .lg-col-key      { width: 86px;  min-width: 86px; }
-#lgContent .lg-col-status   { width: 128px; min-width: 128px; }
-#lgContent .lg-col-people   { width: 200px; min-width: 180px; }
-#lgContent .lg-col-dates    { width: 170px; min-width: 150px; }
-#lgContent .lg-col-direction{ width: 190px; min-width: 170px; max-width: 240px; }
-#lgContent .lg-col-comments { width: 250px; min-width: 210px; max-width: 300px; }
-#lgContent .lg-col-title    { min-width: 280px; }
+#lgContent .data-table td { padding: 3px 8px; vertical-align: top; }
+#lgContent .data-table thead th { padding: 6px 8px; }
+#lgContent .lg-col-key      { width: 78px;  min-width: 0; }
+#lgContent .lg-col-status   { width: 104px; min-width: 0; }
+#lgContent .lg-col-people   { width: 168px; min-width: 0; }
+#lgContent .lg-col-dates    { width: 148px; min-width: 0; }
+#lgContent .lg-col-direction{ width: 158px; min-width: 0; max-width: none; }
+#lgContent .lg-col-comments { width: 252px; min-width: 0; max-width: none; }
+#lgContent .lg-col-title    { width: auto; min-width: 0; }
+
+/* narrow windows: lean columns so ALL columns (incl. Comments) fit on screen
+   with no horizontal scrolling; title absorbs the squeeze via 2-line clamp */
+@media (max-width: 1280px) {
+  #lgContent .data-table { min-width: 0; }
+  #lgContent .lg-col-key      { width: 68px; }
+  #lgContent .lg-col-status   { width: 94px; }
+  #lgContent .lg-col-people   { width: 148px; }
+  #lgContent .lg-col-dates    { width: 126px; }
+  #lgContent .lg-col-direction{ width: 132px; }
+  #lgContent .lg-col-comments { width: 200px; }
+}
 
 .lg-nowrap { white-space: nowrap; }
 .lg-key-cell a { font-weight: 700; }
-.lg-title-cell { max-width: 480px; }
+.lg-title-cell { min-width: 0; overflow: hidden; }
 .lg-task-title {
   font-weight: 600;
   overflow: hidden; display: -webkit-box;
   -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
 }
 .lg-desc {
   margin-top: 1px;
   font-size: 0.76rem; line-height: 1.35; color: var(--muted);
-  max-width: 460px;
+  max-width: 560px;
+  overflow-wrap: anywhere; /* long Jira URLs must be breakable or the column can't shrink */
   overflow: hidden; display: -webkit-box;
   -webkit-line-clamp: 2; -webkit-box-orient: vertical;
 }
 body.light .lg-desc { color: #6b7394; }
 .lg-dir-text {
   font-size: 0.78rem; line-height: 1.35; color: var(--muted);
+  overflow-wrap: anywhere; /* long tokens must not prop up column width */
   overflow: hidden; display: -webkit-box;
   -webkit-line-clamp: 3; -webkit-box-orient: vertical;
 }
@@ -164,6 +186,7 @@ body.light .lg-comment-author { color: #4f46e5; }
   overflow: hidden;
   font-size: 0.76rem; line-height: 1.35; color: var(--text);
   opacity: 0.85;
+  overflow-wrap: anywhere; /* break long links/IDs so comments column stays compact */
 }
 body.light .lg-comment-body { color: #2a3350; }
 .lg-comment + .lg-comment {
@@ -313,10 +336,10 @@ body.light #lgTableScroll::-webkit-scrollbar-thumb:hover { background: rgba(30, 
 /* merged people/dates cells: label + value on one line, two lines per cell
    (Reporter + Assignee · Registered + Updated) — saves two full columns */
 .lg-mini-row {
-  display: flex; align-items: baseline; gap: 6px;
-  min-width: 0; line-height: 1.5;
+  display: flex; align-items: baseline; gap: 5px;
+  min-width: 0; line-height: 1.35;
 }
-.lg-mini-row + .lg-mini-row { margin-top: 2px; }
+.lg-mini-row + .lg-mini-row { margin-top: 1px; }
 .lg-mini-label {
   flex: 0 0 auto;
   font-size: 0.62rem; font-weight: 600; letter-spacing: 0.05em;
@@ -327,6 +350,7 @@ body.light #lgTableScroll::-webkit-scrollbar-thumb:hover { background: rgba(30, 
   flex: 1 1 auto; min-width: 0;
   font-size: 0.78rem; font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow-wrap: anywhere; /* fixed layout: long names must clip, not stretch */
 }
 body.light .lg-mini-label { color: #6b7394; }
 .lg-dates-cell .lg-mini-value { font-weight: 400; color: var(--muted); font-size: 0.76rem; }
@@ -335,15 +359,16 @@ body.light .lg-mini-label { color: #6b7394; }
 /* split headers inside the merged People/Dates columns: two clickable
    halves side by side, each with its own sort caret */
 .lg-col-people .lg-th-split:first-child,
-.lg-col-dates .lg-th-split:first-child { padding-right: 9px; border-right: 1px solid var(--border); }
+.lg-col-dates .lg-th-split:first-child { padding-right: 6px; border-right: 1px solid var(--border); }
 .lg-col-people .lg-th-split + .lg-th-split,
-.lg-col-dates .lg-th-split + .lg-th-split { padding-left: 9px; }
-.lg-th-split { cursor: pointer; user-select: none; white-space: nowrap; }
+.lg-col-dates .lg-th-split + .lg-th-split { padding-left: 6px; }
+.lg-th-split { cursor: pointer; user-select: none; white-space: nowrap; min-width: 0; }
+.lg-th-split > span { display: inline-block; max-width: 64px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; font-size: 0.72rem; letter-spacing: 0.02em; }
 .lg-th-split:hover > :first-child { opacity: 1; }
 .lg-th-split::after {
   content: '↕';
-  display: inline-block; margin-left: 4px;
-  font-size: 0.6rem; color: var(--muted); opacity: 0.45;
+  display: inline-block; margin-left: 2px;
+  font-size: 0.55rem; color: var(--muted); opacity: 0.45;
   transition: opacity 0.12s ease;
 }
 .lg-th-split:hover::after { opacity: 1; }

@@ -139,6 +139,10 @@ const I18N = {
     'lg.th.assignee': 'Assignee',
     'lg.th.created': 'Registered',
     'lg.th.updated': 'Updated',
+    'lg.mini.reporter': 'Reporter',
+    'lg.mini.assignee': 'Assignee',
+    'lg.mini.created': 'Reg.',
+    'lg.mini.updated': 'Upd.',
     'lg.th.direction': 'Logistics direction',
     'lg.th.comments': 'Comments',
     'lg.sortTitle': 'Click to sort',
@@ -211,6 +215,10 @@ const I18N = {
     'lg.th.assignee': 'აღმასრულებელი',
     'lg.th.created': 'რეგისტრაციის თარიღი',
     'lg.th.updated': 'ბოლო განახლება',
+    'lg.mini.reporter': 'მომხ.',
+    'lg.mini.assignee': 'აღმ.',
+    'lg.mini.created': 'რეგ.',
+    'lg.mini.updated': 'განახ.',
     'lg.th.direction': 'მიმართულება',
     'lg.th.comments': 'კომენტარები',
     'lg.sortTitle': 'დასალაგებლად დააჭირეთ',
@@ -842,20 +850,23 @@ function lgRowHtml(r) {
     ? `<div class="lg-desc" ${r.descFull !== r.descOne ? `title="${escapeHtml(r.descFull)}"` : ''}>${escapeHtml(r.descOne)}</div>`
     : '';
   /* people column: reporter + assignee stacked on one row each, mini labels
-     keep it clear which name is which while saving a whole column of space */
+     keep it clear which name is which while saving a whole column of space.
+     labels are abbreviated (Georgian needs it, English fits anyway) */
   const who = (name) => name
     ? escapeHtml(name)
     : `<span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`;
   const peopleHtml =
-    `<div class="lg-mini-row"><span class="lg-mini-label">${escapeHtml(t('lg.th.reporter'))}</span>` +
+    `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.reporter'))}"><span class="lg-mini-label">${escapeHtml(t('lg.mini.reporter'))}</span>` +
     `<span class="lg-mini-value">${who(r.reporter)}</span></div>` +
-    `<div class="lg-mini-row"><span class="lg-mini-label">${escapeHtml(t('lg.th.assignee'))}</span>` +
+    `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.assignee'))}"><span class="lg-mini-label">${escapeHtml(t('lg.mini.assignee'))}</span>` +
     `<span class="lg-mini-value">${who(r.assignee)}</span></div>`;
-  /* dates column: registered + updated stacked, same mini-label pattern */
+  /* dates column: registered + updated stacked, same mini-label pattern.
+     labels are abbreviated (Reg./Upd.) to keep the column narrow; the full
+     word sits in the row tooltip */
   const datesHtml =
-    `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.created'))}"><span class="lg-mini-label">${escapeHtml(t('lg.th.created'))}</span>` +
+    `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.created'))}"><span class="lg-mini-label">${escapeHtml(t('lg.mini.created'))}</span>` +
     `<span class="lg-mini-value lg-date-cell">${fmtDateLong(r.created)}</span></div>` +
-    `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.updated'))}"><span class="lg-mini-label">${escapeHtml(t('lg.th.updated'))}</span>` +
+    `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.updated'))}"><span class="lg-mini-label">${escapeHtml(t('lg.mini.updated'))}</span>` +
     `<span class="lg-mini-value lg-date-cell">${fmtDateLong(r.updated)}</span></div>`;
   /* comments: synced from Jira — stacked preview, full text on hover */
   const commentsHtml = r.comments.length
