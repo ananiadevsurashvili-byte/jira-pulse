@@ -49,6 +49,13 @@ const CREDS_KEY = "jirapulse_creds_v1";
 const DESK_EXCLUDE_LABEL = "Internal";
 const DESK_FIELDS_BASE = "summary,description,status,created,updated,assignee,reporter,labels,comment";
 
+/* desk response blob-cache: one full LOG sync costs ~40 sequential Jira
+   pages; caching the finished result (even very briefly) makes page
+   revisits and multi-viewer bursts near-instant. Freshness remains
+   viewer-controlled: ?fresh=1 bypasses and re-syncs. */
+const DESK_CACHE_KEY = "jirapulse_desk_cache_v1";
+const DESK_CACHE_TTL = 60 * 1000;
+
 /* ADF (Atlassian Document Format) body → plain text, one line per block */
 function adfToText(doc: any): string {
   if (doc == null) return "";
@@ -345,6 +352,19 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
     return json({ error: 'invalid project' }, 400);
   }
   const domainParam = (u.searchParams.get('domain') || '').trim();
+  const forceFresh = u.searchParams.get('fresh') === '1';
+
+  /* short-lived response cache: another viewer (or a revisit within the
+     TTL) gets the last synced payload immediately instead of paying the
+     ~40-page Jira sync again */
+  if (!forceFresh) {
+    try {
+      const cached = await blob.getJSON(DESK_CACHE_KEY) as any;
+      if (cached && cached.data && cached.ts && Date.now() - cached.ts < DESK_CACHE_TTL) {
+        return json({ ...cached.data, cached: true, cacheAge: Date.now() - cached.ts });
+      }
+    } catch { /* cache miss — fall through to the live sync */ }
+  }
 
   /* credentials: identical rules to handleBoardCmd */
   let authHeader = request.headers.get('authorization') || '';
@@ -424,42 +444,48 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
   let jqlTruncated = false;
   async function searchJql(jql: string): Promise<any[] | null> {
     const out: any[] = [];
-    let pageSize = 100;
-    for (let pass = 0; pass < 2; pass++) {
-      out.length = 0;
-      let nextPageToken: string | null = null;
-      let ok = true;
-      let sawLast = false;
-      while (out.length < MAX_TOTAL) {
+    /* start optimistic: /search/jql takes maxResults up to ~1000 — that cuts
+       a full LOG sync from ~40 sequential pages to ~4, which is most of the
+       first-load wait. On 413 the shrink-and-retry below stays safe. */
+    let pageSize = 1000;
+    for (let pass = 0; pass < 4; pass++) {
+      /* pass 1: read the first page just to learn `total` (and honor 413) */
+      out.length = 0;   /* a shrink-retry pass must restart clean */
+      const qp0 = new URLSearchParams();
+      qp0.set('jql', jql);
+      qp0.set('fields', SEARCH_FIELDS);
+      qp0.set('maxResults', String(pageSize));
+      let firstPage: any;
+      try {
+        const resp = await get(`/rest/api/3/search/jql?${qp0.toString()}`);
+        if (resp.status === 413 && pageSize > 1) { pageSize = Math.max(1, Math.floor(pageSize / 2)); continue; }
+        if (resp.status === 410 || resp.status === 400) return null;
+        if (!resp.ok) return null;
+        firstPage = await resp.json();
+      } catch { return null; }
+      if (typeof firstPage.total === 'number') jqlTotal = firstPage.total;
+      if (Array.isArray(firstPage.issues)) out.push(...firstPage.issues);
+      let nextPageToken: string | null = firstPage.nextPageToken || null;
+      while (nextPageToken && out.length < MAX_TOTAL) {
         const qp = new URLSearchParams();
         qp.set('jql', jql);
         qp.set('fields', SEARCH_FIELDS);
         qp.set('maxResults', String(pageSize));
-        if (nextPageToken) qp.set('nextPageToken', nextPageToken);
+        qp.set('nextPageToken', nextPageToken);
         let resp: Response;
-        try {
-          resp = await get(`/rest/api/3/search/jql?${qp.toString()}`);
-        } catch (e) {
-          return null;
-        }
-        if (resp.status === 413 && pageSize > 1) { ok = false; }        // shrink & restart
-        else if (resp.status === 410 || resp.status === 400) return null; // endpoint disabled / bad JQL
-        else if (!resp.ok) return null;
-        else {
-          let page: any;
-          try { page = await resp.json(); } catch { return null; }
-          if (typeof page.total === 'number') jqlTotal = page.total;
-          if (Array.isArray(page.issues)) out.push(...page.issues);
-          if (page.isLast === true || !page.nextPageToken) { sawLast = true; break; }
-          nextPageToken = page.nextPageToken;
-        }
-        if (!ok) break;
+        try { resp = await get(`/rest/api/3/search/jql?${qp.toString()}`); } catch { return null; }
+        if (resp.status === 413 && pageSize > 1) { pageSize = Math.max(1, Math.floor(pageSize / 2)); continue; }
+        if (resp.status === 410 || resp.status === 400) return null;
+        if (!resp.ok) return null;
+        let page: any;
+        try { page = await resp.json(); } catch { return null; }
+        if (typeof page.total === 'number') jqlTotal = page.total;
+        if (Array.isArray(page.issues)) out.push(...page.issues);
+        if (page.isLast === true || !page.nextPageToken) break;
+        nextPageToken = page.nextPageToken;
       }
-      if (ok) {
-        jqlTruncated = !sawLast || out.length > MAX_TOTAL;
-        return out.slice(0, MAX_TOTAL);
-      }
-      pageSize = Math.max(1, Math.floor(pageSize / 2));
+      jqlTruncated = out.length < (jqlTotal || out.length) || out.length >= MAX_TOTAL;
+      return out.slice(0, MAX_TOTAL);
     }
     return null;
   }
@@ -489,19 +515,63 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
     }
   }
 
-  return json({
+  /* ── slim the wire format (big download win) ──
+     The viewer only reads: key, summary, status.name, created, updated,
+     assignee.displayName, reporter.displayName, labels, the direction
+     custom field, description (plain text) and comment. Everything else
+     per issue (expand, self, id, avatar URLs inside users, the direction
+     object's self/id links, per-comment created string, ADF document)
+     was dead weight — ADF alone is hundreds of bytes per issue when the
+     client's own renderer already handles plain text fine. */
+  const slimIssues = issues.map((iss: any) => {
+    const f = iss.fields || {};
+    const directionVal = directionFieldId ? f[directionFieldId] : undefined;
+    const dirTxt = directionVal && typeof directionVal === 'object'
+      ? [directionVal.value, directionVal.child?.value].filter(Boolean).join(' / ')
+      : (directionVal == null ? '' : String(directionVal));
+    const out: any = {
+      key: String(iss.key || ''),
+      fields: {
+        summary: String(f.summary || ''),
+        status: { name: String(f.status?.name || '') },
+        created: String(f.created || ''),
+        updated: String(f.updated || ''),
+        assignee: f.assignee ? { displayName: String(f.assignee.displayName || '') } : null,
+        reporter: f.reporter ? { displayName: String(f.reporter.displayName || '') } : null,
+        labels: Array.isArray(f.labels) ? f.labels.map(String) : [],
+        comment: Array.isArray(f.comment) ? f.comment : [],
+      },
+    };
+    if (directionFieldId) {
+      out.fields[directionFieldId] = dirTxt;   /* plain text — lgNormCustom passes strings through */
+    }
+    if (f.description != null) {
+      out.fields.description = adfToText(f.description);  /* plain text; client renders both */
+    }
+    return out;
+  });
+  issues = null as any;   /* let the raw ADF copy be GC-able before stringifying */
+
+  const result: any = {
     ok: true,
     cmd: 'desk',
     project,
-    count: issues.length,
-    jqlTotal: jqlTotal || issues.length,
-    truncated: jqlTruncated || jqlTotal > issues.length,
+    count: slimIssues.length,
+    jqlTotal: jqlTotal || slimIssues.length,
+    truncated: jqlTruncated || jqlTotal > slimIssues.length,
     fetchedAt: Date.now(),
     fieldIds: { direction: directionFieldId || null, title: titleFieldId || null },
     fieldNames: { direction: directionFieldName, title: titleFieldName },
     titleCandidates,
-    issues,
-  });
+    issues: slimIssues,
+  };
+
+  /* publish the finished payload to the short-TTL blob cache (best-effort) */
+  try {
+    await blob.setJSON(DESK_CACHE_KEY, { ts: Date.now(), data: result });
+  } catch { /* non-fatal */ }
+
+  return json(result);
 }
 
 /* ────────────────────────── plain CORS proxy ────────────────────────── */

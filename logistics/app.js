@@ -74,6 +74,12 @@ try {
   if (LG_PAGE_SIZES.includes(saved)) lgState.pageSize = saved;   // eslint-disable-line no-use-before-define
 } catch (_) {}
 let _lgCache = null;   /* { data, ts } */
+/* last good desk payload persisted per-connection — on revisit the table
+   paints from this INSTANTLY and the live refresh continues in background */
+const LS_LG_SNAPSHOT = 'lg_desk_snapshot_v1';
+/* relay-observed custom field ids — sent with desk requests so the relay
+   skips its own field-catalog round-trip entirely */
+const LS_LG_FIELDIDS = 'lg_desk_fieldids_v1';
 let toastTimer = null;
 
 function toast(msg, type = 'info') {
@@ -723,12 +729,37 @@ function lgSignOut() {
    Viewer with their own Jira connection forwards Basic auth (their creds,
    zero stored secrets); otherwise the relay falls back to the admin's
    stored creds. All LOG issues except label "Internal" come back. */
+function lgSaveSnapshot(data) {
+  try {
+    localStorage.setItem(LS_LG_SNAPSHOT, JSON.stringify({ ts: Date.now(), data }));
+  } catch (_) { /* quota/private mode — snapshot is a best-effort nicety */ }
+}
+
+function lgLoadSnapshot() {
+  try {
+    const raw = localStorage.getItem(LS_LG_SNAPSHOT);
+    if (!raw) return null;
+    const snap = JSON.parse(raw);
+    if (!snap?.data?.issues?.length) return null;
+    return snap;
+  } catch (_) { return null; }
+}
+
+function lgSnapshotFieldIds() {
+  try { return JSON.parse(localStorage.getItem(LS_LG_FIELDIDS) || 'null'); } catch (_) { return null; }
+}
+
 async function lgFetchDesk(force = false) {
   if (!force && _lgCache && Date.now() - _lgCache.ts < LG_LIVE_TTL) return _lgCache.data;
   const conn = loadConn();
   const domain = conn?.domain ? String(conn.domain).replace(/^https?:\/\//, '') : JIRA_DOMAIN;
+  /* field ids learned earlier let the relay skip the field-catalog call */
+  const known = lgSnapshotFieldIds();
   const url = PUB_RELAY + '?cmd=desk&project=' + encodeURIComponent(DESK_PROJECT) +
-    '&domain=' + encodeURIComponent(domain);
+    '&domain=' + encodeURIComponent(domain) +
+    (force ? '&fresh=1' : '') +
+    (known?.direction ? '&directionField=' + encodeURIComponent(known.direction) : '') +
+    (known?.title ? '&titleField=' + encodeURIComponent(known.title) : '');
   const headers = { 'Accept': 'application/json' };
   if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
   const controller = new AbortController();
@@ -743,7 +774,12 @@ async function lgFetchDesk(force = false) {
       err.status = res.status;
       throw err;
     }
+    /* remember the resolved field ids to shorten the next sync */
+    if (data?.fieldIds?.direction) {
+      try { localStorage.setItem(LS_LG_FIELDIDS, JSON.stringify(data.fieldIds)); } catch (_) {}
+    }
     _lgCache = { data, ts: Date.now() };
+    lgSaveSnapshot(data);   /* instant paint on the next visit */
     return data;   /* { ok, cmd:'desk', project, count, fetchedAt, fieldIds, issues } */
   } finally {
     clearTimeout(timer);
@@ -1209,41 +1245,71 @@ function lgRenderCard() {
 }
 
 /* ── load pipeline ─────────────────────────────────────────────────── */
+/* apply a desk payload to the table (shared by snapshot restore + live fetch) */
+function lgApplyData(data, opts = {}) {
+  lgState.rows = lgNormalize(data);
+  lgBumpRows();   /* new rows array → per-row HTML cache must revalidate */
+  lgState.fieldIds = data.fieldIds || { direction: null };
+  lgState.truncated = !!data.truncated;
+  $('#lgFetchedAt').textContent = tReplace('lg.updatedAt', { t: fmtDateTime(data.fetchedAt) }) +
+    (lgState.truncated ? ' · ⚠ ' + t('lg.truncated') : '');
+  lgBuildFilterBar();
+  lgRenderRows(opts);
+}
+
+const LG_SNAPSHOT_MAX_AGE = 10 * 24 * 60 * 60 * 1000;   /* 10 days */
+
 async function lgLoad(force) {
   if (lgState.loading) return;
+
+  /* ── instant paint from the persisted snapshot ──
+     The live sync is genuinely slow (Jira pages ~30s on first hit). The
+     snapshot from the LAST successful load paints real rows immediately;
+     the live refresh then continues in the background. The user asked for
+     exactly this: first 100 shown while the rest loads behind it. */
+  const snap = lgLoadSnapshot();
+  const snapGood = snap && (Date.now() - snap.ts) < LG_SNAPSHOT_MAX_AGE;
+  if (snapGood) {
+    try {
+      lgApplyData(snap.data, { fresh: false });
+      if (_lgCache && Date.now() - _lgCache.ts < LG_LIVE_TTL) {
+        /* data is already fresh (came back within TTL) — nothing to do */
+        return;
+      }
+    } catch (_) { /* corrupted snapshot — fall through to skeleton flow */ }
+  }
+
   lgState.loading = true;
   hide($('#lgError'));
   const btn = $('#lgRefreshBtn');
   btn.classList.toggle('lg-spinning', true);
   btn.disabled = true;
   /* skeleton rows + spinner banner while the relay answers — the list never
-     sits empty, it shimmers instead */
+     sits empty, it shimmers instead (only when there is nothing to show) */
   const banner = $('#lgLoading');
-  if (banner) banner.classList.remove('hidden');
   const tbody = $('#lgTbody');
   const hadRows = lgState.rows.length > 0;
+  if (banner) banner.classList.remove('hidden');
   if (tbody && !hadRows) { tbody.innerHTML = lgSkeletonRowsHtml(9); _lgPainted.n = 0; }
   try {
-    const data = await lgFetchDesk(force);
-    lgState.rows = lgNormalize(data);
-    lgBumpRows();   /* new rows array → per-row HTML cache must revalidate */
-    lgState.fieldIds = data.fieldIds || { direction: null };
-    lgState.truncated = !!data.truncated;
-    $('#lgFetchedAt').textContent = tReplace('lg.updatedAt', { t: fmtDateTime(data.fetchedAt) }) +
-      (lgState.truncated ? ' · ⚠ ' + t('lg.truncated') : '');
-    lgBuildFilterBar();
-    lgRenderRows({ fresh: true });
+    const data = await lgFetchDesk(force && !snapGood ? true : force);
+    lgApplyData(data, { fresh: true });
   } catch (e) {
-    if (tbody && !hadRows) { tbody.innerHTML = ''; _lgPainted.n = 0; }
-    if (banner) banner.classList.add('hidden');
-    $('#lgError').textContent = e?.status === 401
-      ? t('lg.errorNoCreds')
-      : tReplace('lg.errorLoad', { m: e?.message || 'error' });
-    show($('#lgError'));
+    /* a failed refresh with a good snapshot on screen is non-fatal */
+    const keepSnapshot = !force && snapGood;
+    if (!keepSnapshot) {
+      if (tbody && !hadRows) { tbody.innerHTML = ''; _lgPainted.n = 0; }
+      if (banner) banner.classList.add('hidden');
+      $('#lgError').textContent = e?.status === 401
+        ? t('lg.errorNoCreds')
+        : tReplace('lg.errorLoad', { m: e?.message || 'error' });
+      show($('#lgError'));
+    }
   } finally {
     lgState.loading = false;
     btn.classList.toggle('lg-spinning', false);
     btn.disabled = false;
+    if (banner) banner.classList.add('hidden');
   }
 }
 
