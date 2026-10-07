@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="../styles.css?v=8241341" />
-<link rel="stylesheet" href="styles.css?v=16" />
+<link rel="stylesheet" href="styles.css?v=17" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -21,7 +21,7 @@
 
 <!-- ══════════ TOP BAR ══════════ -->
 <header class="topbar pub-topbar">
-  <div class="brand" id="lgBrandBtn" role="button" tabindex="0" data-i18n-title="lg.toMain" title="Go to JiraPulse dashboards">
+  <div class="brand" id="lgBrandBtn" role="button" tabindex="0" data-i18n-title="lg.toMain" title="Refresh Logistics desk">
     <svg viewBox="0 0 32 32" width="26" height="26"><rect width="32" height="32" rx="8" fill="url(#lgl)"/><defs><linearGradient id="lgl" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M6 21l4-7 4 5 5-10 7 12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <span>Jira<b>Pulse</b></span>
     <span class="admin-badge org-badge" data-i18n-text="lg.orgBadge">Logistics</span>
@@ -108,8 +108,10 @@
     <div class="card glass table-card">
       <div class="tl-filterbar" id="lgToolbar">
         <input id="lgSearch" class="input tl-search" type="text" data-i18n-placeholder="lg.searchPh" placeholder="Search tasks…" />
-        <span id="lgCount" class="pub-count-chip"></span>
-        <select id="lgPageSize" class="input tl-select lg-page-select" data-i18n-title="lg.pageSizeTitle" title="Tasks shown per page" aria-label="Tasks shown per page"></select>
+        <span class="lg-toolbar-right">
+          <span id="lgCount" class="pub-count-chip"></span>
+          <select id="lgPageSize" class="input tl-select lg-page-select" data-i18n-title="lg.pageSizeTitle" title="Tasks shown per page" aria-label="Tasks shown per page"></select>
+        </span>
       </div>
       <div class="tl-filterbar" id="lgFilterBar"></div>
       <div class="lg-scroll-wrap">
@@ -161,6 +163,6 @@
   </div>
 </div>
 
-<script src="app.js?v=15"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>

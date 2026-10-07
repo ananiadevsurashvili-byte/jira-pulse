@@ -131,6 +131,14 @@ body.light .lg-dir-text { color: #6b7394; }
 /* ── count chip is shared; give it breathing room in the toolbar ──────── */
 #lgCount { flex-shrink: 0; }
 #lgToolbar { justify-content: space-between; }
+/* count + page-size grouped at the right end of the toolbar */
+.lg-toolbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
 
 /* ── compact chrome: toolbars & filters use the minimum vertical space ── */
 #lgContent .tl-filterbar { margin-bottom: 10px; gap: 8px; }

@@ -121,7 +121,7 @@ const I18N = {
     /* logistics-specific keys */
     'lg.headTitle': 'Logistics desk',
     'lg.orgBadge': 'Logistics',
-    'lg.toMain': 'Go to JiraPulse dashboards',
+    'lg.toMain': 'Refresh Logistics desk',
     'lg.title': 'Logistics desk',
     'lg.subtitle': 'Live LOG service-desk tasks · restricted to @caucasusauto.com',
     'lg.listTitle': 'LOG tasks',
@@ -203,7 +203,7 @@ const I18N = {
     'auth.sending': 'იგზავნება…',
     'lg.headTitle': 'ლოჯისტიკის დესკი',
     'lg.orgBadge': 'ლოჯისტიკა',
-    'lg.toMain': 'JiraPulse დეშბორდებზე გადასვლა',
+    'lg.toMain': 'ლოჯისტიკის გვერდის განახლება',
     'lg.title': 'ლოჯისტიკის დესკი',
     'lg.subtitle': 'ლოჯისტიკის სერვის-დესკის ამოცანები · მხოლოდ @caucasusauto.com-ისთვის',
     'lg.listTitle': 'LOG ამოცანები',
@@ -1161,8 +1161,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /* content wiring */
   $('#lgRefreshBtn').addEventListener('click', () => lgLoad(true));
-  $('#lgBrandBtn').addEventListener('click', () => { location.href = '../'; });
-  $('#lgBrandBtn').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') location.href = '../'; });
+  /* brand click: stay on the Logistics page — reload it for fresh data
+     (previously navigated away to the dashboards, which felt like a trap) */
+  $('#lgBrandBtn').addEventListener('click', () => { location.reload(); });
+  $('#lgBrandBtn').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') location.reload(); });
 
   /* global search (debounced like the main task list) */
   let deb;
