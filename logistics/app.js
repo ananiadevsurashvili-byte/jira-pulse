@@ -295,6 +295,7 @@ function setLang(lang) {
   setLangButtons();
   /* re-render dynamic surfaces so runtime strings follow the language */
   try {
+    lgBumpRows();                /* cached row HTML contains lang strings → rebuild */
     lgRenderPageSizeOptions();   /* option labels are language-specific */
     if (lgState.verified && lgState.rows.length) { lgBuildFilterBar(); lgRenderRows(); }
     if (lgState.cardKey) { lgRenderCard(); }   /* open card follows the language too */
@@ -419,27 +420,50 @@ function lgParseDate(v) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+/* date formatting is memoized per (value, mode): table re-renders (page-size
+   switches, filters, sort) call these thousands of times with the same raw
+   timestamps, and re-parsing + Intl-formatting each time was a measurable
+   part of the render lag. Cache is keyed by LANG so language switches
+   naturally produce the right string; entries are cheap (~40 chars). */
+const LG_FMT_CACHE = new Map();   /* key: `${mode}|${LANG}|${value}` */
+
 function fmtDateLong(v) {
+  const ck = 'D|' + LANG + '|' + v;
+  if (LG_FMT_CACHE.has(ck)) return LG_FMT_CACHE.get(ck);
   const d = lgParseDate(v);
-  if (!d) return '—';
-  return LANG === 'ka' ? lgKaDate(d) : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  let out = '—';
+  if (d) out = LANG === 'ka' ? lgKaDate(d) : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  LG_FMT_CACHE.set(ck, out);
+  return out;
 }
 
 function fmtDateTime(v) {
+  const ck = 'T|' + LANG + '|' + v;
+  if (LG_FMT_CACHE.has(ck)) return LG_FMT_CACHE.get(ck);
   const d = lgParseDate(v);
-  if (!d) return '—';
-  if (LANG === 'ka') return `${lgKaDate(d)} ${lgKaTime(d)}`;
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) +
-    ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  let out = '—';
+  if (d) {
+    out = LANG === 'ka'
+      ? `${lgKaDate(d)} ${lgKaTime(d)}`
+      : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) +
+        ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  }
+  LG_FMT_CACHE.set(ck, out);
+  return out;
 }
 
 /* ── status → semantic color bucket ──────────────────────────────────
-   One bucket per workflow family; CSS gives each a colored pill. */
+   One bucket per workflow family; CSS gives each a colored pill.
+   Regexes are hoisted to module scope — they were being re-created
+   on every call, for every row, on every render. */
+const LG_ST_RE_DONE = /^(done|closed|resolved|complete|completed|cancelled|canceled)/;
+const LG_ST_RE_PROGRESS = /^(in progress|in review|review|testing|qa|in development|reopened)/;
+const LG_ST_RE_WAIT = /^(waiting|pending|blocked|hold|on hold|escalated|open|to do|backlog|new)/;
 function lgStatusClass(status) {
   const s = String(status || '').toLowerCase();
-  if (/^(done|closed|resolved|complete|completed|cancelled|canceled)/.test(s)) return 'lg-st-done';
-  if (/^(in progress|in review|review|testing|qa|in development|reopened)/.test(s)) return 'lg-st-progress';
-  if (/^(waiting|pending|blocked|hold|on hold|escalated|open|to do|backlog|new)/.test(s)) return 'lg-st-wait';
+  if (LG_ST_RE_DONE.test(s)) return 'lg-st-done';
+  if (LG_ST_RE_PROGRESS.test(s)) return 'lg-st-progress';
+  if (LG_ST_RE_WAIT.test(s)) return 'lg-st-wait';
   return 'lg-st-other';
 }
 
@@ -477,6 +501,7 @@ function lgEnterVerified() {
      against the whole DOM on every insertion and makes big renders crawl) */
   document.body.classList.add('lg-list-active');
   updateLgUserChip();
+  _lgPainted.n = 0;
   lgLoad(false);
 }
 
@@ -627,6 +652,13 @@ function lgVerifyCode() {
 }
 
 /* ── topbar identity chip + sign-out (copied pattern from app.js) ──── */
+/* How many rows are actually painted in #lgTbody right now, and from which
+   data generation. Enables incremental page-size rendering: when only the
+   page size changed, the filtered list (see lgFiltered memo) is the same
+   array, so the painted prefix is still valid — growing appends the suffix,
+   shrinking trims the tail, and nothing is rebuilt or reflowed. */
+let _lgPainted = { all: null, lang: null, token: -1, n: 0 };
+
 function updateLgUserChip() {
   const chip = $('#lgUserChip');
   if (!chip) return;
@@ -671,6 +703,8 @@ function lgSignOut() {
   lgState.email = '';
   lgState.codeSent = false;
   lgState.rows = [];
+  lgBumpRows();   /* invalidate cached row HTML + filter memo */
+  _lgPainted.n = 0;
   lgState.q = '';
   lgState.filters = { status: '', assignee: '', direction: '' };
   lgState.sort = { col: 'created', dir: 'desc' };
@@ -780,6 +814,13 @@ function lgNormalize(data) {
     })).filter((c) => c.body);
 
     const num = parseInt(String(iss.key).split('-')[1], 10) || 0;
+    /* pre-build the lowercase search haystack once per row — lgFiltered()
+       used to rebuild this (descFull + all comment bodies) on every render
+       call, which was one of the biggest wastes on page-size switches */
+    const hay = (iss.key + ' ' + (f.summary || '') + ' ' + desc.full + ' ' + (f.status?.name || '') + ' ' +
+      (f.reporter?.displayName || '') + ' ' + (f.assignee?.displayName || '') + ' ' + direction + ' ' +
+      comments.map((c) => c.author + ' ' + c.body).join(' ')
+    ).toLowerCase();
     rows.push({
       key: iss.key,
       num,
@@ -794,6 +835,7 @@ function lgNormalize(data) {
       updated: f.updated ? Date.parse(f.updated) : 0,
       direction,
       comments,
+      hay,
     });
   }
   return rows;
@@ -832,8 +874,24 @@ function lgBuildFilterBar() {
   });
 }
 
-/* global search + per-column filters + sort → filtered row array */
+/* global search + per-column filters + sort → filtered row array.
+   The (query, filters, sort, data-generation) → result mapping is memoized:
+   lgRenderRows() only needs the same full filtered list regardless of the
+   page size, so switching page sizes no longer re-filters and re-sorts the
+   whole dataset — it reuses the memo. Any input change rebuilds once. */
+let _lgFiltMemo = { key: '', rows: null };
+
+function lgFilteredKey() {
+  return lgState.q + '\u0001' + lgState.filters.status + '\u0001' +
+    lgState.filters.reporter + '\u0001' + lgState.filters.assignee + '\u0001' +
+    lgState.filters.direction + '\u0001' +
+    lgState.rows.length + ':' + lgRowToken + '\u0001' +
+    lgState.sort.col + ':' + lgState.sort.dir;
+}
+
 function lgFiltered() {
+  const key = lgFilteredKey();
+  if (_lgFiltMemo.rows && _lgFiltMemo.key === key) return _lgFiltMemo.rows;
   const q = lgState.q.trim().toLowerCase();
   const rows = lgState.rows.filter((r) => {
     if (lgState.filters.status && r.status !== lgState.filters.status) return false;
@@ -841,11 +899,9 @@ function lgFiltered() {
     if (lgState.filters.assignee && r.assignee !== lgState.filters.assignee) return false;
     if (lgState.filters.direction && r.direction !== lgState.filters.direction) return false;
     if (!q) return true;
-    const hay = [
-      r.key, r.summary, r.descFull, r.status, r.reporter, r.assignee, r.direction,
-      r.comments.map((c) => c.author + ' ' + c.body).join(' '),
-    ].join(' ').toLowerCase();
-    return hay.includes(q);
+    /* haystack was pre-built (lowercased) once per row in lgNormalize —
+       see `hay` there. Same search behavior, ~zero rebuild cost. */
+    return r.hay.includes(q);
   });
   const { col, dir } = lgState.sort;
   const mul = dir === 'asc' ? 1 : -1;
@@ -857,10 +913,38 @@ function lgFiltered() {
     else r = String(a[col] || '').localeCompare(String(b[col] || ''), undefined, { sensitivity: 'base' });
     return r * mul;
   });
+  _lgFiltMemo = { key, rows };
   return rows;
 }
 
+/* ── per-row HTML cache (performance-only, no behavior change) ────────
+   lgRowHtml output depends only on (row data, LANG), yet it was recomputed
+   for every visible row on EVERY render call: page-size switches, filter
+   changes, sort clicks, language switches and Refreshes all re-escaped the
+   same strings (incl. 2 date formats + full comment tooltips per row).
+   Cached HTML lives on the row itself (`_h`) with a generation token —
+   so any request for an older generation transparently re-renders.
+   Generation bumps:
+     • setLang()           — lang strings changed, rebuild
+     • after lgNormalize() — fresh row objects, fresh cache
+   Cached rows themselves are thrown away with each new data load, so there
+   is no unbounded growth on Refresh. */
+let lgRowToken = 0;
+function lgBumpRows() {
+  lgRowToken++;
+}
+
 function lgRowHtml(r) {
+  /* hit: same row object, same language, same data generation */
+  if (r._h !== undefined && r._hLang === LANG && r._hTok === lgRowToken) return r._h;
+  const html = lgRowHtmlUncached(r);
+  r._h = html;
+  r._hLang = LANG;
+  r._hTok = lgRowToken;
+  return html;
+}
+
+function lgRowHtmlUncached(r) {
   /* key + title open the in-app task card instead of navigating to Jira */
   const keyLink = `<a href="#" class="lg-open-card" data-key="${escapeHtml(r.key)}" title="${escapeHtml(r.summary)}">${escapeHtml(r.key)}</a>`;
   const direction = r.direction
@@ -946,47 +1030,70 @@ function lgRenderRows(opts) {
     lgState._renderJob = null;
   }
 
-  if (!rows.length) {
+  /* progressive appender shared by initial paint and page-size growth:
+     paints rows[from..n) in growing rAF chunks (250→1000) while frames stay
+     quick, banner showing done/total. Keeps huge pages from freezing. */
+  const appendFrom = (from) => {
+    const msg = banner ? banner.querySelector('span:last-child') : null;
+    const showProgress = (done) => {
+      if (!banner) return;
+      banner.classList.remove('hidden');
+      if (msg) msg.textContent = tReplace('lg.loadingPage', { done, total: rows.length });
+    };
+    showProgress(from);
+    let idx = from;
+    let chunkSize = LG_APPEND_CHUNK;
+    let lastT = 0;
+    const appendNext = (t) => {
+      if (lastT && t - lastT < 24 && chunkSize < 1000) {
+        chunkSize = Math.min(1000, chunkSize * 2);
+      }
+      lastT = t;
+      const slice = rows.slice(idx, idx + chunkSize);
+      idx += slice.length;
+      tbody.insertAdjacentHTML('beforeend', slice.map(lgRowHtml).join(''));
+      _lgPainted.n = idx;
+      if (idx < rows.length) {
+        showProgress(idx);
+        lgState._renderJob = requestAnimationFrame(appendNext);
+      } else {
+        lgState._renderJob = null;
+        _lgPainted = { all, lang: LANG, token: lgRowToken, n: rows.length };
+        if (banner) banner.classList.add('hidden');
+      }
+    };
+    lgState._renderJob = requestAnimationFrame(appendNext);
+  };
+
+  /* incremental fast path: same filtered data, same language/generation,
+     only the page size changed → the already-painted prefix stays; we just
+     extend or trim it. Zero repaint of visible rows, no vertical lurch. */
+  const sameBase = _lgPainted.all === all && _lgPainted.lang === LANG &&
+    _lgPainted.token === lgRowToken && _lgPainted.n > 0 && !!tbody;
+  if (sameBase && rows.length > _lgPainted.n) {
+    appendFrom(_lgPainted.n);
+  } else if (sameBase && rows.length <= _lgPainted.n) {
+    const extra = _lgPainted.n - rows.length;
+    if (extra) {
+      const kids = tbody.children;
+      for (let i = kids.length - 1; i >= 0 && kids.length > rows.length; i--) {
+        tbody.removeChild(kids[i]);
+      }
+    }
+    _lgPainted = { all, lang: LANG, token: lgRowToken, n: rows.length };
+    if (banner) banner.classList.add('hidden');
+  } else if (!rows.length) {
+    _lgPainted = { all: null, lang: LANG, token: lgRowToken, n: 0 };
     tbody.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('lg.empty'))}</td></tr>`;
     if (banner) banner.classList.add('hidden');
   } else {
-    /* first paint: LG_FIRST_CHUNK rows synchronously so the table is usable
-       immediately. Bigger page sizes keep appending in rAF chunks in the
-       background — that is what keeps 500–10000/page switches fast. */
+    /* full repaint: first LG_FIRST_CHUNK rows synchronously so the table is
+       usable immediately; the rest streams in via appendFrom (above). */
     tbody.innerHTML = rows.slice(0, LG_FIRST_CHUNK).map(lgRowHtml).join('');
+    const painted = Math.min(LG_FIRST_CHUNK, rows.length);
+    _lgPainted = { all, lang: LANG, token: lgRowToken, n: painted };
     if (rows.length > LG_FIRST_CHUNK) {
-      const rest = rows.slice(LG_FIRST_CHUNK);
-      const total = rows.length;
-      const msg = banner ? banner.querySelector('span:last-child') : null;
-      const showProgress = (done) => {
-        if (!banner) return;
-        banner.classList.remove('hidden');
-        if (msg) msg.textContent = tReplace('lg.loadingPage', { done, total });
-      };
-      showProgress(LG_FIRST_CHUNK);
-      let idx = 0;
-      let chunkSize = LG_APPEND_CHUNK;   /* local + mutable: growing a module
-                                            const would throw and kill the chain */
-      let lastT = 0;
-      const appendNext = (t) => {
-        /* adaptive chunk: while frames stay quick, grow up to 1000 so large
-           page sizes finish with fewer full-table layout passes */
-        if (lastT && t - lastT < 24 && chunkSize < 1000) {
-          chunkSize = Math.min(1000, chunkSize * 2);
-        }
-        lastT = t;
-        const slice = rest.slice(idx, idx + chunkSize);
-        idx += slice.length;
-        tbody.insertAdjacentHTML('beforeend', slice.map(lgRowHtml).join(''));
-        if (idx < rest.length) {
-          showProgress(LG_FIRST_CHUNK + idx);
-          lgState._renderJob = requestAnimationFrame(appendNext);
-        } else {
-          lgState._renderJob = null;
-          if (banner) banner.classList.add('hidden');
-        }
-      };
-      lgState._renderJob = requestAnimationFrame(appendNext);
+      appendFrom(painted);
     } else if (banner) {
       banner.classList.add('hidden');
     }
@@ -1115,10 +1222,11 @@ async function lgLoad(force) {
   if (banner) banner.classList.remove('hidden');
   const tbody = $('#lgTbody');
   const hadRows = lgState.rows.length > 0;
-  if (tbody && !hadRows) tbody.innerHTML = lgSkeletonRowsHtml(9);
+  if (tbody && !hadRows) { tbody.innerHTML = lgSkeletonRowsHtml(9); _lgPainted.n = 0; }
   try {
     const data = await lgFetchDesk(force);
     lgState.rows = lgNormalize(data);
+    lgBumpRows();   /* new rows array → per-row HTML cache must revalidate */
     lgState.fieldIds = data.fieldIds || { direction: null };
     lgState.truncated = !!data.truncated;
     $('#lgFetchedAt').textContent = tReplace('lg.updatedAt', { t: fmtDateTime(data.fetchedAt) }) +
@@ -1126,7 +1234,7 @@ async function lgLoad(force) {
     lgBuildFilterBar();
     lgRenderRows({ fresh: true });
   } catch (e) {
-    if (tbody && !hadRows) tbody.innerHTML = '';
+    if (tbody && !hadRows) { tbody.innerHTML = ''; _lgPainted.n = 0; }
     if (banner) banner.classList.add('hidden');
     $('#lgError').textContent = e?.status === 401
       ? t('lg.errorNoCreds')
