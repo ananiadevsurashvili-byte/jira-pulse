@@ -189,6 +189,7 @@ const I18N = {
     'lg.unassigned': 'Unassigned',
     'lg.card.noDescription': 'No description',
     'lg.card.noComments': 'No comments yet',
+    'lg.card.attachments': 'Attachments',
     'lg.card.close': 'Close',
     'lg.descLabel': 'Description',
     'lg.scrollLeft': 'Scroll left',
@@ -283,6 +284,7 @@ const I18N = {
     'lg.unassigned': 'გაუნაწილებელი',
     'lg.card.noDescription': 'აღწერა არ არის',
     'lg.card.noComments': 'კომენტარები ჯერ არ არის',
+    'lg.card.attachments': 'ატვირთული ფაილები',
     'lg.card.close': 'დახურვა',
     'lg.descLabel': 'აღწერა',
     'lg.scrollLeft': 'ჩამოსქროლე მარცხნივ',
@@ -995,12 +997,15 @@ function lgNormalize(data) {
     const direction = dirId ? lgNormCustom(f[dirId]) : '';
     const desc = lgDescPreview(f.description);
 
-    /* comments come pre-slimmed from the relay: last 3, plain-text bodies */
+    /* comments come pre-slimmed from the relay: last 3, plain-text bodies;
+       idx = the comment's position in Jira's FULL list (comment attachments
+       from ?cmd=deskAttach are anchored against this full-list index) */
     const rawComments = Array.isArray(f.comment) ? f.comment : [];
     const comments = rawComments.map((c) => ({
       author: String(c?.author || ''),
       created: c?.created ? Date.parse(c.created) : 0,
       body: String(c?.body || '').replace(/\r/g, '').trim(),
+      _idx: typeof c.idx === 'number' ? c.idx : null,
     })).filter((c) => c.body);
 
     const num = parseInt(String(iss.key).split('-')[1], 10) || 0;
@@ -1461,7 +1466,141 @@ function lgOpenCard(key) {
 function lgCloseCard() {
   lgState.cardKey = null;
   hide($('#lgCardOverlay'));
+  lgRevokeBlobCache();       /* free preview blobs — thumbs reload on reopen */
+  const lb = document.querySelector('.lg-lightbox');
+  if (lb) lb.remove();
 }
+
+/* ── attachment interactions (delegated on the card body) ─────────────
+   - click on an image thumb → fullscreen lightbox
+   - non-image thumbs are plain download links (target=_blank) */
+function lgOpenLightbox(att, objUrl) {
+  const lb = document.createElement('div');
+  lb.className = 'lg-lightbox';
+  lb.innerHTML = `
+    <button class="lg-lightbox-close" type="button" aria-label="Close">✕</button>
+    <img alt="${escapeHtml(att.filename)}" src="${objUrl}" />
+    <div class="lg-lightbox-name">${escapeHtml(att.filename)}</div>`;
+  const close = () => { lb.remove(); };
+  lb.addEventListener('click', (e) => { if (e.target === lb || e.target.closest('.lg-lightbox-close')) close(); });
+  document.addEventListener('keydown', function onKey(ev) {
+    if (ev.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
+  });
+  document.body.appendChild(lb);
+}
+
+/* ── card attachments ──────────────────────────────────────────────────
+   Attachments live OUTSIDE the bulk desk payload (too heavy for ~4k
+   issues), so when a card opens we fetch them for exactly this one
+   issue via the relay's ?cmd=deskAttach. Results are cached per key in
+   _lgAttachCache (per session + a light localStorage copy). Colors and
+   preview thumbs come through the plain CORS proxy (?url=). */
+const LG_ATTACH_TTL = 10 * 60 * 1000;   /* per-session cache: 10 min */
+const _lgAttachCache = new Map();       /* key → { ts, attachments } */
+
+function lgAttachProxyUrl(contentUrl) {
+  return PUB_RELAY + '?url=' + encodeURIComponent(contentUrl);
+}
+
+function lgIsImageMime(mime, filename) {
+  if (/^image\//i.test(mime || '')) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(filename || '');
+}
+
+function lgFmtBytes(n) {
+  if (!n || n < 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+/* fetch attachment metadata (NOT the binaries) for one task */
+async function lgFetchAttachments(key) {
+  const hit = _lgAttachCache.get(key);
+  if (hit && Date.now() - hit.ts < LG_ATTACH_TTL) return hit.attachments;
+  const conn = loadConn();
+  const domain = conn?.domain ? String(conn.domain).replace(/^https?:\/\//, '') : JIRA_DOMAIN;
+  const url = PUB_RELAY + '?cmd=deskAttach&key=' + encodeURIComponent(key) +
+    '&domain=' + encodeURIComponent(domain);
+  const headers = { 'Accept': 'application/json' };
+  if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
+  const res = await fetch(url, { method: 'GET', headers });
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (_) { /* non-json */ }
+  if (!res.ok) throw new Error((data && (data.error || data.detail)) || `HTTP ${res.status}`);
+  const attachments = Array.isArray(data?.attachments) ? data.attachments : [];
+  _lgAttachCache.set(key, { ts: Date.now(), attachments });
+  return attachments;
+}
+
+/* blob URL cache so the same image isn't re-downloaded while its card is open */
+const _lgBlobCache = new Map();         /* attachId → objectURL */
+let _lgBlobRevokes = new Set();         /* revocable after card close */
+
+async function lgAttachBlob(att) {
+  if (_lgBlobCache.has(att.id)) return _lgBlobCache.get(att.id);
+  const res = await fetch(lgAttachProxyUrl(att.contentUrl), {
+    headers: loadConn() ? { 'Authorization': 'Basic ' + btoa(loadConn().email + ':' + loadConn().token) } : {},
+  });
+  if (!res.ok) throw new Error('preview HTTP ' + res.status);
+  /* 303-style redirects surface as JSON error payloads through the proxy
+     without an auth header — guard against a JSON body for an image */
+  const blob = await res.blob();
+  if (/json/i.test(blob.type || '')) throw new Error('proxy refused preview');
+  const objUrl = URL.createObjectURL(blob);
+  _lgBlobCache.set(att.id, objUrl);
+  return objUrl;
+}
+
+function lgRevokeBlobCache() {
+  for (const [, u] of _lgBlobCache) {
+    try { URL.revokeObjectURL(u); } catch (_) {}
+    _lgBlobRevokes.add(u);
+  }
+  _lgBlobCache.clear();
+}
+
+/* ── render helpers (called once lgFetchAttachments resolves) ───────── */
+
+function lgAttachThumbHtml(att) {
+  const isImg = lgIsImageMime(att.mimeType, att.filename);
+  if (isImg) {
+    return `<a class="lg-att-item lg-att-img" data-att-id="${escapeHtml(att.id)}" href="#" title="${escapeHtml(att.filename)}">
+      <img alt="${escapeHtml(att.filename)}" loading="lazy" />
+      <span class="lg-att-name">${escapeHtml(att.filename)}</span>
+    </a>`;
+  }
+  const icon = /\.(pdf)$/i.test(att.filename || '') ? '📄'
+    : /\.(xlsx?|csv)$/i.test(att.filename || '') ? '📊'
+    : /\.(docx?)$/i.test(att.filename || '') ? '📝' : '📎';
+  return `<a class="lg-att-item lg-att-file" data-att-id="${escapeHtml(att.id)}" href="${lgAttachProxyUrl(att.contentUrl)}" target="_blank" rel="noopener" title="${escapeHtml(att.filename)}">
+    <span class="lg-att-icon">${icon}</span>
+    <span class="lg-att-name">${escapeHtml(att.filename)}</span>
+    ${att.size ? `<span class="lg-att-size">${lgFmtBytes(att.size)}</span>` : ''}
+  </a>`;
+}
+
+/* wire up <img> loading inside every rendered thumb (called after inner
+   HTML is in place — the img tags ship without src to avoid eager loads) */
+function lgHydrateAttachImages(rootEl) {
+  rootEl.querySelectorAll('.lg-att-img:not([data-hydrated="1"])').forEach((a) => {
+    a.setAttribute('data-hydrated', '1');
+    const attId = a.getAttribute('data-att-id');
+    const meta = rootEl._lgAttMeta?.get(attId);
+    if (!meta) return;
+    a.querySelector('img').alt = meta.filename;
+    lgAttachBlob(meta).then((objUrl) => {
+      const img = a.querySelector('img');
+      if (img) img.src = objUrl;
+    }).catch(() => {
+      a.classList.add('lg-att-broken');
+      const n = a.querySelector('.lg-att-name');
+      if (n) n.insertAdjacentHTML('beforebegin', '<span class="lg-att-icon">⚠️</span>');
+    });
+  });
+}
+
 
 function lgRenderCard() {
   const r = lgFindTask(lgState.cardKey);
@@ -1493,6 +1632,7 @@ function lgRenderCard() {
             <span class="lg-card-comment-date">${fmtDateTime(c.created)}</span>
           </div>
           <div class="lg-card-comment-body">${escapeHtml(c.body)}</div>
+          <div class="lg-card-comment-attach" data-comment-idx="${c._idx ?? ''}"></div>
         </div>`
       ).join('')
     : `<div class="muted">${escapeHtml(t('lg.card.noComments'))}</div>`;
@@ -1518,10 +1658,55 @@ function lgRenderCard() {
         ? escapeHtml(r.descFull)
         : `<span class="muted">${escapeHtml(t('lg.card.noDescription'))}</span>`}</div>
     </div>
+    <div class="lg-card-section lg-card-attach-section" hidden>
+      <span class="lg-person-role" data-i18n="lg.card.attachments">${escapeHtml(t('lg.card.attachments') || 'Attachments')}</span>
+      <div class="lg-card-attach-grid" id="lgCardAttachGrid"></div>
+    </div>
     <div class="lg-card-section">
       <span class="lg-person-role" data-i18n="lg.th.comments">${escapeHtml(t('lg.th.comments'))}</span>
       <div class="lg-card-comments">${commentsHtml}</div>
     </div>`;
+
+  /* attachments load AFTER the card paints (one small relay call for
+     exactly this issue) — comments' inline images land under their own
+     comment; everything else appears in the Attachments section */
+  lgLoadCardAttachments(r.key);
+}
+
+/* fill the card's attachment sections (called async after lgRenderCard) */
+async function lgLoadCardAttachments(key) {
+  const body = $('#lgCardBody');
+  const cardKeyAtStart = lgState.cardKey;
+  try {
+    const attachments = await lgFetchAttachments(key);
+    if (lgState.cardKey !== cardKeyAtStart || body.closest('#lgCardOverlay').classList.contains('hidden')) return;
+    if (!attachments.length) return;
+
+    /* issue-level meta for thumbnail hydration */
+    body._lgAttMeta = new Map(attachments.map((a) => [String(a.id), a]));
+
+    /* 1) comment-embedded images go INSIDE their own comment block */
+    const inComments = attachments.filter((a) => a.commentIndex != null);
+    for (const att of inComments) {
+      const slot = body.querySelector(`.lg-card-comment-attach[data-comment-idx="${att.commentIndex}"]`);
+      if (!slot) continue;
+      slot.insertAdjacentHTML('beforeend', lgAttachThumbHtml(att));
+    }
+
+    /* 2) everything else (files + non-comment images) into the Attachments grid */
+    const rest = attachments.filter((a) => a.commentIndex == null);
+    const sec = body.querySelector('.lg-card-attach-section');
+    const grid = body.querySelector('#lgCardAttachGrid');
+    if (rest.length && sec && grid) {
+      sec.hidden = false;
+      grid.innerHTML = rest.map(lgAttachThumbHtml).join('');
+    }
+
+    /* 3) hydrate image thumbnails (fetch binaries via CORS proxy → blob) */
+    lgHydrateAttachImages(body);
+  } catch (_) {
+    /* attachments are optional garnish — a failed fetch leaves the card clean */
+  }
 }
 
 /* ── load pipeline ─────────────────────────────────────────────────── */
@@ -1718,6 +1903,17 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#lgCardClose').addEventListener('click', lgCloseCard);
   $('#lgCardOverlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) lgCloseCard(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lgState.cardKey) lgCloseCard(); });
+  /* attachment clicks: image thumbs open the lightbox (files open as links) */
+  $('#lgCardBody').addEventListener('click', (e) => {
+    const thumb = e.target.closest('.lg-att-img');
+    if (!thumb || thumb.classList.contains('lg-att-broken')) return;
+    e.preventDefault();
+    const meta = $('#lgCardBody')._lgAttMeta?.get(thumb.getAttribute('data-att-id'));
+    if (!meta) return;
+    const img = thumb.querySelector('img');
+    if (img?.src) lgOpenLightbox(meta, img.src);
+    else lgAttachBlob(meta).then((objUrl) => lgOpenLightbox(meta, objUrl)).catch(() => {});
+  });
 
   /* horizontal scroll controls: buttons nudge the table, edge buttons and
      scrollbar visibility follow the scroll position */

@@ -658,6 +658,81 @@ body.light .lg-card-comment { background: #f6f8fd; border-color: #dfe4f2; border
   word-break: break-word;
 }
 
+/* ── card attachments ──────────────────────────────────────────────────
+   Images render as thumbnails (blob URLs via the CORS proxy); documents
+   as icon links. Comment-attached images tuck under their own comment. */
+.lg-card-attach-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.lg-att-item {
+  display: flex; flex-direction: column; gap: 4px;
+  text-decoration: none; color: inherit;
+  padding: 6px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.12s ease;
+  min-width: 0;
+}
+.lg-att-item:hover { border-color: rgba(99, 102, 241, 0.5); transform: translateY(-1px); }
+body.light .lg-att-item { background: #f6f8fd; border-color: #dfe4f2; }
+body.light .lg-att-item:hover { border-color: #6366f1; }
+.lg-att-item img {
+  width: 100%; aspect-ratio: 1 / 1; object-fit: cover;
+  border-radius: 7px; display: block;
+  background: rgba(255, 255, 255, 0.05);
+  cursor: zoom-in;
+}
+body.light .lg-att-item img { background: #e9edf7; }
+.lg-att-name {
+  font-size: 0.72rem; font-weight: 600; color: var(--text, #e9edf8);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+body.light .lg-att-name { color: #1e2540; }
+.lg-att-size { font-size: 0.66rem; color: var(--muted); }
+.lg-att-icon { font-size: 1.5rem; line-height: 1; padding: 10px 0; text-align: center; }
+.lg-att-file { flex-direction: row; align-items: center; gap: 8px; }
+.lg-att-file .lg-att-icon { padding: 0; }
+.lg-att-file .lg-att-name { flex: 1; }
+.lg-att-broken img { display: none; }
+.lg-att-broken { cursor: default; }
+
+/* per-comment strip: smaller horizontal thumbs directly under the text */
+.lg-card-comment-attach {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;
+}
+.lg-card-comment-attach:empty { display: none; }
+.lg-card-comment-attach .lg-att-item { width: 104px; }
+
+/* fullscreen image viewer (opened by clicking any attachment thumb) */
+.lg-lightbox {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; cursor: zoom-out;
+}
+.lg-lightbox img {
+  max-width: 100%; max-height: 100%;
+  border-radius: 12px;
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.7);
+}
+.lg-lightbox-close {
+  position: absolute; top: 14px; right: 16px;
+  width: 38px; height: 38px; border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08); color: #fff;
+  font-size: 1.05rem; cursor: pointer;
+}
+.lg-lightbox-close:hover { background: rgba(255, 255, 255, 0.18); }
+.lg-lightbox-name {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 16px; color: rgba(255, 255, 255, 0.85);
+  font-size: 0.8rem; font-weight: 600; max-width: 80vw;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
 /* title links inside the table look like text, not URLs */
 .lg-title-link { color: inherit; text-decoration: none; }
 .lg-title-link:hover { color: var(--accent); }

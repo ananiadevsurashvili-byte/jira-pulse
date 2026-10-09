@@ -147,6 +147,11 @@ async function handler(request: Request): Promise<Response> {
         return await handleDeskCmd(u, request);
       }
 
+      /* attachments for ONE issue (logistics task card popup) */
+      if (cmd === 'deskAttach') {
+        return await handleDeskAttachCmd(u, request);
+      }
+
       return json({ error: 'unknown cmd: ' + cmd }, 400);
     } catch (e) {
       return json({ error: 'command failed', detail: String(e) }, 500);
@@ -545,7 +550,12 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
   for (const iss of issues) {
     const comments = iss.fields?.comment?.comments;
     if (Array.isArray(comments) && comments.length) {
-      iss.fields.comment = comments.slice(-3).map((c: any) => ({
+      /* idx = the comment's position in Jira's FULL comment list —
+         deskAttach reports comment attachments against the full list, so
+         the client needs this anchor to place images inside the right
+         comment even though only the last 3 are transmitted. */
+      iss.fields.comment = comments.slice(-3).map((c: any, k: number) => ({
+        idx: comments.length - comments.slice(-3).length + k,
         author: String(c?.author?.displayName || ''),
         created: String(c?.created || ''),
         body: adfToText(c?.body),
@@ -613,6 +623,146 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
   } catch { /* non-fatal */ }
 
   return json(result);
+}
+
+/* ─────────── attachments for ONE issue (?cmd=deskAttach) ────────────────
+   `?cmd=desk` intentionally leaves attachments OUT of the bulk payload —
+   adding metadata for ~4k issues would balloon the sync and slow the
+   download. Instead, when the logistics task card opens, the client asks
+   for exactly ONE issue here. Everything it might show is resolved in a
+   single Jira call:
+
+   - GET /rest/api/3/issue/{key}?fields=attachment,comment
+     → task-level attachments (fields.attachment[])
+     → FULL ADF comment bodies, walked for `media` nodes. Pasted-in
+       comments carry media UUIDs (attrs.id), which are mapped to real
+       attachment ids via fields.attachment[].mediaId (Jira links them) —
+       so images shown INLINE in a comment are surfaced as that comment's
+       attachments, not just listed at the issue level.
+
+   Response (json):
+     { ok, cmd:'deskAttach', key, attachments: [ { id, filename, mimeType,
+       size, created, author, contentUrl, commentIndex | null } ],
+     commentCount }
+
+   Binary file bodies are NOT proxied from here — the client previews via
+   the plain CORS proxy (`?url=<contentUrl>`) it already knows how to use. */
+async function handleDeskAttachCmd(u: URL, request: Request): Promise<Response> {
+  const key = (u.searchParams.get('key') || '').trim().toUpperCase();
+  if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(key)) {
+    return json({ error: 'invalid key' }, 400);
+  }
+  const domainParam = (u.searchParams.get('domain') || '').trim();
+
+  /* credentials: identical rules to handleDeskCmd (viewer-first, then storing creds) */
+  let authHeader = request.headers.get('authorization') || '';
+  let domain = '';
+  const stored = await blob.getJSON(CREDS_KEY);
+  if (authHeader) {
+    if (domainParam && /(^|\.)atlassian\.net$/i.test(domainParam)) {
+      domain = domainParam;
+    } else {
+      domain = stored?.domain || '';
+    }
+  }
+  if (!authHeader) {
+    if (!stored?.domain || !stored?.email || !stored?.token) {
+      return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
+    }
+    authHeader = 'Basic ' + btoa(stored.email + ':' + stored.token);
+    domain = stored.domain;
+  }
+  /* normalize scheme: app may send scheme-less "x.atlassian.net" */
+  if (domain && !/^https:\/\//i.test(domain)) domain = 'https://' + domain;
+  if (!domain || !/^https:\/\/[a-z0-9.-]+\.atlassian\.net$/i.test(domain)) {
+    return json({ error: 'no usable Jira domain' }, 400);
+  }
+  const base = domain.replace(/\/+$/, '');
+
+  const resp = await fetch(base + '/rest/api/3/issue/' + encodeURIComponent(key) +
+    '?fields=attachment,comment', {
+    method: 'GET',
+    headers: {
+      'Authorization': authHeader,
+      'Accept': 'application/json',
+      'User-Agent': 'JiraPulse-Relay/1.0',
+    },
+    redirect: 'follow',
+  });
+  if (!resp.ok) {
+    return json({ error: `Jira fetch failed (HTTP ${resp.status})` }, resp.status === 404 ? 404 : 502);
+  }
+  const issue = await resp.json();
+  const f = issue?.fields || {};
+
+  /* media UUID → attachment id map. For attachments Jira stores
+     fields.attachment[].mediaId which IS the ADF media attrs.id. */
+  const mediaToAttach = new Map<string, any>();
+  const attachList: any[] = Array.isArray(f.attachment) ? f.attachment : [];
+  for (const a of attachList) {
+    if (a && a.mediaId && a.id) mediaToAttach.set(String(a.mediaId), a);
+  }
+
+  /* walk FULL ADF comment bodies for media nodes: a media node's attrs.id
+     is a media UUID — map it via mediaToAttach (Jira sets mediaId on the
+     matching attachment). Anything referenced but missing from the map
+     (e.g. cross-issue media) is skipped. */
+  const mediaIdsInComments: { id: string; commentIndex: number }[] = [];
+  (function walk(node: any, ci: number) {
+    if (node == null) return;
+    if (Array.isArray(node)) { for (const n of node) walk(n, ci); return; }
+    if (typeof node !== 'object') return;
+    if (node.type === 'media' || node.type === 'mediaInline' || node.type === 'mediaSingle') {
+      const mid = node?.attrs?.id != null ? String(node.attrs.id) : '';
+      if (mid) mediaIdsInComments.push({ id: mid, commentIndex: ci });
+    }
+    if (Array.isArray(node.content)) walk(node.content, ci);
+  })(f.comment?.comments || [], 0);
+
+  const commentAttachByIndex = new Map<number, Set<string>>();  /* mediaId → indices */
+  for (const { id, commentIndex } of mediaIdsInComments) {
+    if (!commentAttachByIndex.has(commentIndex)) commentAttachByIndex.set(commentIndex, new Set());
+    commentAttachByIndex.get(commentIndex)!.add(id);
+  }
+
+  const attachments = attachList
+    .filter((a) => a && a.id)
+    .map((a) => {
+      const content = String(a.content || '');
+      /* Jira returns an api.?? subdomain — normalize it to this domain so
+         the client can pass it through the CORS proxy cleanly */
+      const contentUrl = content.startsWith('https://')
+        ? content
+        : new URL(`/rest/api/3/attachment/content/${a.id}`, base).toString();
+      /* which comment (if any) embeds this attachment's media inline */
+      let commentIndex: number | null = null;
+      const mid = a.mediaId ? String(a.mediaId) : '';
+      if (mid) {
+        for (const [ci, set] of commentAttachByIndex) {
+          if (set.has(mid)) { commentIndex = ci; break; }
+        }
+      }
+      return {
+        id: String(a.id),
+        filename: String(a.filename || ''),
+        mimeType: String(a.mimeType || ''),
+        size: Number(a.size || 0),
+        created: String(a.created || ''),
+        author: String(a.author?.displayName || ''),
+        mediaId: mid,
+        contentUrl,
+        commentIndex,
+      };
+    });
+
+  const commentCount = Array.isArray(f.comment?.comments) ? f.comment.comments.length : 0;
+  return json({
+    ok: true,
+    cmd: 'deskAttach',
+    key,
+    commentCount,
+    attachments,
+  });
 }
 
 /* ────────────────────────── plain CORS proxy ────────────────────────── */
