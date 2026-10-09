@@ -1048,23 +1048,33 @@ function lgBuildFilterBar() {
       `<select id="${id}" class="input tl-select" data-col="${col}" aria-label="${escapeHtml(t(labelKey))}">` +
       `<option value="">${escapeHtml(t('lg.filterAll'))}</option>${opts}</select></div>`;
   };
-  /* period select: quick ranges; "custom" opens the calendar popup */
+  /* period control: a BUTTON under the same style of label the other filter
+     dropdowns have (label on top, control below — visually parallel).
+     Clicking it opens the popup, which holds the quick-range buttons
+     (30d / month / quarter / year / all) + the custom calendar range. */
   const per = lgState.period;
-  const perOpts = ['30d', 'all', 'month', 'quarter', 'year'].map((k) =>
-    `<option value="${k}"${per.kind === k ? ' selected' : ''}>${escapeHtml(t('lg.period.' + k))}</option>`).join('');
-  const customLabel = per.kind === 'custom' && per.fromMs != null
-    ? lgIsoStamp(new Date(per.fromMs)).slice(0, 10) +
-      (per.toMs != null ? ' … ' + lgIsoStamp(new Date(per.toMs)).slice(0, 10) : ' …')
-    : t('lg.period.custom');
+  const perTitle = per.kind === '30d' ? t('lg.period.30d')
+    : per.kind === 'all' ? t('lg.period.all')
+    : per.kind === 'month' ? t('lg.period.thisMonth')
+    : per.kind === 'quarter' ? t('lg.period.thisQuarter')
+    : per.kind === 'year' ? t('lg.period.thisYear')
+    : per.kind === 'custom' && per.fromMs != null
+      ? lgIsoStamp(new Date(per.fromMs)).slice(0, 10) +
+        (per.toMs != null ? ' … ' + lgIsoStamp(new Date(per.toMs)).slice(0, 10) : ' …')
+      : t('lg.period.custom');
   const perItem =
     `<div class="lg-filter-item lg-period-item">` +
     `<span class="lg-filter-label">${escapeHtml(t('lg.fLabel.period'))}</span>` +
     `<div class="lg-period-wrap">` +
-    `<select id="lgFPeriod" class="input tl-select lg-period-select" aria-label="${escapeHtml(t('lg.fLabel.period'))}">` +
-    perOpts +
-    `<option value="custom"${per.kind === 'custom' ? ' selected' : ''}>${escapeHtml(customLabel)}</option>` +
-    `</select>` +
+    `<button type="button" id="lgFPeriodBtn" class="input tl-select lg-period-btn-top" aria-label="${escapeHtml(t('lg.fLabel.period'))}">` +
+    `🗓 ${escapeHtml(perTitle)}</button>` +
     `<div id="lgPeriodPop" class="lg-period-pop hidden">` +
+    `<div class="lg-period-pop-quick">` +
+    [[ '30d', 'lg.period.30d' ], [ 'month', 'lg.period.thisMonth' ],
+     [ 'quarter', 'lg.period.thisQuarter' ], [ 'year', 'lg.period.thisYear' ],
+     [ 'all', 'lg.period.all' ]].map(([k, key]) =>
+      `<button type="button" class="lg-period-quick${per.kind === k ? ' active' : ''}" data-pkind="${k}">${escapeHtml(t(key))}</button>`).join('') +
+    `</div>` +
     `<div class="lg-period-pop-row">` +
     `<label>${escapeHtml(t('lg.period.from'))}<input type="date" id="lgPeriodFrom" class="input"></label>` +
     `<label>${escapeHtml(t('lg.period.to'))}<input type="date" id="lgPeriodTo" class="input"></label>` +
@@ -1088,29 +1098,50 @@ function lgBuildFilterBar() {
     });
   });
 
-  /* ── period wiring ── */
-  const perSel = $('#lgFPeriod');
+  /* ── period wiring ──
+     The trigger is now a BUTTON: clicking it opens the popup with quick-range
+     buttons + calendar. The From/To inputs are ALWAYS prefilled with the
+     last-30-days dates (or the active custom range), so the calendar is
+     ready to tweak immediately — exactly the behavior the user asked for. */
   const pop = $('#lgPeriodPop');
+  /* yyyy-mm-dd in LOCAL time (toISOString would shift back one calendar day
+     at +04:00 whenever the local time is before 04:00 UTC-offset order) */
+  const localDate = (d) => {
+    const pad = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  };
+  const prefillRange = () => {
+    const fromInp = $('#lgPeriodFrom');
+    const toInp = $('#lgPeriodTo');
+    let fromMs, toMs;
+    if (per.kind === 'custom' && per.fromMs != null) {
+      /* keep the active custom range so Apply/Cancel are reversible */
+      fromMs = per.fromMs;
+      toMs = per.toMs;
+    } else {
+      /* ALWAYS prefill the calendar with the last 30 days — the period the
+         user asked the calendar to open with */
+      fromMs = lgDayStart(new Date(Date.now() - 29 * 86400000)).getTime();
+      toMs = lgDayStart(new Date()).getTime();
+    }
+    fromInp.value = localDate(new Date(fromMs));
+    toInp.value = toMs != null ? localDate(new Date(toMs)) : '';
+  };
+  const openPop = () => { prefillRange(); pop.classList.remove('hidden'); };
   const periodChanged = () => {
     lgSavePeriod();
+    lgBuildFilterBar();   /* refresh the button caption + active state */
     lgLoad(true);   /* re-sync with the narrowed server-side window */
   };
-  perSel.addEventListener('change', () => {
-    const v = perSel.value;
-    if (v === 'custom') {
-      /* prefill the popup with the saved custom range, or last 30 days */
-      const fromInp = $('#lgPeriodFrom');
-      const toInp = $('#lgPeriodTo');
-      const base = per.kind === 'custom' ? per : { fromMs: Date.now() - 29 * 86400000, toMs: Date.now() };
-      if (base.fromMs != null) fromInp.value = new Date(base.fromMs).toISOString().slice(0, 10);
-      if (base.toMs != null) toInp.value = new Date(base.toMs).toISOString().slice(0, 10);
-      pop.classList.remove('hidden');
-      fromInp.focus();
-      return;
-    }
-    pop.classList.add('hidden');
-    lgState.period = { kind: v, from: null, to: null };
-    periodChanged();
+  $('#lgFPeriodBtn').addEventListener('click', () => {
+    if (pop.classList.contains('hidden')) openPop(); else pop.classList.add('hidden');
+  });
+  pop.querySelectorAll('.lg-period-quick').forEach((b) => {
+    b.addEventListener('click', () => {
+      lgState.period = { kind: b.dataset.pkind, from: null, to: null };
+      pop.classList.add('hidden');
+      periodChanged();
+    });
   });
   $('#lgPeriodApply').addEventListener('click', () => {
     const fv = $('#lgPeriodFrom').value;
@@ -1127,13 +1158,11 @@ function lgBuildFilterBar() {
       lgState.period.toMs = tmp;
     }
     pop.classList.add('hidden');
-    /* rebuild so the select shows the friendly "yyyy-mm-dd …" custom label */
-    lgBuildFilterBar();
     periodChanged();
   });
   $('#lgPeriodCancel').addEventListener('click', () => {
     pop.classList.add('hidden');
-    lgBuildFilterBar();   /* restore the select to the actually-active period */
+    lgBuildFilterBar();   /* restore the button to the actually-active period */
   });
 }
 
@@ -1143,8 +1172,8 @@ function lgBuildFilterBar() {
 document.addEventListener('click', (e) => {
   const pop = $('#lgPeriodPop');
   if (!pop || pop.classList.contains('hidden')) return;
-  const sel = $('#lgFPeriod');
-  if ((sel && sel.contains(e.target)) || pop.contains(e.target)) return;
+  const trigger = $('#lgFPeriodBtn');
+  if ((trigger && trigger.contains(e.target)) || pop.contains(e.target)) return;
   pop.classList.add('hidden');
   if (typeof lgBuildFilterBar === 'function') lgBuildFilterBar();
 });

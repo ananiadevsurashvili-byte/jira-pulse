@@ -155,18 +155,17 @@ body.light .lg-dir-text { color: #6b7394; }
 }
 .glass.lg-loading { margin-bottom: 10px; }
 
-/* ── one-row filter bar: no stacked labels, just inline selects ──────────
-   A labelled select costs label-height + select-height per column; replacing
-   labels with a shared leading chip gets all four filters on one 32px row. */
-#lgFilterBar { align-items: center; gap: 8px; }
-#lgFilterBar .lg-filter-item { flex-direction: row; align-items: center; gap: 6px; }
+/* ── filter bar (compact + labelled) ────────────────────────────────────
+   Labels sit ABOVE each select (see .lg-filter-item below); the bar keeps
+   everything on one row by letting selects shrink. */
+#lgFilterBar { align-items: flex-end; gap: 10px; }
 #lgFilterBar .lg-filter-label { padding: 0; }
 #lgFilterBar .tl-select {
   padding: 5px 24px 5px 9px;
   font-size: 0.78rem;
   height: 32px;
   box-sizing: border-box;
-  min-width: 128px;
+  min-width: 0;
   max-width: 200px;
   background-position: right 9px center;
 }
@@ -239,7 +238,7 @@ body.light .lg-dir-text { color: #6b7394; }
 body.light #lgContent .lg-list-sub { color: #6b7394; }
 
 /* ── filter dropdowns: visible mini label above each select ───────────── */
-.lg-filter-item { display: flex; flex-direction: column; gap: 4px; flex: 0 1 auto; }
+.lg-filter-item { display: flex; flex-direction: column; gap: 4px; }
 .lg-filter-label {
   font-size: 0.62rem; font-weight: 700; letter-spacing: 0.05em;
   text-transform: uppercase; color: var(--muted); opacity: 0.85;
@@ -247,17 +246,36 @@ body.light #lgContent .lg-list-sub { color: #6b7394; }
 }
 body.light .lg-filter-label { color: #6b7394; opacity: 1; }
 #lgFilterBar { align-items: flex-end; gap: 10px; }
-#lgFilterBar .tl-select { min-width: 150px; max-width: 260px; }
+#lgFilterBar .lg-filter-item {
+  /* shrink-friendly: all five filters (incl. the period button) must stay
+     on ONE row — selects compress instead of pushing the period control
+     onto a wrapped second line */
+  flex: 1 1 auto;
+  min-width: 180px;
+}
+#lgFilterBar .tl-select { min-width: 0; max-width: 300px; width: 100%; }
 
 /* ── period filter (far end of the filter bar) ───────────────────────────
-   A select with quick ranges (30d / month / quarter / year / all) plus a
-   small calendar popup for an arbitrary from–to range. */
-.lg-period-wrap { position: relative; flex-shrink: 0; }
-.lg-period-item { flex-shrink: 0; margin-left: auto; }
-#lgFilterBar .lg-period-select {
+   Label on top, trigger below — the same shape every other filter has.
+   The trigger is a button; clicking it opens a popup with quick-range
+   buttons (30d / month / quarter / year / all) + a custom from–to range. */
+.lg-period-wrap { position: relative; flex-shrink: 0; flex-grow: 0; }
+.lg-period-item { margin-left: auto; }
+#lgFilterBar .lg-period-btn-top {
   min-width: 170px;
   max-width: 260px;
   border-color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b93ad' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  padding: 8px 30px 8px 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .lg-period-pop {
   position: absolute;
@@ -269,7 +287,7 @@ body.light .lg-filter-label { color: #6b7394; opacity: 1; }
   border-radius: 12px;
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
   padding: 12px;
-  width: 264px;
+  width: 280px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -278,6 +296,30 @@ body.light .lg-period-pop {
   background: #ffffff;
   box-shadow: 0 14px 40px rgba(15, 23, 42, 0.18);
 }
+.lg-period-pop-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.lg-period-quick {
+  padding: 6px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.lg-period-quick:hover { border-color: var(--accent); }
+.lg-period-quick.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+body.light .lg-period-quick { background: rgba(15, 23, 42, 0.04); color: #1e2540; }
+body.light .lg-period-quick.active { background: var(--accent); color: #fff; }
 .lg-period-pop-row {
   display: flex;
   gap: 8px;
