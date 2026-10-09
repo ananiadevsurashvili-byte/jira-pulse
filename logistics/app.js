@@ -59,6 +59,11 @@ let lgState = {
   truncated: false,
   q: '',               /* global search text */
   filters: { status: '', reporter: '', assignee: '', direction: '' },
+  /* time-period filter: drives the SERVER-side JQL window, so "last 30
+     days" really downloads ~a month of tasks instead of all ~4k.
+     kind: '30d' | 'all' | 'month' | 'quarter' | 'year' | 'custom'
+     from/to: absolute ISO strings (with UTC offset) for the relay */
+  period: { kind: '30d', from: null, to: null },
   sort: { col: 'created', dir: 'desc' },
   loading: false,
   cardKey: null,       /* task currently open in the detail card */
@@ -143,6 +148,18 @@ const I18N = {
     'lg.fLabel.reporter': 'Reporter',
     'lg.fLabel.assignee': 'Assignee',
     'lg.fLabel.direction': 'Direction',
+    'lg.fLabel.period': 'Period',
+    'lg.period.30d': 'Last 30 days',
+    'lg.period.all': 'All time',
+    'lg.period.custom': 'Custom range…',
+    'lg.period.thisMonth': 'This month',
+    'lg.period.thisQuarter': 'This quarter',
+    'lg.period.thisYear': 'This year',
+    'lg.period.apply': 'Apply',
+    'lg.period.cancel': 'Cancel',
+    'lg.period.from': 'From',
+    'lg.period.to': 'To',
+    'lg.countIn': '{n} tasks in period',
     'lg.pageSizeTitle': 'Tasks shown per page',
     'lg.pageSize': '{n} / page',
     'lg.th.key': 'Key',
@@ -225,6 +242,18 @@ const I18N = {
     'lg.fLabel.reporter': 'მომხსენებელი',
     'lg.fLabel.assignee': 'აღმასრულებელი',
     'lg.fLabel.direction': 'მიმართულება',
+    'lg.fLabel.period': 'პერიოდი',
+    'lg.period.30d': 'ბოლო 30 დღე',
+    'lg.period.all': 'მთელი პერიოდი',
+    'lg.period.custom': 'არჩეული პერიოდი…',
+    'lg.period.thisMonth': 'ეს თვე',
+    'lg.period.thisQuarter': 'ეს კვარტალი',
+    'lg.period.thisYear': 'ეს წელი',
+    'lg.period.apply': 'გამოყენება',
+    'lg.period.cancel': 'გაუქმება',
+    'lg.period.from': 'საიდან',
+    'lg.period.to': 'სად',
+    'lg.countIn': '{n} ამოცანა პერიოდში',
     'lg.pageSizeTitle': 'გვერდზე ნაჩვენები ამოცანები',
     'lg.pageSize': '{n} / გვერდი',
     'lg.th.key': 'კოდი',
@@ -507,6 +536,7 @@ function lgEnterVerified() {
      against the whole DOM on every insertion and makes big renders crawl) */
   document.body.classList.add('lg-list-active');
   updateLgUserChip();
+  lgLoadPeriod();   /* restore the remembered time period (default: last 30 days) */
   _lgPainted.n = 0;
   lgLoad(false);
 }
@@ -713,6 +743,7 @@ function lgSignOut() {
   _lgPainted.n = 0;
   lgState.q = '';
   lgState.filters = { status: '', assignee: '', direction: '' };
+  lgState.period = { kind: '30d', from: null, to: null };   /* back to the default window */
   lgState.sort = { col: 'created', dir: 'desc' };
   _lgCache = null;
   lgClearSession();   /* forget the persisted viewer session */
@@ -749,15 +780,131 @@ function lgSnapshotFieldIds() {
   try { return JSON.parse(localStorage.getItem(LS_LG_FIELDIDS) || 'null'); } catch (_) { return null; }
 }
 
+/* ── time-period filter ───────────────────────────────────────────────
+   The chosen period is sent to the RELAY as absolute ISO timestamps and
+   becomes part of the server-side JQL — so "Last 30 days" (the default)
+   downloads only that window (~a few hundred issues) instead of the
+   whole project. "All time" fetches everything and shows the real count.
+   Quick buttons: 30 days · this month · this quarter · this year · all.
+   A custom calendar range covers everything in between. */
+
+const LS_LG_PERIOD = 'jp_lg_period_v1';
+
+/* local Date → "yyyy-MM-dd'T'HH:mm:ss.SSS±ZZZZ" (what Jira/JQL parses) */
+function lgIsoStamp(d) {
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  const off = -d.getTimezoneOffset();
+  const sign = off >= 0 ? '+' : '-';
+  const abs = Math.abs(off);
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +
+    '.' + pad(d.getMilliseconds(), 3) + sign + pad(Math.floor(abs / 60)) + pad(abs % 60);
+}
+
+/* start of day, local time */
+function lgDayStart(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
+
+/* end of day (23:59:59.999), local time */
+function lgDayEnd(d) { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; }
+
+/* compute the from/to window for a period kind. Returns {from,to} ISO
+   stamps (null = unbounded on that side) or null for 'all'. */
+function lgPeriodRange(kind, ref = new Date()) {
+  if (kind === 'all') return null;
+  if (kind === '30d') {
+    return { from: lgIsoStamp(lgDayStart(new Date(ref.getTime() - 29 * 86400000))), to: null };
+  }
+  if (kind === 'month') {
+    return { from: lgIsoStamp(lgDayStart(new Date(ref.getFullYear(), ref.getMonth(), 1))), to: null };
+  }
+  if (kind === 'quarter') {
+    const qm = Math.floor(ref.getMonth() / 3) * 3;
+    return { from: lgIsoStamp(lgDayStart(new Date(ref.getFullYear(), qm, 1))), to: null };
+  }
+  if (kind === 'year') {
+    return { from: lgIsoStamp(lgDayStart(new Date(ref.getFullYear(), 0, 1))), to: null };
+  }
+  /* custom — lgState.period already carries from/to Date ms */
+  const p = lgState.period;
+  if (p.fromMs == null) return null;
+  return {
+    from: lgIsoStamp(lgDayStart(new Date(p.fromMs))),
+    to: p.toMs != null ? lgIsoStamp(lgDayEnd(new Date(p.toMs))) : null,
+  };
+}
+
+/* persist the chosen kind (custom ranges also persist their dates) */
+function lgSavePeriod() {
+  try {
+    const { kind, fromMs, toMs } = lgState.period;
+    localStorage.setItem(LS_LG_PERIOD, JSON.stringify({ kind, fromMs, toMs }));
+  } catch (_) {}
+}
+
+function lgLoadPeriod() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS_LG_PERIOD) || 'null');
+    if (saved && ['30d', 'all', 'month', 'quarter', 'year', 'custom'].includes(saved.kind)) {
+      lgState.period = {
+        kind: saved.kind,
+        from: null, to: null,
+        fromMs: saved.kind === 'custom' ? saved.fromMs : undefined,
+        toMs: saved.kind === 'custom' ? saved.toMs : undefined,
+      };
+    }
+  } catch (_) {}
+}
+
+/* true when the on-screen rows came from a snapshot of THIS period */
+function lgSnapshotMatchesPeriod(snap) {
+  const want = lgState.period.kind;
+  const gotFrom = snap?.data?.period?.from || null;
+  const gotTo = snap?.data?.period?.to || null;
+  if (want === 'all') return !gotFrom && !gotTo;
+  if (want === 'custom') return false;   /* custom ranges always re-sync */
+  const range = lgPeriodRange(want);
+  if (!range) return false;
+  /* month/quarter/year windows drift (a new day/quarter starts) — the
+     snapshot must have been fetched for the SAME window boundaries */
+  return gotFrom === range.from && gotTo === range.to;
+}
+
+/* snapshot + field-ids storage keyed by period so switching between
+   "30d" and "All" doesn't thrash one shared cache slot */
+function lgSnapshotKey() {
+  return lgState.period.kind === 'custom'
+    ? LS_LG_SNAPSHOT + ':' + lgState.period.fromMs + '..' + lgState.period.toMs
+    : LS_LG_SNAPSHOT + ':' + lgState.period.kind;
+}
+
+function lgSaveSnapshot(data) {
+  try { localStorage.setItem(lgSnapshotKey(), JSON.stringify({ ts: Date.now(), data })); } catch (_) {}
+}
+
+function lgLoadSnapshot() {
+  try {
+    const raw = localStorage.getItem(lgSnapshotKey());
+    if (!raw) return null;
+    const snap = JSON.parse(raw);
+    if (!snap?.data?.issues?.length) return null;
+    return snap;
+  } catch (_) { return null; }
+}
+
 async function lgFetchDesk(force = false) {
   if (!force && _lgCache && Date.now() - _lgCache.ts < LG_LIVE_TTL) return _lgCache.data;
   const conn = loadConn();
   const domain = conn?.domain ? String(conn.domain).replace(/^https?:\/\//, '') : JIRA_DOMAIN;
   /* field ids learned earlier let the relay skip the field-catalog call */
   const known = lgSnapshotFieldIds();
+  /* the period window itself: server-side JQL so a bounded period really
+     downloads only that slice of the project */
+  const range = lgPeriodRange(lgState.period.kind);
   const url = PUB_RELAY + '?cmd=desk&project=' + encodeURIComponent(DESK_PROJECT) +
     '&domain=' + encodeURIComponent(domain) +
     (force ? '&fresh=1' : '') +
+    (range?.from ? '&from=' + encodeURIComponent(range.from) : '') +
+    (range?.to ? '&to=' + encodeURIComponent(range.to) : '') +
     (known?.direction ? '&directionField=' + encodeURIComponent(known.direction) : '') +
     (known?.title ? '&titleField=' + encodeURIComponent(known.title) : '');
   const headers = { 'Accept': 'application/json' };
@@ -885,7 +1032,11 @@ function lgDistinct(col) {
 }
 
 /* per-column dropdowns: status / reporter / assignee / direction.
-   each select sits under a visible mini label so it's clear what filters what */
+   each select sits under a visible mini label so it's clear what filters what.
+   The PERIOD control sits at the far end of the bar (where the user asked
+   for it): a select with quick ranges + a calendar popup for custom ones.
+   Changing it re-syncs data from the relay with a narrowed server-side
+   JQL window — it does NOT merely filter already-downloaded rows. */
 function lgBuildFilterBar() {
   const bar = $('#lgFilterBar');
   if (!bar) return;
@@ -897,18 +1048,106 @@ function lgBuildFilterBar() {
       `<select id="${id}" class="input tl-select" data-col="${col}" aria-label="${escapeHtml(t(labelKey))}">` +
       `<option value="">${escapeHtml(t('lg.filterAll'))}</option>${opts}</select></div>`;
   };
+  /* period select: quick ranges; "custom" opens the calendar popup */
+  const per = lgState.period;
+  const perOpts = ['30d', 'all', 'month', 'quarter', 'year'].map((k) =>
+    `<option value="${k}"${per.kind === k ? ' selected' : ''}>${escapeHtml(t('lg.period.' + k))}</option>`).join('');
+  const customLabel = per.kind === 'custom' && per.fromMs != null
+    ? lgIsoStamp(new Date(per.fromMs)).slice(0, 10) +
+      (per.toMs != null ? ' … ' + lgIsoStamp(new Date(per.toMs)).slice(0, 10) : ' …')
+    : t('lg.period.custom');
+  const perItem =
+    `<div class="lg-filter-item lg-period-item">` +
+    `<span class="lg-filter-label">${escapeHtml(t('lg.fLabel.period'))}</span>` +
+    `<div class="lg-period-wrap">` +
+    `<select id="lgFPeriod" class="input tl-select lg-period-select" aria-label="${escapeHtml(t('lg.fLabel.period'))}">` +
+    perOpts +
+    `<option value="custom"${per.kind === 'custom' ? ' selected' : ''}>${escapeHtml(customLabel)}</option>` +
+    `</select>` +
+    `<div id="lgPeriodPop" class="lg-period-pop hidden">` +
+    `<div class="lg-period-pop-row">` +
+    `<label>${escapeHtml(t('lg.period.from'))}<input type="date" id="lgPeriodFrom" class="input"></label>` +
+    `<label>${escapeHtml(t('lg.period.to'))}<input type="date" id="lgPeriodTo" class="input"></label>` +
+    `</div>` +
+    `<div class="lg-period-pop-actions">` +
+    `<button type="button" id="lgPeriodCancel" class="btn ghost lg-period-btn">${escapeHtml(t('lg.period.cancel'))}</button>` +
+    `<button type="button" id="lgPeriodApply" class="btn primary lg-period-btn">${escapeHtml(t('lg.period.apply'))}</button>` +
+    `</div>` +
+    `</div>` +
+    `</div></div>`;
   bar.innerHTML =
     mk('lgFStatus', 'status', 'lg.fLabel.status') +
     mk('lgFReporter', 'reporter', 'lg.fLabel.reporter') +
     mk('lgFAssignee', 'assignee', 'lg.fLabel.assignee') +
-    mk('lgFDir', 'direction', 'lg.fLabel.direction');
-  bar.querySelectorAll('select').forEach((sel) => {
+    mk('lgFDir', 'direction', 'lg.fLabel.direction') +
+    perItem;
+  bar.querySelectorAll('select[data-col]').forEach((sel) => {
     sel.addEventListener('change', () => {
       lgState.filters[sel.dataset.col] = sel.value;
       lgRenderRows();
     });
   });
+
+  /* ── period wiring ── */
+  const perSel = $('#lgFPeriod');
+  const pop = $('#lgPeriodPop');
+  const periodChanged = () => {
+    lgSavePeriod();
+    lgLoad(true);   /* re-sync with the narrowed server-side window */
+  };
+  perSel.addEventListener('change', () => {
+    const v = perSel.value;
+    if (v === 'custom') {
+      /* prefill the popup with the saved custom range, or last 30 days */
+      const fromInp = $('#lgPeriodFrom');
+      const toInp = $('#lgPeriodTo');
+      const base = per.kind === 'custom' ? per : { fromMs: Date.now() - 29 * 86400000, toMs: Date.now() };
+      if (base.fromMs != null) fromInp.value = new Date(base.fromMs).toISOString().slice(0, 10);
+      if (base.toMs != null) toInp.value = new Date(base.toMs).toISOString().slice(0, 10);
+      pop.classList.remove('hidden');
+      fromInp.focus();
+      return;
+    }
+    pop.classList.add('hidden');
+    lgState.period = { kind: v, from: null, to: null };
+    periodChanged();
+  });
+  $('#lgPeriodApply').addEventListener('click', () => {
+    const fv = $('#lgPeriodFrom').value;
+    const tv = $('#lgPeriodTo').value;
+    if (!fv) { toast(t('lg.period.from') + ' — ' + t('lg.period.apply')); return; }
+    lgState.period = {
+      kind: 'custom', from: null, to: null,
+      fromMs: lgDayStart(new Date(fv + 'T00:00:00')).getTime(),
+      toMs: tv ? lgDayStart(new Date(tv + 'T00:00:00')).getTime() : null,
+    };
+    if (lgState.period.toMs != null && lgState.period.toMs < lgState.period.fromMs) {
+      const tmp = lgState.period.fromMs;
+      lgState.period.fromMs = lgState.period.toMs;
+      lgState.period.toMs = tmp;
+    }
+    pop.classList.add('hidden');
+    /* rebuild so the select shows the friendly "yyyy-mm-dd …" custom label */
+    lgBuildFilterBar();
+    periodChanged();
+  });
+  $('#lgPeriodCancel').addEventListener('click', () => {
+    pop.classList.add('hidden');
+    lgBuildFilterBar();   /* restore the select to the actually-active period */
+  });
 }
+
+/* single global outside-click closer for the period popup (attached once —
+   lgBuildFilterBar() rebuilds the bar often, and per-rebuild listeners
+   would stack up) */
+document.addEventListener('click', (e) => {
+  const pop = $('#lgPeriodPop');
+  if (!pop || pop.classList.contains('hidden')) return;
+  const sel = $('#lgFPeriod');
+  if ((sel && sel.contains(e.target)) || pop.contains(e.target)) return;
+  pop.classList.add('hidden');
+  if (typeof lgBuildFilterBar === 'function') lgBuildFilterBar();
+});
 
 /* global search + per-column filters + sort → filtered row array.
    The (query, filters, sort, data-generation) → result mapping is memoized:
@@ -1140,7 +1379,12 @@ function lgRenderRows(opts) {
       });
     }
   }
-  $('#lgCount').textContent = tReplace('lg.count', { n: all.length });
+  /* headline count: with a period active the filtered list IS the period's
+     real total (the server only returned that window), so keep the "in
+     period" wording on every re-render (filters/sort/page-size) */
+  $('#lgCount').textContent = lgState.period.kind !== 'all'
+    ? tReplace('lg.countIn', { n: all.length })
+    : tReplace('lg.count', { n: all.length });
   $('#lgShowing').textContent = all.length > rows.length
     ? tReplace('lg.showing', { n: rows.length, total: all.length })
     : '';
@@ -1251,8 +1495,14 @@ function lgApplyData(data, opts = {}) {
   lgBumpRows();   /* new rows array → per-row HTML cache must revalidate */
   lgState.fieldIds = data.fieldIds || { direction: null };
   lgState.truncated = !!data.truncated;
+  const periodActive = lgState.period.kind !== 'all';
   $('#lgFetchedAt').textContent = tReplace('lg.updatedAt', { t: fmtDateTime(data.fetchedAt) }) +
     (lgState.truncated ? ' · ⚠ ' + t('lg.truncated') : '');
+  /* headline count reflects the active period window — when a period is
+     active, the number IS the period's real total (server-side filtered) */
+  $('#lgCount').textContent = periodActive
+    ? tReplace('lg.countIn', { n: lgState.rows.length })
+    : tReplace('lg.count', { n: lgState.rows.length });
   lgBuildFilterBar();
   lgRenderRows(opts);
 }
@@ -1266,9 +1516,12 @@ async function lgLoad(force) {
      The live sync is genuinely slow (Jira pages ~30s on first hit). The
      snapshot from the LAST successful load paints real rows immediately;
      the live refresh then continues in the background. The user asked for
-     exactly this: first 100 shown while the rest loads behind it. */
+     exactly this: first 100 shown while the rest loads behind it.
+     Only a snapshot of the CURRENT period window is usable — switching
+     the period must not briefly show another period's rows. */
   const snap = lgLoadSnapshot();
-  const snapGood = snap && (Date.now() - snap.ts) < LG_SNAPSHOT_MAX_AGE;
+  const snapGood = snap && (Date.now() - snap.ts) < LG_SNAPSHOT_MAX_AGE &&
+    lgSnapshotMatchesPeriod(snap);
   if (snapGood) {
     try {
       lgApplyData(snap.data, { fresh: false });

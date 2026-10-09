@@ -354,12 +354,31 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
   const domainParam = (u.searchParams.get('domain') || '').trim();
   const forceFresh = u.searchParams.get('fresh') === '1';
 
+  /* ── period filter (server-side, carried into the JQL itself) ──
+     from/to are absolute ISO-8601 datetimes with an explicit UTC offset
+     (yyyy-MM-dd'T'HH:mm:ss.SSS±ZZZZ) computed by the client. Absolute +
+     self-describing timezone means the window is exact no matter where
+     the client, this relay or Jira's server sit. Expanded server-side
+     the "last 30 days" view downloads a few hundred issues instead of
+     the whole ~4k project — that's the fast default. */
+  const TS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{4}$/;
+  const fromQ = (u.searchParams.get('from') || '').trim();
+  const toQ = (u.searchParams.get('to') || '').trim();
+  if ((fromQ && !TS_RE.test(fromQ)) || (toQ && !TS_RE.test(toQ))) {
+    return json({ error: 'invalid from/to (expected ISO-8601 with UTC offset)' }, 400);
+  }
+  /* each window gets its own short-TTL cache slot so "30d" and "all"
+     (and every custom range) don't invalidate each other */
+  const deskKey = (fromQ || toQ)
+    ? DESK_CACHE_KEY + ':' + fromQ + '..' + toQ
+    : DESK_CACHE_KEY;
+
   /* short-lived response cache: another viewer (or a revisit within the
      TTL) gets the last synced payload immediately instead of paying the
      ~40-page Jira sync again */
   if (!forceFresh) {
     try {
-      const cached = await blob.getJSON(DESK_CACHE_KEY) as any;
+      const cached = await blob.getJSON(deskKey) as any;
       if (cached && cached.data && cached.ts && Date.now() - cached.ts < DESK_CACHE_TTL) {
         return json({ ...cached.data, cached: true, cacheAge: Date.now() - cached.ts });
       }
@@ -490,7 +509,14 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
     return null;
   }
 
-  const jql = `project in ("${project}") AND (labels is EMPTY OR labels NOT IN ("${DESK_EXCLUDE_LABEL}")) ORDER BY created DESC`;
+  /* period window narrows the JQL itself — Jira only returns (and we only
+     download) the issues inside the requested range */
+  const periodParts: string[] = [];
+  if (fromQ) periodParts.push(`created >= "${fromQ}"`);
+  if (toQ) periodParts.push(`created <= "${toQ}"`);
+  const periodJql = periodParts.length ? ' AND ' + periodParts.join(' AND ') : '';
+
+  const jql = `project in ("${project}") AND (labels is EMPTY OR labels NOT IN ("${DESK_EXCLUDE_LABEL}"))${periodJql} ORDER BY created DESC`;
   let issues = await searchJql(jql);
   if (!issues) return json({ error: 'could not load project issues from Jira' }, 502);
 
@@ -560,6 +586,7 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
     jqlTotal: jqlTotal || slimIssues.length,
     truncated: jqlTruncated || jqlTotal > slimIssues.length,
     fetchedAt: Date.now(),
+    period: { from: fromQ || null, to: toQ || null },
     fieldIds: { direction: directionFieldId || null, title: titleFieldId || null },
     fieldNames: { direction: directionFieldName, title: titleFieldName },
     titleCandidates,
@@ -568,7 +595,7 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
 
   /* publish the finished payload to the short-TTL blob cache (best-effort) */
   try {
-    await blob.setJSON(DESK_CACHE_KEY, { ts: Date.now(), data: result });
+    await blob.setJSON(deskKey, { ts: Date.now(), data: result });
   } catch { /* non-fatal */ }
 
   return json(result);
