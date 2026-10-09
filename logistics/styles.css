@@ -383,6 +383,9 @@ body.light .lg-period-pop-row input[type="date"] {
 .lg-period-btn.ghost:hover { background: #242836; border-color: var(--border-strong); }
 body.light .lg-period-btn.ghost { background: #fff; color: #1e2540; border-color: rgba(15, 23, 42, 0.14); }
 body.light .lg-period-btn.ghost:hover { background: #eef1f8; }
+/* shared-sheet .btn sets border: 1px solid transparent — keep it that way
+   for the gradient Apply button (a white 1px ring showed in dark mode) */
+.lg-period-btn.primary { border-color: transparent; }
 
 /* ── page-size switcher (compact select at the toolbar's right end) ────── */
 .lg-page-select {
