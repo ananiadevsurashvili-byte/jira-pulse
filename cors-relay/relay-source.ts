@@ -455,10 +455,12 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
     .filter(Boolean).join(',');
 
   /* paged search — same shape as handleBoardCmd.searchJql (no changelog here).
-     MAX_TOTAL 4000 with two full re-fetch passes: effectively syncs ALL LOG
-     tasks (currently ~2.4k, headroom to grow). jqlTotal + truncated report
-     how many issues Jira actually matched, so truncation is visible. */
-  const MAX_TOTAL = 4000;
+     MAX_TOTAL 8000 with two full re-fetch passes: effectively syncs ALL LOG
+     tasks (currently ~4k, headroom to grow). jqlTotal + truncated report
+     how many issues Jira actually matched, so truncation is visible.
+     (Phase R: raised from 4000 because the real count had reached the cap
+     and the user needs the TRUE total in All-time mode.) */
+  const MAX_TOTAL = 8000;
   let jqlTotal = 0;
   let jqlTruncated = false;
   async function searchJql(jql: string): Promise<any[] | null> {
@@ -510,10 +512,22 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
   }
 
   /* period window narrows the JQL itself — Jira only returns (and we only
-     download) the issues inside the requested range */
+     download) the issues inside the requested range.
+     NOTE: this Jira instance's `created` comparisons only match with plain
+     date strings ("2026-09-10") — a full ISO stamp with ".000+0400" silently
+     matches NOTHING even though the query returns 200. So we normalize the
+     incoming ISO stamps to date-only bounds: from = inclusive day, to =
+     exclusive next-day (`created < "yyyy-mm-dd"` covers the whole end day). */
   const periodParts: string[] = [];
-  if (fromQ) periodParts.push(`created >= "${fromQ}"`);
-  if (toQ) periodParts.push(`created <= "${toQ}"`);
+  if (fromQ) periodParts.push(`created >= "${fromQ.slice(0, 10)}"`);
+  if (toQ) {
+    /* bump the end date by one day so the entire "to" day is included */
+    const dEnd = new Date(toQ.slice(0, 10) + 'T00:00:00Z');
+    dEnd.setUTCDate(dEnd.getUTCDate() + 1);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const nextDay = `${dEnd.getUTCFullYear()}-${pad(dEnd.getUTCMonth() + 1)}-${pad(dEnd.getUTCDate())}`;
+    periodParts.push(`created < "${nextDay}"`);
+  }
   const periodJql = periodParts.length ? ' AND ' + periodParts.join(' AND ') : '';
 
   const jql = `project in ("${project}") AND (labels is EMPTY OR labels NOT IN ("${DESK_EXCLUDE_LABEL}"))${periodJql} ORDER BY created DESC`;
