@@ -891,7 +891,12 @@ function lgLoadSnapshot() {
   } catch (_) { return null; }
 }
 
-async function lgFetchDesk(force = false) {
+/* fetch the desk payload for the ACTIVE period.
+   `force=true` now means only "bypass our local 30s TTL cache" — the relay's
+   own per-window cache slot is still used, which is what keeps period
+   switches instant (a fresh=1 download of 4k+ issues takes >40s and trips
+   the timeout; serving the cached window is what makes 30d↔all snappy) */
+async function lgFetchDeskForce(force = false, opts = {}) {
   if (!force && _lgCache && Date.now() - _lgCache.ts < LG_LIVE_TTL) return _lgCache.data;
   const conn = loadConn();
   const domain = conn?.domain ? String(conn.domain).replace(/^https?:\/\//, '') : JIRA_DOMAIN;
@@ -902,7 +907,6 @@ async function lgFetchDesk(force = false) {
   const range = lgPeriodRange(lgState.period.kind);
   const url = PUB_RELAY + '?cmd=desk&project=' + encodeURIComponent(DESK_PROJECT) +
     '&domain=' + encodeURIComponent(domain) +
-    (force ? '&fresh=1' : '') +
     (range?.from ? '&from=' + encodeURIComponent(range.from) : '') +
     (range?.to ? '&to=' + encodeURIComponent(range.to) : '') +
     (known?.direction ? '&directionField=' + encodeURIComponent(known.direction) : '') +
@@ -910,6 +914,9 @@ async function lgFetchDesk(force = false) {
   const headers = { 'Accept': 'application/json' };
   if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
   const controller = new AbortController();
+  if (typeof opts.signalCb === 'function') {
+    try { opts.signalCb(controller); } catch (_) {}
+  }
   const timer = setTimeout(() => controller.abort(), 40000);
   try {
     const res = await fetch(url, { method: 'GET', headers, signal: controller.signal });
@@ -1538,8 +1545,20 @@ function lgApplyData(data, opts = {}) {
 
 const LG_SNAPSHOT_MAX_AGE = 10 * 24 * 60 * 60 * 1000;   /* 10 days */
 
+/* external abort plumbing: a period change while a sync is running
+   SUPERSEDES the in-flight load — the old fetch is cancelled and the new
+   window is re-requested when it unwinds (the request is never dropped) */
+let _lgAbort = null;         /* controller of the in-flight desk fetch */
+let _lgRestart = false;      /* a newer request superseded the in-flight load */
+let _lgRestartForce = false; /* force flag for the superseding reload */
+
 async function lgLoad(force) {
-  if (lgState.loading) return;
+  if (lgState.loading) {
+    _lgRestart = true;
+    _lgRestartForce = force;
+    if (_lgAbort) { try { _lgAbort.abort(); } catch (_) {} }
+    return;
+  }
 
   /* ── instant paint from the persisted snapshot ──
      The live sync is genuinely slow (Jira pages ~30s on first hit). The
@@ -1574,11 +1593,34 @@ async function lgLoad(force) {
   if (banner) banner.classList.remove('hidden');
   if (tbody && !hadRows) { tbody.innerHTML = lgSkeletonRowsHtml(9); _lgPainted.n = 0; }
   try {
-    const data = await lgFetchDesk(force && !snapGood ? true : force);
+    const data = await lgFetchDeskForce(force && !snapGood, { signalCb: (c) => { _lgAbort = c; } });
+    if (_lgRestart) {
+      /* a period change happened while this fetch ran — reload with the new
+         window; the stale result of the OLD window is discarded */
+      _lgRestart = false;
+      const rf = _lgRestartForce;
+      lgState.loading = false;
+      btn.classList.toggle('lg-spinning', false);
+      btn.disabled = false;
+      if (banner) banner.classList.add('hidden');
+      if (tbody && !hadRows) { tbody.innerHTML = ''; _lgPainted.n = 0; }
+      return lgLoad(rf);
+    }
     lgApplyData(data, { fresh: true });
   } catch (e) {
     /* a failed refresh with a good snapshot on screen is non-fatal */
     const keepSnapshot = !force && snapGood;
+    if (_lgRestart) {
+      /* superseded by a newer period change — retry silently with the
+         new window instead of surfacing the abort error */
+      _lgRestart = false;
+      const rf = _lgRestartForce;
+      lgState.loading = false;
+      btn.classList.toggle('lg-spinning', false);
+      btn.disabled = false;
+      if (banner) banner.classList.add('hidden');
+      return lgLoad(rf);
+    }
     if (!keepSnapshot) {
       if (tbody && !hadRows) { tbody.innerHTML = ''; _lgPainted.n = 0; }
       if (banner) banner.classList.add('hidden');
