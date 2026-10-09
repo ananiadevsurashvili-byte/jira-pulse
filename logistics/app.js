@@ -190,6 +190,9 @@ const I18N = {
     'lg.card.noDescription': 'No description',
     'lg.card.noComments': 'No comments yet',
     'lg.card.attachments': 'Attachments',
+    'lg.card.download': 'Download',
+    'lg.downloadFail': 'Download failed',
+    'lg.row.hasFiles': 'Has attachments',
     'lg.card.close': 'Close',
     'lg.descLabel': 'Description',
     'lg.scrollLeft': 'Scroll left',
@@ -285,6 +288,9 @@ const I18N = {
     'lg.card.noDescription': 'აღწერა არ არის',
     'lg.card.noComments': 'კომენტარები ჯერ არ არის',
     'lg.card.attachments': 'ატვირთული ფაილები',
+    'lg.card.download': 'ჩამოტვირთვა',
+    'lg.downloadFail': 'ჩამოტვირთვა ვერ მოხერხდა',
+    'lg.row.hasFiles': 'აქვს ფაილები',
     'lg.card.close': 'დახურვა',
     'lg.descLabel': 'აღწერა',
     'lg.scrollLeft': 'ჩამოსქროლე მარცხნივ',
@@ -1008,6 +1014,12 @@ function lgNormalize(data) {
       _idx: typeof c.idx === 'number' ? c.idx : null,
     })).filter((c) => c.body);
 
+    /* attachment presence (filename + mime only, no binaries — the relay
+       sends them in the bulk payload just for the 📎 badge on table rows) */
+    const attFiles = (Array.isArray(f.attachment) ? f.attachment : [])
+      .map((a) => ({ filename: String(a?.filename || ''), mimeType: String(a?.mimeType || '') }))
+      .filter((a) => a.filename);
+
     const num = parseInt(String(iss.key).split('-')[1], 10) || 0;
     /* pre-build the lowercase search haystack once per row — lgFiltered()
        used to rebuild this (descFull + all comment bodies) on every render
@@ -1030,6 +1042,7 @@ function lgNormalize(data) {
       updated: f.updated ? Date.parse(f.updated) : 0,
       direction,
       comments,
+      attFiles,
       hay,
     });
   }
@@ -1261,8 +1274,14 @@ function lgRowHtml(r) {
 }
 
 function lgRowHtmlUncached(r) {
-  /* key + title open the in-app task card instead of navigating to Jira */
-  const keyLink = `<a href="#" class="lg-open-card" data-key="${escapeHtml(r.key)}" title="${escapeHtml(r.summary)}">${escapeHtml(r.key)}</a>`;
+  /* key + title open the in-app task card instead of navigating to Jira.
+     A 📎 chip beside it marks tasks that carry files (issue or comment
+     attachments — count from the bulk payload, click opens the card) */
+  const attN = (r.attFiles || []).length;
+  const attBadge = attN
+    ? `<a href="#" class="lg-open-card lg-att-badge" data-key="${escapeHtml(r.key)}" title="${escapeHtml(t('lg.row.hasFiles') + ' (' + attN + ')')}" data-i18n-title="lg.row.hasFiles">📎${attN}</a>`
+    : '';
+  const keyLink = `<a href="#" class="lg-open-card" data-key="${escapeHtml(r.key)}" title="${escapeHtml(r.summary)}">${escapeHtml(r.key)}</a>${attBadge}`;
   const direction = r.direction
     ? `<div class="lg-dir-text">${escapeHtml(r.direction)}</div>`
     : '<span class="muted">—</span>';
@@ -1472,17 +1491,43 @@ function lgCloseCard() {
 }
 
 /* ── attachment interactions (delegated on the card body) ─────────────
-   - click on an image thumb → fullscreen lightbox
+   - click on an image thumb → fullscreen lightbox with a Download button
    - non-image thumbs are plain download links (target=_blank) */
+
+/* fetch the file binary through the CORS proxy and hand it to the browser
+   as a real download (named save) — works for images AND any other file */
+async function lgDownloadAttachment(att) {
+  const objUrl = await lgAttachBlob(att);
+  const a = document.createElement('a');
+  a.href = objUrl;
+  a.download = att.filename || 'file';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 function lgOpenLightbox(att, objUrl) {
   const lb = document.createElement('div');
   lb.className = 'lg-lightbox';
   lb.innerHTML = `
     <button class="lg-lightbox-close" type="button" aria-label="Close">✕</button>
+    <button class="lg-lightbox-dl" type="button" title="${escapeHtml(t('lg.card.download'))}" data-i18n-title="lg.card.download">⬇ ${escapeHtml(t('lg.card.download'))}</button>
     <img alt="${escapeHtml(att.filename)}" src="${objUrl}" />
     <div class="lg-lightbox-name">${escapeHtml(att.filename)}</div>`;
   const close = () => { lb.remove(); };
-  lb.addEventListener('click', (e) => { if (e.target === lb || e.target.closest('.lg-lightbox-close')) close(); });
+  lb.addEventListener('click', (e) => {
+    if (e.target === lb || e.target.closest('.lg-lightbox-close')) close();
+  });
+  lb.querySelector('.lg-lightbox-dl').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try { await lgDownloadAttachment(att); }
+    catch (_) { btn.textContent = '⚠ ' + t('lg.downloadFail'); setTimeout(() => { btn.disabled = false; btn.textContent = '⬇ ' + t('lg.card.download'); }, 2000); return; }
+    btn.disabled = false;
+    btn.textContent = '⬇ ' + t('lg.card.download');
+  });
   document.addEventListener('keydown', function onKey(ev) {
     if (ev.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
   });
@@ -1903,11 +1948,21 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#lgCardClose').addEventListener('click', lgCloseCard);
   $('#lgCardOverlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) lgCloseCard(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lgState.cardKey) lgCloseCard(); });
-  /* attachment clicks: image thumbs open the lightbox (files open as links) */
+  /* attachment clicks: image thumbs open the lightbox (files open as links);
+     broken thumbs retry their preview load on click (proxy-side credential
+     fix may have landed since the failure was cached) */
   $('#lgCardBody').addEventListener('click', (e) => {
     const thumb = e.target.closest('.lg-att-img');
-    if (!thumb || thumb.classList.contains('lg-att-broken')) return;
+    if (!thumb) return;
     e.preventDefault();
+    if (thumb.classList.contains('lg-att-broken')) {
+      thumb.classList.remove('lg-att-broken');
+      thumb.removeAttribute('data-hydrated');   /* let the hydrator retry it */
+      const ic = thumb.querySelector('.lg-att-icon');
+      if (ic) ic.remove();
+      lgHydrateAttachImages($('#lgCardBody'));
+      return;
+    }
     const meta = $('#lgCardBody')._lgAttMeta?.get(thumb.getAttribute('data-att-id'));
     if (!meta) return;
     const img = thumb.querySelector('img');

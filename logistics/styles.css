@@ -103,6 +103,19 @@ body.light #lgContent .data-table thead th { background: #eef1fa; }
 
 .lg-nowrap { white-space: nowrap; }
 .lg-key-cell a { font-weight: 700; }
+
+/* 📎 badge beside the row key — marks tasks that carry files */
+.lg-att-badge {
+  display: inline-flex; align-items: center;
+  margin-left: 6px; padding: 1px 7px;
+  font-size: 0.68rem; font-weight: 700; line-height: 1.5;
+  border-radius: 999px;
+  color: var(--accent, #6366f1);
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  text-decoration: none;
+}
+.lg-att-badge:hover { background: rgba(99, 102, 241, 0.22); }
 .lg-title-cell { min-width: 0; overflow: hidden; }
 .lg-task-title {
   font-weight: 600;
@@ -726,6 +739,16 @@ body.light .lg-att-name { color: #1e2540; }
   font-size: 1.05rem; cursor: pointer;
 }
 .lg-lightbox-close:hover { background: rgba(255, 255, 255, 0.18); }
+.lg-lightbox-dl {
+  position: absolute; top: 14px; left: 16px;
+  height: 38px; padding: 0 16px; border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08); color: #fff;
+  font-size: 0.85rem; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; gap: 6px;
+}
+.lg-lightbox-dl:hover { background: rgba(255, 255, 255, 0.18); }
+.lg-lightbox-dl:disabled { opacity: 0.55; cursor: wait; }
 .lg-lightbox-name {
   position: absolute; left: 50%; transform: translateX(-50%);
   bottom: 16px; color: rgba(255, 255, 255, 0.85);

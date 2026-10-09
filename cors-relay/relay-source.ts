@@ -47,7 +47,7 @@ const CREDS_KEY = "jirapulse_creds_v1";
 
 /* ── Logistics viewer page (?cmd=desk) ── */
 const DESK_EXCLUDE_LABEL = "Internal";
-const DESK_FIELDS_BASE = "summary,description,status,created,updated,assignee,reporter,labels,comment";
+const DESK_FIELDS_BASE = "summary,description,status,created,updated,assignee,reporter,labels,attachment,comment";
 
 /* desk response blob-cache: one full LOG sync costs ~40 sequential Jira
    pages; caching the finished result (even very briefly) makes page
@@ -590,6 +590,14 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
         reporter: f.reporter ? { displayName: String(f.reporter.displayName || '') } : null,
         labels: Array.isArray(f.labels) ? f.labels.map(String) : [],
         comment: Array.isArray(f.comment) ? f.comment : [],
+        /* just file counts + tiny mime info — enough for a 📎 badge on the
+           table row; binaries are never fetched here */
+        attachment: Array.isArray(f.attachment)
+          ? f.attachment.map((a: any) => ({
+              filename: String(a?.filename || ''),
+              mimeType: String(a?.mimeType || ''),
+            }))
+          : [],
       },
     };
     if (directionFieldId) {
@@ -788,6 +796,24 @@ async function handleProxy(request: Request, u: URL): Promise<Response> {
   for (const h of ['authorization', 'content-type', 'accept', 'user-agent']) {
     const v = request.headers.get(h);
     if (v) headers.set(h, v);
+  }
+
+  /* Missing caller auth on attachment-content GETs would go to Jira
+     anonymously and get a 403 → broken image previews for viewers who
+     never connected their own Jira account. Fall back to the stored
+     admin read-only creds — but ONLY when the stored domain matches the
+     target host, and only for GET on the attachment content path (other
+     endpoints keep the same-old behavior). */
+  if (!headers.get('authorization') && request.method === 'GET' &&
+      /^\/rest\/api\/3\/attachment\/content\//.test(targetUrl.pathname)) {
+    try {
+      const stored = await blob.getJSON(CREDS_KEY);
+      const storedHost = stored?.domain ? String(stored.domain).replace(/^https?:\/\//, '').replace(/\/+$/, '') : '';
+      if (storedHost && stored?.email && stored?.token &&
+          storedHost.toLowerCase() === targetUrl.hostname.toLowerCase()) {
+        headers.set('authorization', 'Basic ' + btoa(stored.email + ':' + stored.token));
+      }
+    } catch { /* non-fatal — fall through unauthenticated */ }
   }
 
   let upstream: Response;
