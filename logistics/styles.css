@@ -708,7 +708,7 @@ body.light .lg-att-name { color: #1e2540; }
 
 /* fullscreen image viewer (opened by clicking any attachment thumb) */
 .lg-lightbox {
-  position: fixed; inset: 0; z-index: 200;
+  position: fixed; inset: 0; z-index: 10100;   /* above .modal-overlay (10000) */
   background: rgba(0, 0, 0, 0.82);
   display: flex; align-items: center; justify-content: center;
   padding: 24px; cursor: zoom-out;
