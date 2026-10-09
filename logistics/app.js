@@ -1274,14 +1274,15 @@ function lgRowHtml(r) {
 }
 
 function lgRowHtmlUncached(r) {
-  /* key + title open the in-app task card instead of navigating to Jira.
-     A 📎 chip beside it marks tasks that carry files (issue or comment
-     attachments — count from the bulk payload, click opens the card) */
+  /* key opens the in-app task card instead of navigating to Jira.
+     The 📎 badge marks tasks that carry files (issue or comment
+     attachments — count from the bulk payload) and sits at the TOP-RIGHT
+     of the title line, above the description / beside diagram feed */
   const attN = (r.attFiles || []).length;
   const attBadge = attN
-    ? `<a href="#" class="lg-open-card lg-att-badge" data-key="${escapeHtml(r.key)}" title="${escapeHtml(t('lg.row.hasFiles') + ' (' + attN + ')')}" data-i18n-title="lg.row.hasFiles">📎${attN}</a>`
+    ? `<a href="#" class="lg-open-card lg-att-badge" data-key="${escapeHtml(r.key)}" title="${escapeHtml(t('lg.row.hasFiles') + ' (' + attN + ')')}" data-i18n-title="lg.row.hasFiles" aria-label="${escapeHtml(t('lg.row.hasFiles'))}">📎${attN}</a>`
     : '';
-  const keyLink = `<a href="#" class="lg-open-card" data-key="${escapeHtml(r.key)}" title="${escapeHtml(r.summary)}">${escapeHtml(r.key)}</a>${attBadge}`;
+  const keyLink = `<a href="#" class="lg-open-card" data-key="${escapeHtml(r.key)}" title="${escapeHtml(r.summary)}">${escapeHtml(r.key)}</a>`;
   const direction = r.direction
     ? `<div class="lg-dir-text">${escapeHtml(r.direction)}</div>`
     : '<span class="muted">—</span>';
@@ -1323,7 +1324,10 @@ function lgRowHtmlUncached(r) {
   return `<tr>
     <td class="lg-nowrap lg-key-cell">${keyLink}</td>
     <td class="lg-title-cell">
-      <div class="lg-task-title"><a href="#" class="lg-open-card lg-title-link" data-key="${escapeHtml(r.key)}">${escapeHtml(r.summary || '—')}</a></div>${descHtml}
+      <div class="lg-title-line">
+        <div class="lg-task-title"><a href="#" class="lg-open-card lg-title-link" data-key="${escapeHtml(r.key)}">${escapeHtml(r.summary || '—')}</a></div>
+        ${attBadge}
+      </div>${descHtml}
     </td>
     <td><span class="status-pill ${lgStatusClass(r.status)}">${escapeHtml(r.status || '—')}</span></td>
     <td class="lg-people-cell">${peopleHtml}</td>

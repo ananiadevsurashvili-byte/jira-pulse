@@ -104,10 +104,17 @@ body.light #lgContent .data-table thead th { background: #eef1fa; }
 .lg-nowrap { white-space: nowrap; }
 .lg-key-cell a { font-weight: 700; }
 
-/* 📎 badge beside the row key — marks tasks that carry files */
+/* 📎 badge marks tasks that carry files — pinned to the TOP-RIGHT of the
+   title line (title left, badge right) so it never overrides key text */
+.lg-title-line {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px; min-width: 0;
+}
+.lg-title-line .lg-task-title { min-width: 0; }
 .lg-att-badge {
+  flex: none;
   display: inline-flex; align-items: center;
-  margin-left: 6px; padding: 1px 7px;
+  margin-top: 1px; padding: 1px 7px;
   font-size: 0.68rem; font-weight: 700; line-height: 1.5;
   border-radius: 999px;
   color: var(--accent, #6366f1);
