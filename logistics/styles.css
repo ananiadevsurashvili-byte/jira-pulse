@@ -282,18 +282,21 @@ body.light .lg-filter-label { color: #6b7394; opacity: 1; }
   right: 0;
   top: calc(100% + 6px);
   z-index: 60;
-  background: var(--panel, #14161d);
-  border: 1px solid var(--border);
+  /* OPAQUE panel — --panel is translucent, so the data table bled through
+     the popup (visual bug). Solid colors per theme instead. */
+  background: #14161d;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
   border-radius: 12px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
   padding: 12px;
-  width: 280px;
+  width: 300px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 body.light .lg-period-pop {
   background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.14);
   box-shadow: 0 14px 40px rgba(15, 23, 42, 0.18);
 }
 .lg-period-pop-quick {
@@ -306,19 +309,25 @@ body.light .lg-period-pop {
   font-size: 0.74rem;
   font-weight: 600;
   border-radius: 8px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  /* opaque chip — translucent bg made buttons look washed-out over the popup */
+  background: rgba(255, 255, 255, 0.07);
   color: var(--text);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
-.lg-period-quick:hover { border-color: var(--accent); }
+.lg-period-quick:hover { border-color: var(--accent); background: rgba(255, 255, 255, 0.12); }
 .lg-period-quick.active {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
 }
-body.light .lg-period-quick { background: rgba(15, 23, 42, 0.04); color: #1e2540; }
+body.light .lg-period-quick {
+  background: rgba(15, 23, 42, 0.05);
+  color: #1e2540;
+  border-color: rgba(15, 23, 42, 0.14);
+}
+body.light .lg-period-quick:hover { background: rgba(15, 23, 42, 0.09); }
 body.light .lg-period-quick.active { background: var(--accent); color: #fff; }
 .lg-period-pop-row {
   display: flex;
@@ -333,22 +342,47 @@ body.light .lg-period-quick.active { background: var(--accent); color: #fff; }
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--muted, #8b93ad);
 }
 .lg-period-pop-row input[type="date"] {
   width: 100%;
   padding: 6px 8px;
   font-size: 0.78rem;
   border-radius: 8px;
+  /* opaque, theme-aware field (must not inherit translucent .input bg) */
+  background: #1b1e29;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  color: var(--text, #e9edf8);
   color-scheme: dark;
 }
-body.light .lg-period-pop-row input[type="date"] { color-scheme: light; }
+body.light .lg-period-pop-row input[type="date"] {
+  background: #f4f6fb;
+  border-color: rgba(15, 23, 42, 0.14);
+  color: #1e2540;
+  color-scheme: light;
+}
 .lg-period-pop-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
 }
 .lg-period-btn { padding: 6px 14px; font-size: 0.78rem; border-radius: 8px; }
+/* inline (space-less) variants used by the period popup markup */
+.lg-period-btn.primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6 55%, #22d3ee 130%);
+  color: #fff;
+  border: none;
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.35);
+}
+.lg-period-btn.primary:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(99, 102, 241, 0.45); }
+.lg-period-btn.ghost {
+  background: #1b1e29;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  color: var(--text, #e9edf8);
+}
+.lg-period-btn.ghost:hover { background: #242836; border-color: var(--border-strong); }
+body.light .lg-period-btn.ghost { background: #fff; color: #1e2540; border-color: rgba(15, 23, 42, 0.14); }
+body.light .lg-period-btn.ghost:hover { background: #eef1f8; }
 
 /* ── page-size switcher (compact select at the toolbar's right end) ────── */
 .lg-page-select {
