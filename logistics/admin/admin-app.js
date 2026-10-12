@@ -19,6 +19,7 @@ const ADMIN_EMAILS = [
 const LS_THEME = 'jp_theme', LS_LANG = 'jp_lang', LS_CONN = 'jp_conn_v1';
 const LS_ADM_SESSION = 'jp_adm_session_v1';
 const LS_ADM_PERIOD = 'jp_adm_period_v1';
+const LS_ADM_MONTHS = 'jp_adm_months_v1';
 const LS_ADM_FIELDIDS = 'jp_lg_fieldids_v1';
 const ADM_LIVE_TTL = 30 * 1000;
 
@@ -27,6 +28,7 @@ const adm = {
   rows: [], jqlTotal: 0, fetchedAt: 0, countIn: 0,
   fieldIds: { direction: null, title: null },
   period: { kind: '30d', fromMs: null, toMs: null },
+  months: 3,
   charts: {}, loading: false, lang: 'en'
 };
 let _admCache = null, _admAbort = null;
@@ -53,13 +55,14 @@ const I18N = {
     'adm.title': 'Logistics admin', 'adm.subtitle': 'Metrics and activity dashboard · admin accounts only',
     'adm.dashTitle': 'Dashboard', 'adm.dashSub': 'All LOG service-desk metrics · items labeled “Internal” are hidden',
     'adm.period': 'Period', 'adm.customRange': 'Custom range',
+    'adm.m.window': 'Monthly window', 'adm.m.months': '{n} month(s)',
     'adm.p.30d': 'Last 30 days', 'adm.p.month': 'This month', 'adm.p.quarter': 'This quarter',
     'adm.p.year': 'This year', 'adm.p.all': 'All time', 'adm.p.custom': 'Custom…',
     'adm.kpi.total': 'Tasks · period', 'adm.kpi.today': 'Created today', 'adm.kpi.month': 'Created this month',
     'adm.kpi.resolved': 'Resolved · period', 'adm.kpi.open': 'Open (all time)', 'adm.kpi.resAll': 'Resolved (all time)',
     'adm.kpi.active': 'Active now', 'adm.kpi.logins': 'Logins today',
-    'adm.ch.daily': 'New vs resolved · last 30 days', 'adm.ch.monthlyNew': 'New tasks per month · 12 months',
-    'adm.ch.monthlyDone': 'Resolved per month · 12 months', 'adm.ch.donut': 'Open vs resolved · all time',
+    'adm.ch.daily': 'New vs resolved · last 30 days', 'adm.ch.monthlyNew': 'New tasks per month · {n}',
+    'adm.ch.monthlyDone': 'Resolved per month · {n}', 'adm.ch.donut': 'Open vs resolved · all time',
     'adm.ch.assignees': 'Top assignees · open tasks', 'adm.ch.reporters': 'Top reporters · all created',
     'adm.ch.direction': 'Tasks per direction · all time', 'adm.ch.dirDone': 'Resolved per direction · all time',
     'adm.lb.users': 'Top users · created / resolved (period)', 'adm.lb.dirs': 'Departments (directions) · all time',
@@ -91,13 +94,14 @@ const I18N = {
     'adm.title': 'ლოგისტიკის ადმინი', 'adm.subtitle': 'მეტრიკები და აქტივობები · მხოლოდ ადმინისთვის',
     'adm.dashTitle': 'დაშბორდი', 'adm.dashSub': 'LOG სერვის-დესკის სრული მეტრიკები · “Internal” ეტიკეტი მალუფებულია',
     'adm.period': 'პერიოდი', 'adm.customRange': 'თვითონ არჩეული',
+    'adm.m.window': 'თვიური ფანჯარა', 'adm.m.months': '{n} თვე',
     'adm.p.30d': 'ბოლო 30 დღე', 'adm.p.month': 'ეს თვე', 'adm.p.quarter': 'ეს კვარტალი',
     'adm.p.year': 'ეს წელი', 'adm.p.all': 'მთელი ისტორია', 'adm.p.custom': 'სხვა…',
     'adm.kpi.total': 'დავალებები · პერიოდში', 'adm.kpi.today': 'დღეს შექმნილი', 'adm.kpi.month': 'ამ თვეს შექმნილი',
     'adm.kpi.resolved': 'გადაწყვეტილი · პერიოდში', 'adm.kpi.open': 'ღია (მთელი ისტორია)', 'adm.kpi.resAll': 'გადაწყვეტილი (მთელი ისტორია)',
     'adm.kpi.active': 'ახლა აქტიური', 'adm.kpi.logins': 'ლოგინები დღეს',
-    'adm.ch.daily': 'ახალი vs გადაწყვეტილი · 30 დღე', 'adm.ch.monthlyNew': 'ახალი დავალებები თვეებში · 12 თვე',
-    'adm.ch.monthlyDone': 'გადაწყვეტილი თვეებში · 12 თვე', 'adm.ch.donut': 'ღია vs გადაწყვეტილი · მთელი ისტორია',
+    'adm.ch.daily': 'ახალი vs გადაწყვეტილი · 30 დღე', 'adm.ch.monthlyNew': 'ახალი დავალებები თვეებში · {n}',
+    'adm.ch.monthlyDone': 'გადაწყვეტილი თვეებში · {n}', 'adm.ch.donut': 'ღია vs გადაწყვეტილი · მთელი ისტორია',
     'adm.ch.assignees': 'საუკ. შემსრულებლები · ღია', 'adm.ch.reporters': 'საუკ. ავტორები · ყველა',
     'adm.ch.direction': 'დავალებები განზის მიხედვით', 'adm.ch.dirDone': 'გადაწყვეტილი განზის მიხედვით',
     'adm.lb.users': 'საუკ. მომხმარებლები · შექმნა/გად.(პერიოდი)', 'adm.lb.dirs': 'განზები · მთელი ისტორია',
@@ -138,7 +142,7 @@ function setLangButtons() {
 function setLang(lang) {
   adm.lang = (lang === 'ka') ? 'ka' : 'en';
   try { localStorage.setItem(LS_LANG, adm.lang); } catch (e) {}
-  setLangButtons(); applyI18n(); admRenderPeriodSelect(); renderAll();
+  setLangButtons(); applyI18n(); admRenderPeriodSelect(); admRenderMonthsSelect(); renderAll();
 }
 function applyThemeClass() {
   let th = 'dark';
@@ -314,6 +318,7 @@ function admEnterVerified(msg) {
   updateAdmUserChip();
   if (msg) toast(msg);
   admRestorePeriod(); admRenderPeriodSelect(); admRenderCustomWrap();
+  admRestoreMonths(); admRenderMonthsSelect();
   admLoadData();
 }
 function admSignOut() {
@@ -413,6 +418,23 @@ function lgPeriodRange(kind, fromMs, toMs) {
 function admSavePeriod() {
   try { localStorage.setItem(LS_ADM_PERIOD, JSON.stringify(adm.period)); } catch (e) {}
 }
+function admSaveMonths() {
+  try { localStorage.setItem(LS_ADM_MONTHS, String(adm.months)); } catch (e) {}
+}
+function admRestoreMonths() {
+  try {
+    const n = parseInt(localStorage.getItem(LS_ADM_MONTHS) || '0', 10);
+    if ([1, 2, 3, 6, 9, 12].indexOf(n) !== -1) adm.months = n;
+  } catch (e) {}
+  adm.months = [1, 2, 3, 6, 9, 12].indexOf(adm.months) === -1 ? 3 : adm.months;
+}
+function admRenderMonthsSelect() {
+  const sel = $('#admMonths'); if (!sel) return;
+  const opts = [1, 2, 3, 6, 9, 12].map(n =>
+    `<option value="${n}">${escapeHtml(tReplace('adm.m.months', { n }))}</option>`).join('');
+  sel.innerHTML = opts;
+  sel.value = String(adm.months);
+}
 function admRestorePeriod() {
   try {
     const p = JSON.parse(localStorage.getItem(LS_ADM_PERIOD) || 'null');
@@ -503,7 +525,7 @@ function admNormalize(data) {
 
 /* ═══ 15. Aggregation (metrics) ═══ */
 function ymdOf(ms) { const d = new Date(ms); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; }
-function ymOf(ms) { return String(ms).slice(0, 7); }
+function ymOf(ms) { return ymdOf(ms).slice(0, 7); }
 function admAggregate(rows, range) {
   const from = range.from.getTime(), to = range.to.getTime();
   const now = Date.now();
@@ -512,7 +534,7 @@ function admAggregate(rows, range) {
   const aggr = {
     total: 0, createdToday: 0, createdMonth: 0, resolvedPeriod: 0,
     open: 0, resolvedAll: 0,
-    perDay30: [], perMonth12: [],
+    perDay30: [], perMonth: [],
     perUser: new Map(), perDir: new Map(),
     donut: { open: 0, resolved: 0 }
   };
@@ -522,11 +544,12 @@ function admAggregate(rows, range) {
     const d = new Date(); d.setDate(d.getDate() - i);
     dayMap.set(ymdOf(d.getTime()), { created: 0, resolved: 0 });
   }
-  // last 12 months buckets
+  // monthly buckets (selected window: adm.months)
+  const nMon = Math.max(1, Math.min(12, adm.months | 0 || 3));
   const monMap = new Map();
-  for (let i = 11; i >= 0; i--) {
+  for (let i = nMon - 1; i >= 0; i--) {
     const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i);
-    monMap.set(ymOf(d.getTime()) + '-01', { created: 0, resolved: 0 });
+    monMap.set(ymOf(d.getTime()), { created: 0, resolved: 0 });
   }
   for (const r of rows) {
     aggr.total++;
@@ -544,10 +567,10 @@ function admAggregate(rows, range) {
       if (dayMap.has(rd)) dayMap.get(rd).resolved++;
     }
     // monthly buckets
-    const cm = ymOf(r.createdMs) + '-01';
+    const cm = ymOf(r.createdMs);
     if (monMap.has(cm)) monMap.get(cm).created++;
     if (r.resolved && r.resolvedAt) {
-      const rm = ymOf(r.resolvedAt) + '-01';
+      const rm = ymOf(r.resolvedAt);
       if (monMap.has(rm)) monMap.get(rm).resolved++;
     }
     // users
@@ -569,7 +592,7 @@ function admAggregate(rows, range) {
   // period total = rows created within selected period
   aggr.totalPeriod = rows.filter(r => r.createdMs >= from && r.createdMs <= to).length;
   aggr.perDay30 = Array.from(dayMap, ([k, v]) => ({ day: k, ...v }));
-  aggr.perMonth12 = Array.from(monMap, ([k, v]) => ({ ym: k, ...v }));
+  aggr.perMonth = Array.from(monMap, ([k, v]) => ({ ym: k, ...v }));
   return aggr;
 }
 /* ═══ 16. Canvas chart drawing (no libs) ═══ */
@@ -585,8 +608,10 @@ function admColors() {
 }
 function admChartSetup(cv, nBars) {
   const c = admColors();
-  const rect = cv.getBoundingClientRect();
-  const w = Math.max(rect.width, 240), h = Math.max(rect.height, 180);
+  // re-measure synchronously after layout (canvas may have just been unhidden)
+  let rect = cv.getBoundingClientRect();
+  if (rect.width < 40) { rect = cv.parentElement.getBoundingClientRect(); }
+  const w = Math.max(rect.width, 240), h = Math.max(rect.height || cv.getBoundingClientRect().height, 180);
   const dpr = window.devicePixelRatio || 1;
   cv.width = w * dpr; cv.height = h * dpr;
   const g = cv.getContext('2d');
@@ -747,25 +772,31 @@ function renderKpis(a) {
     admKpiCard('📂', t('adm.kpi.open'), a.open, 'accent-amber') +
     admKpiCard('🏁', t('adm.kpi.resAll'), a.resolvedAll, 'accent-violet');
 }
-function monthLabel(ymFirst) {
-  const d = new Date(ymFirst);
-  return adm.lang === 'ka' ? LG_MONTHS_KA[d.getMonth()] : LG_MONTHS_EN[d.getMonth()];
+function monthLabel(ym) {
+  const mi = parseInt(String(ym).slice(5, 7), 10) - 1;
+  const yr = String(ym).slice(0, 4);
+  const mn = (adm.lang === 'ka') ? LG_MONTHS_KA[mi] : LG_MONTHS_EN[mi];
+  return yr === String(new Date().getFullYear()) ? mn : `${mn} ${yr}`;
 }
 function dayLabel(ymd) { return ymd.slice(5).replace('-', '/'); }
 function renderCharts(a) {
   adm.lastAggr = a;
+  // dynamic monthly titles ({n} = selected window)
+  const tNew = $('#tiMonthlyNew'), tDone = $('#tiMonthlyDone');
+  if (tNew) tNew.textContent = tReplace('adm.ch.monthlyNew', { n: tReplace('adm.m.months', { n: adm.months }) });
+  if (tDone) tDone.textContent = tReplace('adm.ch.monthlyDone', { n: tReplace('adm.m.months', { n: adm.months }) });
   // daily: last 30 days line (created vs resolved)
   admChartLine('chDaily', a.perDay30.map(x => dayLabel(x.day)), [
     { color: admColors().blue, data: a.perDay30.map(x => x.created) },
     { color: admColors().green, data: a.perDay30.map(x => x.resolved) }
   ]);
-  // monthly new
-  admChartBar('chMonthlyNew', a.perMonth12.map(x => monthLabel(x.ym)), [
-    { color: admColors().cyan, data: a.perMonth12.map(x => x.created) }
+  // monthly: selected window, grouped bars (new vs resolved per month)
+  const monLbl = a.perMonth.map(x => monthLabel(x.ym));
+  admChartBar('chMonthlyNew', monLbl, [
+    { color: admColors().cyan, data: a.perMonth.map(x => x.created) }
   ]);
-  // monthly done
-  admChartBar('chMonthlyDone', a.perMonth12.map(x => monthLabel(x.ym)), [
-    { color: admColors().green, data: a.perMonth12.map(x => x.resolved) }
+  admChartBar('chMonthlyDone', monLbl, [
+    { color: admColors().green, data: a.perMonth.map(x => x.resolved) }
   ]);
   // donut
   const cc = admColors();
@@ -866,6 +897,12 @@ function admOnPeriodChange() {
   if (sel.value !== 'custom') { adm.period.fromMs = null; adm.period.toMs = null; }
   admSavePeriod(); admRenderCustomWrap(); renderAll();
 }
+function admOnMonthsChange() {
+  const sel = $('#admMonths'); if (!sel) return;
+  const n = parseInt(sel.value, 10);
+  if ([1, 2, 3, 6, 9, 12].indexOf(n) === -1) return;
+  adm.months = n; admSaveMonths(); renderAll();
+}
 function admOnCustomDates() {
   const f = $('#admFrom'), tt = $('#admTo');
   if (!f || !tt || !f.value || !tt.value) return;
@@ -943,6 +980,7 @@ async function admRefresh() {
 
   const rb = $('#admRefreshBtn'); if (rb) rb.addEventListener('click', admRefresh);
   const ps = $('#admPeriod'); if (ps) ps.addEventListener('change', admOnPeriodChange);
+  const ms = $('#admMonths'); if (ms) ms.addEventListener('change', admOnMonthsChange);
   const f = $('#admFrom'), tt = $('#admTo');
   if (f) f.addEventListener('change', admOnCustomDates);
   if (tt) tt.addEventListener('change', admOnCustomDates);

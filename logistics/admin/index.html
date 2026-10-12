@@ -119,6 +119,14 @@
             <input id="admTo" class="input tl-select" type="date" />
           </span>
         </span>
+        <span class="lg-filter-item">
+          <label class="lg-filter-label" data-i18n="adm.m.window">Monthly window</label>
+          <select id="admMonths" class="input tl-select" style="width:120px">
+            <option value="1">1 month</option><option value="2">2 months</option>
+            <option value="3">3 months</option><option value="6">6 months</option>
+            <option value="9">9 months</option><option value="12">12 months</option>
+          </select>
+        </span>
         <span class="lg-toolbar-right">
           <span id="admCount" class="pub-count-chip"></span>
         </span>
@@ -132,8 +140,8 @@
     <div class="card glass" style="padding:18px;margin-top:14px">
       <div class="adm-chart-grid">
         <div class="adm-chart-card"><h4 data-i18n="adm.ch.daily">New vs resolved · last 30 days</h4><canvas id="chDaily" height="220"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.monthlyNew">New tasks per month · 12 months</h4><canvas id="chMonthlyNew" height="220"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.monthlyDone">Resolved per month · 12 months</h4><canvas id="chMonthlyDone" height="220"></canvas></div>
+        <div class="adm-chart-card"><h4 id="tiMonthlyNew">New tasks per month</h4><canvas id="chMonthlyNew" height="220"></canvas></div>
+        <div class="adm-chart-card"><h4 id="tiMonthlyDone">Resolved per month</h4><canvas id="chMonthlyDone" height="220"></canvas></div>
         <div class="adm-chart-card"><h4 data-i18n="adm.ch.donut">Open vs resolved · all time</h4><canvas id="chDonut" height="220"></canvas></div>
         <div class="adm-chart-card"><h4 data-i18n="adm.ch.assignees">Top assignees · open tasks</h4><canvas id="chAssignees" height="240"></canvas></div>
         <div class="adm-chart-card"><h4 data-i18n="adm.ch.reporters">Top reporters · all created</h4><canvas id="chReporters" height="240"></canvas></div>
@@ -180,6 +188,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="admin-app.js?v=3"></script>
+<script src="admin-app.js?v=4"></script>
 </body>
 </html>
