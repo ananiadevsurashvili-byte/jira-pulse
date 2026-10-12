@@ -556,7 +556,10 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
 
   /* slim comments: keep only the LAST 3 per issue, flattened to plain text —
      keeps the payload small (description ADF is already dropped by the API
-     when "comment" is requested as a list of bodies). */
+     when "comment" is requested as a list of bodies). Internal notes
+     (Jira "internal" flag / JSM jsdPublic=false) are dropped server-side:
+     this payload goes to the public logistics page, so those must never
+     leave the relay. */
   for (const iss of issues) {
     const comments = iss.fields?.comment?.comments;
     if (Array.isArray(comments) && comments.length) {
@@ -564,12 +567,16 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
          deskAttach reports comment attachments against the full list, so
          the client needs this anchor to place images inside the right
          comment even though only the last 3 are transmitted. */
-      iss.fields.comment = comments.slice(-3).map((c: any, k: number) => ({
-        idx: comments.length - comments.slice(-3).length + k,
+      const visible = (comments as any[])
+        .map((c: any, i: number) => ({ c, i }))
+        .filter(({ c }) => !(c?.internal === true || c?.jsdPublic === false));
+      iss.fields.comment = visible.slice(-3).map(({ c, i }) => ({
+        idx: i,
         author: String(c?.author?.displayName || ''),
         created: String(c?.created || ''),
         body: adfToText(c?.body),
       }));
+      if (!iss.fields.comment.length) delete iss.fields.comment;
     } else {
       delete iss.fields.comment;
     }
