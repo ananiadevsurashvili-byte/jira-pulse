@@ -913,3 +913,144 @@ body.light .assignee-chip { color: #4f46e5; background: rgba(99, 102, 241, 0.12)
 .lg-th-split.lg-sorted::after { opacity: 1; color: var(--accent); font-weight: 700; }
 .lg-th-split[data-sort="asc"]::after { content: '▲'; }
 .lg-th-split[data-sort="desc"]::after { content: '▼'; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   LOGISTICS ADMIN DASHBOARD (logistics/admin/) — #admContent / #admGate
+   Shared tokens come from root styles.css; these rules mirror the pub/log
+   hero + topbar looks for the admin page without #pubScreen/#lgContent.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── sticky topbar (mirrors #pubScreen .pub-topbar) ── */
+.topbar.pub-topbar {
+  position: sticky; top: 0; z-index: 40;
+  background: rgba(6, 9, 20, 0.72);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.topbar.pub-topbar .topbar-center { pointer-events: none; }
+.topbar.pub-topbar .brand { cursor: pointer; }
+.topbar.pub-topbar .brand:hover { opacity: 0.85; }
+body.light .topbar.pub-topbar { background: rgba(255, 255, 255, 0.8); }
+
+/* ── hero title/subtitle (mirrors #pubScreen .pub-hero-*) ── */
+.pub-hero { display: block; min-width: 260px; }
+.pub-hero-title {
+  font-size: 1.7rem; font-weight: 800; letter-spacing: -0.02em;
+  margin: 0 0 4px; line-height: 1.25;
+}
+.pub-hero-sub { position: relative; padding-left: 14px; margin: 0; font-size: 0.86rem; }
+.pub-hero-sub::before {
+  content: ''; position: absolute; left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 6px; height: 22px; border-radius: 3px;
+  background: linear-gradient(180deg, #818cf8, #22d3ee);
+}
+.pub-hero-sub.muted { color: var(--muted); }
+
+/* ── count chip (mirrors #pubScreen .pub-count-chip) ── */
+.pub-count-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 13px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--panel);
+  font-size: 0.76rem; font-weight: 700; color: var(--text);
+  white-space: nowrap;
+}
+.pub-count-chip::before {
+  content: ''; flex: 0 0 auto; width: 8px; height: 8px;
+  border-radius: 2px; transform: rotate(45deg);
+  background: linear-gradient(135deg, #818cf8, #22d3ee);
+}
+
+/* ── user chip interactive states (root file scopes these to #pubUserChip) ── */
+#admUserChip { cursor: pointer; position: relative; transition: border-color 0.12s ease; }
+#admUserChip:hover, #admUserChip.signout-open { border-color: rgba(99, 102, 241, 0.6); }
+#admUserChip.signout-open .pub-chip-caret { transform: rotate(180deg); }
+#admGoogleBtn.google-btn { justify-content: center; min-height: 44px; }
+#admGoogleBtn > div, #admGoogleBtn iframe { width: 100% !important; }
+#admAuthBox { max-width: 420px; margin: 0 auto; }
+
+/* ── dashboard list-head (mirrors #lgContent .lg-list-head) ── */
+#admContent .lg-list-head {
+  margin: 0 0 10px; padding: 0; gap: 12px;
+  align-items: baseline; flex-wrap: nowrap; min-width: 0;
+  display: flex;
+}
+#admContent .lg-list-title { font-size: 1.12rem; margin: 0; line-height: 1.2; flex-shrink: 0; }
+#admContent .lg-list-sub {
+  margin: 0; min-width: 0; flex: 0 1 auto;
+  font-size: 0.76rem; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; padding-left: 0;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+#admContent .lg-list-sub::before {
+  content: ''; flex: 0 0 auto;
+  width: 4px; height: 13px; border-radius: 2px;
+  background: linear-gradient(180deg, #818cf8, #22d3ee);
+}
+#admContent .lg-head-spacer { flex: 1 1 auto; }
+#admContent .lg-fetched {
+  font-size: 0.72rem; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; flex-shrink: 1; min-width: 0;
+}
+#admContent .lg-refresh {
+  flex-shrink: 0; display: inline-flex; align-items: center;
+  justify-content: center; width: 32px; height: 32px;
+  padding: 0; border-radius: 9px;
+}
+#admContent .lg-refresh svg { width: 15px; height: 15px; }
+#admContent .lg-refresh.lg-spinning svg { animation: lgRefSpin 0.9s linear infinite; }
+body.light #admContent .lg-list-sub { color: #6b7394; }
+
+/* ── status badges available outside #lgContent (login table) ── */
+.lg-st-badge {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 0.64rem; font-weight: 700; letter-spacing: 0.03em;
+  white-space: nowrap; border: 1px solid transparent;
+}
+.lg-st-badge.lg-st-done { color: #4ade80; background: rgba(74, 222, 128, 0.12); border-color: rgba(74, 222, 128, 0.35); }
+.lg-st-badge.lg-st-other { color: var(--muted); background: rgba(255, 255, 255, 0.06); border-color: var(--border); }
+body.light .lg-st-badge.lg-st-done { color: #15803d; background: #dcfce7; border-color: #86efac; }
+body.light .lg-st-badge.lg-st-other { color: #55607f; background: #eef1f8; border-color: #d4daea; }
+
+/* ── period filter bar (select variant) ── */
+#admPeriodBar { align-items: flex-end; gap: 10px; display: flex; flex-wrap: wrap; }
+#admPeriodBar .lg-filter-item { flex: 0 1 auto; min-width: 170px; }
+#admPeriodBar .tl-select { min-width: 0; width: 100%; }
+#admPeriodBar .lg-toolbar-right { margin-left: auto; }
+
+/* ── chart grid ── */
+.adm-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 16px;
+}
+.adm-chart-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 13px 14px 8px;
+  min-width: 0;
+}
+.adm-chart-card h4 {
+  margin: 0 0 8px;
+  font-size: 0.8rem; font-weight: 700;
+  color: var(--text); opacity: 0.9;
+}
+.adm-chart-card canvas { display: block; width: 100%; height: 220px; }
+
+/* ── leaderboards ── */
+.adm-leader-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+@media (max-width: 960px) { .adm-leader-grid { grid-template-columns: 1fr; } }
+
+/* ── login activity tiles ── */
+.adm-activity-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.adm-act-tile .kpi-value { font-size: 1.55rem; }

@@ -47,7 +47,7 @@ const CREDS_KEY = "jirapulse_creds_v1";
 
 /* ── Logistics viewer page (?cmd=desk) ── */
 const DESK_EXCLUDE_LABEL = "Internal";
-const DESK_FIELDS_BASE = "summary,description,status,created,updated,assignee,reporter,labels,attachment,comment";
+const DESK_FIELDS_BASE = "summary,description,status,resolution,created,updated,assignee,reporter,labels,attachment,comment";
 
 /* desk response blob-cache: one full LOG sync costs ~40 sequential Jira
    pages; caching the finished result (even very briefly) makes page
@@ -150,6 +150,16 @@ async function handler(request: Request): Promise<Response> {
       /* attachments for ONE issue (logistics task card popup) */
       if (cmd === 'deskAttach') {
         return await handleDeskAttachCmd(u, request);
+      }
+
+      /* lightweight login-activity tracking (logistics admin dashboard):
+         POST ?cmd=lgPing  body {email}  → upsert one visitor record
+         GET  ?cmd=lgStats            → sorted activity + active/today counts */
+      if (cmd === 'lgPing') {
+        return await handleLgPing(request);
+      }
+      if (cmd === 'lgStats') {
+        return await handleLgStats();
       }
 
       return json({ error: 'unknown cmd: ' + cmd }, 400);
@@ -584,6 +594,7 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
       fields: {
         summary: String(f.summary || ''),
         status: { name: String(f.status?.name || '') },
+        resolution: f.resolution ? { name: String(f.resolution.name || '') } : null,
         created: String(f.created || ''),
         updated: String(f.updated || ''),
         assignee: f.assignee ? { displayName: String(f.assignee.displayName || '') } : null,
@@ -770,6 +781,59 @@ async function handleDeskAttachCmd(u: URL, request: Request): Promise<Response> 
     key,
     commentCount,
     attachments,
+  });
+}
+
+/* ───────────────── login-activity tracking (admin dashboard) ──────────
+   One blob record per viewer email: firstTs, lastTs, count, sample UA.
+   Fired from the logistics + logistics/admin pages on load / on sign-in. */
+const LG_LOGINS_KEY = "jirapulse_lg_logins_v1";
+const LG_ACTIVE_MS = 15 * 60 * 1000;        /* "active now" window */
+
+async function handleLgPing(request: Request): Promise<Response> {
+  const body = await request.json().catch(() => null);
+  const email = String(body?.email || '').toLowerCase().trim();
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return json({ error: 'email required' }, 400);
+  }
+  const now = Date.now();
+  const map = (await blob.getJSON(LG_LOGINS_KEY)) || {};
+  const rec = map[email] || { email, firstTs: now, lastTs: 0, count: 0, lastUa: '' };
+  const isNewSession = now - Number(rec.lastTs || 0) > 30 * 60 * 1000;  /* 30min gap = new "session" */
+  map[email] = {
+    email,
+    firstTs: Number(rec.firstTs) || now,
+    lastTs: now,
+    count: (Number(rec.count) || 0) + (isNewSession ? 1 : 0),
+    lastUa: String((request.headers.get('user-agent') || '').slice(0, 120)),
+  };
+  await blob.setJSON(LG_LOGINS_KEY, map);
+  return json({ ok: true, email, lastTs: now, count: map[email].count });
+}
+
+async function handleLgStats(): Promise<Response> {
+  const map = (await blob.getJSON(LG_LOGINS_KEY)) || {};
+  const users = Object.values(map)
+    .map((r: any) => ({
+      email: String(r.email || ''),
+      firstTs: Number(r.firstTs) || 0,
+      lastTs: Number(r.lastTs) || 0,
+      count: Number(r.count) || 0,
+      lastUa: String(r.lastUa || ''),
+    }))
+    .sort((a: any, b: any) => b.lastTs - a.lastTs);
+  const now = Date.now();
+  const dayStart = new Date(new Date(now).setHours(0, 0, 0, 0)).getTime();
+  const weekStart = now - 7 * 24 * 60 * 60 * 1000;
+  return json({
+    ok: true,
+    cmd: 'lgStats',
+    now,
+    activeNow: users.filter((r: any) => now - r.lastTs <= LG_ACTIVE_MS).length,
+    today: users.filter((r: any) => r.lastTs >= dayStart).length,
+    week: users.filter((r: any) => r.lastTs >= weekStart).length,
+    total: users.length,
+    users,
   });
 }
 
