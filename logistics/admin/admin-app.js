@@ -6,7 +6,7 @@
 /* ═══ 1. Constants & state ═══ */
 const PUB_RELAY = 'https://gensweaty--65df49bca6d911f19f231607ee4eb77e.web.val.run/';
 const PUBLISH_DOMAIN = 'caucasusauto.com';
-const GOOGLE_CLIENT_ID = '1041661921234-kccuvhfbkgej4fl9a9im0p87nh0if8p3.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = '671098966570-21bp1aeud5o2glbjsliif3foi6n71gmh.apps.googleusercontent.com';
 const JIRA_DOMAIN = 'caucasusauto.atlassian.net';
 const JIRA_BASE = 'https://' + JIRA_DOMAIN + '/browse/';
 const DESK_PROJECT = 'LOG';
@@ -69,14 +69,20 @@ const I18N = {
     'adm.act.week': 'This week', 'adm.act.total': 'Total users', 'adm.act.lastSeen': 'Last seen',
     'adm.act.sessions': 'Sessions', 'adm.act.state': 'State', 'adm.act.online': 'Online', 'adm.act.offline': 'Offline',
     'adm.count.n': '{n} task(s)', 'adm.count.loading': 'Loading…', 'adm.fetched': 'Updated {t}',
+    'settings.email': 'Email',
     'theme.title': 'Switch color theme', 'theme.dark': 'Dark theme', 'theme.light': 'Light theme',
     'pub.google': 'Sign in with Google', 'pub.orEmail': '— or with email —', 'pub.emailPh': 'you@caucasusauto.com',
     'pub.send': 'Send code', 'pub.accessCode': 'Access code', 'pub.codePh': '6-digit code', 'pub.verify': 'Verify',
     'pub.signOut': '⎋ Sign out', 'pub.signOutTitle': 'Sign out and return to the login screen',
+    'auth.sending': 'Sending code…',
+    'pub.sending': 'Sending code to {email}…', 'pub.invalidEmail': 'Email must end with @{d}',
+    'pub.sentTo': 'Code sent to {email}', 'pub.resendCode': 'Resend code',
+    'pub.activateFirst': 'First-time setup: FormSubmit sent a confirmation link to {email} — open it, then press Resend here.',
+    'pub.deliverFailed': 'Email delivery failed: {m}', 'pub.sendFailed': 'Could not send the code: {m}',
+    'pub.wrongCode': 'Wrong code',
     'pub.welcome': 'Signed in as {email}', 'pub.bye': 'Signed out',
-    'auth.sending': 'Sending code…', 'auth.codeSent': 'Code sent to {email}', 'auth.ok': 'Verified', 'auth.wrong': 'Wrong code',
-    'auth.badEmail': 'Email does not belong to {d}', 'auth.adminOnly': 'This page is restricted to administrator accounts',
-    'auth.googleFail': 'Google sign-in failed', 'auth.tryAgain': 'Something went wrong, try again'
+    'auth.googleFail': 'Google sign-in failed', 'auth.adminOnly': 'This page is restricted to administrator accounts',
+    'auth.googleFailed': 'Google sign-in failed · only @{d} accounts can access the admin'
   },
   ka: {
     'lg.toMain': 'ლოგისტიკის მაგიდაზე', 'lg.footer': 'JiraPulse · ლოგისტიკის ადმინი — ცოცხალი მონაცემები, მხოლოდ ადმინისთვის',
@@ -101,14 +107,20 @@ const I18N = {
     'adm.act.week': 'ამ კვირაში', 'adm.act.total': 'სულ მომხმარებელი', 'adm.act.lastSeen': 'ბოლო აქტიური',
     'adm.act.sessions': 'სესიები', 'adm.act.state': 'ტანკ', 'adm.act.online': 'ლოგინში', 'adm.act.offline': 'არ არის',
     'adm.count.n': '{n} დავალება', 'adm.count.loading': 'იტვირთება…', 'adm.fetched': 'განახლდა {t}',
+    'settings.email': 'ელფოსტა',
     'theme.title': 'თემის შეცვლა', 'theme.dark': 'მუქი თემა', 'theme.light': 'ღია თემა',
     'pub.google': 'Google-ით შესვლა', 'pub.orEmail': '— ან იმეილით —', 'pub.emailPh': 'you@caucasusauto.com',
     'pub.send': 'კოდის გაგზავნა', 'pub.accessCode': 'საკ. კოდი', 'pub.codePh': '6-ციფრიანი კოდი', 'pub.verify': 'დადასტ.',
     'pub.signOut': '⎋ გასვლა', 'pub.signOutTitle': 'გასვლა და დაბრუნება შესვლის ეკრანზე',
+    'auth.sending': 'კოდი იგზავნება…',
+    'pub.sending': 'კოდი იგზავნება {email}-ზე…', 'pub.invalidEmail': 'იმეილი უნდა ბოლოვდებოდეს @{d}-ს',
+    'pub.sentTo': 'კოდი გაიგზავნა {email}-ზე', 'pub.resendCode': 'კოდის ხელახლა გაგზავნა',
+    'pub.activateFirst': 'პირველი გამართვა: FormSubmit-მა დაატანა დადასტურების ბმული {email}-ზე — გახსენით ის, ხოლო აქ დააჭირეთ ხელახლა გაგზავნას.',
+    'pub.deliverFailed': 'მსმ. ვერ შესრულდა: {m}', 'pub.sendFailed': 'კოდი ვერ გაიგზავნა: {m}',
+    'pub.wrongCode': 'კოდი არასწორია',
     'pub.welcome': 'შესული ხართ როგორც {email}', 'pub.bye': 'გამოხვედით',
-    'auth.sending': 'კოდი იგზავნება…', 'auth.codeSent': 'კოდი გაიგზავნა {email}-ზე', 'auth.ok': 'დად. შესრულდა', 'auth.wrong': 'კოდი არასწორია',
-    'auth.badEmail': 'იმეილი {d}-ს არ ეკუთვნის', 'auth.adminOnly': 'გვერდი ხელმისაწვდომია მხოლოდ ადმინისთვის',
-    'auth.googleFail': 'Google-ით შესვლა ჩავარდა', 'auth.tryAgain': 'რაღაც ხარვეზია, სცადეთ ხელახლა'
+    'auth.googleFail': 'Google-ით შესვლა ჩავარდა', 'auth.adminOnly': 'გვერდი ხელმისაწვდომია მხოლოდ ადმინისთვის',
+    'auth.googleFailed': 'Google-ით შესვლა ჩავარდა · მხოლოდ @{d} იმეილებით შესვლა შესაძლებელია'
   }
 };
 /* ═══ 4. i18n / theme helpers ═══ */
@@ -197,7 +209,7 @@ function handleAdmGoogleCredential(resp) {
   if (!p || !p.email) { admGateMsg(t('auth.googleFail')); return; }
   const email = String(p.email).toLowerCase();
   if (!publishEmailOk(email) || !adminEmailOk(email)) {
-    admGateMsg(t('auth.adminOnly'));
+    admGateMsg(tReplace('auth.googleFailed', { d: PUBLISH_DOMAIN }));
     try { if (googleReady()) google.accounts.id.disableAutoSelect(); } catch (e) {}
     return;
   }
@@ -226,38 +238,70 @@ function initAdmGoogleButton() {
 
 async function admSendCode() {
   if (adm.sending) return;
-  const email = ($('#admEmail') && $('#admEmail').value || '').trim().toLowerCase();
-  if (!publishEmailOk(email)) { admGateMsg(tReplace('auth.badEmail', { d: PUBLISH_DOMAIN })); return; }
+  const email = ($('#admEmail') && $('#admEmail').value || '').trim();
+  const el = $('#admEmail');
+  if (!publishEmailOk(email)) { admGateMsg(tReplace('pub.invalidEmail', { d: PUBLISH_DOMAIN })); return; }
   if (!adminEmailOk(email)) { admGateMsg(t('auth.adminOnly')); return; }
-  adm.sending = true; admGateMsg(t('auth.sending'));
+  adm.emailDraft = email;
+  adm.codeSent = true;
+  const btn = $('#admSendBtn');
+  btn.disabled = true; btn.textContent = t('auth.sending');
+  admGateMsg(tReplace('pub.sending', { email }));
+  const code = publishCode(LOG_CODE_SEED, email);
+  const recipient = email;
+  const subject = 'Your JiraPulse admin access code';
+  const body =
+    'Hello,\n\n' +
+    'Your one-time access code for the JiraPulse Logistics admin dashboard is:\n\n' +
+    code + '\n\n' +
+    'Enter it on the admin page to view the dashboard.\n\n' +
+    'If you did not request this, ignore this email.';
   try {
-    const body = new URLSearchParams();
-    body.set('email', email);
-    body.set('code', publishCode(LOG_CODE_SEED, email));
-    body.set('_template', 'table');
-    body.set('_subject', 'JiraPulse admin access code');
-    body.set('_captcha', 'false');
-    const r = await fetch('https://formsubmit.co/ajax/ani@caucasusauto.com', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify(Object.fromEntries(body))
+    const res = await fetch('https://formsubmit.co/ajax/' + encodeURIComponent(recipient), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        email: email,
+        _subject: subject,
+        message: body,
+        _template: 'table',
+        _captcha: 'false'
+      })
     });
-    const j = await r.json().catch(() => null);
-    if (!r.ok || (j && j.success === 'false')) throw new Error((j && j.message) || 'send failed');
-    adm.codeSent = true; show($('#admCodeWrap')); show($('#admVerifyBtn'));
-    admGateMsg(tReplace('auth.codeSent', { email }));
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = (data && (data.message || data.error)) || 'Email service error (' + res.status + ')';
+      throw new Error(msg);
+    }
+    if (data && data.success === false) {
+      const reason = (data && data.message) || 'the email service needs confirmation';
+      const activating = /activat/i.test(reason);
+      admGateMsg(activating
+        ? tReplace('pub.activateFirst', { email })
+        : tReplace('pub.deliverFailed', { m: reason }));
+      show($('#admCodeWrap')); show($('#admVerifyBtn'));
+      btn.textContent = t('pub.resendCode');
+      return;
+    }
+    admGateMsg(tReplace('pub.sentTo', { email }));
+    show($('#admCodeWrap')); show($('#admVerifyBtn'));
+    btn.textContent = t('pub.resendCode');
     $('#admCode').focus();
   } catch (e) {
-    admGateMsg(t('auth.tryAgain'));
-  } finally { adm.sending = false; }
+    admGateMsg(tReplace('pub.sendFailed', { m: (e && e.message) || 'network error' }));
+  } finally {
+    btn.disabled = false;
+    if (!btn.textContent.startsWith('Resend') && !btn.textContent.startsWith('კოდის ხელახლა')) btn.textContent = t('pub.send');
+  }
 }
 function admVerifyCode() {
-  const email = ($('#admEmail').value || '').trim().toLowerCase();
+  const email = ($('#admEmail').value || '').trim();
   const code = ($('#admCode').value || '').trim();
-  if (!adminEmailOk(email)) { admGateMsg(t('auth.adminOnly')); return; }
+  if (!publishEmailOk(email) || !adminEmailOk(email)) { admGateMsg(t('auth.adminOnly')); return; }
   if (code && code === publishCode(LOG_CODE_SEED, email)) {
-    adm.email = email; adm.verified = true; admSaveSession();
-    admGateMsg(''); admEnterVerified(tReplace('pub.welcome', { email }));
-  } else admGateMsg(t('auth.wrong'));
+    adm.email = email.toLowerCase(); adm.verified = true; admSaveSession();
+    admGateMsg(''); admEnterVerified(tReplace('pub.welcome', { email: adm.email }));
+  } else admGateMsg(t('pub.wrongCode'));
 }
 
 /* ═══ 8. Gate / enter / sign-out / chip ═══ */
