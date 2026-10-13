@@ -61,10 +61,13 @@ const I18N = {
     'adm.kpi.total': 'Tasks · period', 'adm.kpi.today': 'Created today', 'adm.kpi.month': 'Created this month',
     'adm.kpi.resolved': 'Resolved · period', 'adm.kpi.open': 'Open (all time)', 'adm.kpi.resAll': 'Resolved (all time)',
     'adm.kpi.active': 'Active now', 'adm.kpi.logins': 'Logins today',
+    'adm.kpi.avgRes': 'Avg resolution time', 'adm.kpi.inwork': 'In progress now',
     'adm.ch.daily': 'New vs resolved · last 30 days', 'adm.ch.monthlyNew': 'New tasks per month · {n}',
     'adm.ch.monthlyDone': 'Resolved per month · {n}', 'adm.ch.donut': 'Open vs resolved · all time',
+    'adm.ch.status': 'Open work by status',
     'adm.ch.assignees': 'Top assignees · open tasks', 'adm.ch.reporters': 'Top reporters · all created',
     'adm.ch.direction': 'Tasks per direction · all time', 'adm.ch.dirDone': 'Resolved per direction · all time',
+    'adm.ch.legResolved': 'Resolved', 'adm.ch.legOpen': 'Open / pending',
     'adm.lb.users': 'Top users · created / resolved (period)', 'adm.lb.dirs': 'Departments (directions) · all time',
     'adm.lb.user': 'User', 'adm.lb.created': 'Created', 'adm.lb.resolved': 'Resolved', 'adm.lb.open': 'Open',
     'adm.lb.direction': 'Direction', 'adm.lb.total': 'Total', 'adm.lb.nodata': 'No data for this period',
@@ -100,10 +103,13 @@ const I18N = {
     'adm.kpi.total': 'დავალებები · პერიოდში', 'adm.kpi.today': 'დღეს შექმნილი', 'adm.kpi.month': 'ამ თვეს შექმნილი',
     'adm.kpi.resolved': 'გადაწყვეტილი · პერიოდში', 'adm.kpi.open': 'ღია (მთელი ისტორია)', 'adm.kpi.resAll': 'გადაწყვეტილი (მთელი ისტორია)',
     'adm.kpi.active': 'ახლა აქტიური', 'adm.kpi.logins': 'ლოგინები დღეს',
+    'adm.kpi.avgRes': 'საშ. გადაწყვეტის დრო', 'adm.kpi.inwork': 'მიმდ. პროცესში',
     'adm.ch.daily': 'ახალი vs გადაწყვეტილი · 30 დღე', 'adm.ch.monthlyNew': 'ახალი დავალებები თვეებში · {n}',
     'adm.ch.monthlyDone': 'გადაწყვეტილი თვეებში · {n}', 'adm.ch.donut': 'ღია vs გადაწყვეტილი · მთელი ისტორია',
+    'adm.ch.status': 'ღია სამუშაო სტატუსების მიხედვით',
     'adm.ch.assignees': 'საუკ. შემსრულებლები · ღია', 'adm.ch.reporters': 'საუკ. ავტორები · ყველა',
     'adm.ch.direction': 'დავალებები განზის მიხედვით', 'adm.ch.dirDone': 'გადაწყვეტილი განზის მიხედვით',
+    'adm.ch.legResolved': 'გადაწყვეტილი', 'adm.ch.legOpen': 'ღია / მოლოდინში',
     'adm.lb.users': 'საუკ. მომხმარებლები · შექმნა/გად.(პერიოდი)', 'adm.lb.dirs': 'განზები · მთელი ისტორია',
     'adm.lb.user': 'მომხმარებელი', 'adm.lb.created': 'შექმნილი', 'adm.lb.resolved': 'გადაწყვეტილი', 'adm.lb.open': 'ღია',
     'adm.lb.direction': 'განზი', 'adm.lb.total': 'სულ', 'adm.lb.nodata': 'ამ პერიოდის მონაცემები არ არის',
@@ -516,11 +522,34 @@ function admNormalize(data) {
       labels,
       createdMs: Date.parse(f.created) || 0,
       updatedMs: Date.parse(f.updated) || 0,
-      resolvedAt: resolved ? (Date.parse(f.updated) || Date.parse(f.created) || 0) : 0,
-      direction: dirId ? lgAdfText(f[dirId]) : (lgAdfText(f.direction) || '')
+      resolvedAt: resolved ? (Date.parse(f.resolutiondate) || Date.parse(f.updated) || Date.parse(f.created) || 0) : 0,
+      direction: admShortDir(dirId ? lgAdfText(f[dirId]) : '')
     });
   }
   return rows;
+}
+/* Direction values are long bilingual strings like
+   "Photos and Claims (ფოტოები და პრეტენზიები) / Additional Photos — დამატებითი საწყობის სურათების გადაღება".
+   For charts/tables keep only the readable English segment before " — "
+   (e.g. "Photos and Claims / Additional Photos") and cap its length. */
+function admShortDir(v) {
+  let s = String(v || '').trim();
+  if (!s) return '';
+  const dash = s.indexOf(' — ');
+  if (dash > 0) s = s.slice(0, dash);
+  // values look like "English (Georgian) / English - Georgian — Georgian description";
+  // keep only the English part of each "/" segment and rejoin
+  const hasGeo = (str) => { for (const ch of str) { if (ch >= 'ა' && ch <= 'ჰ') return true; } return false; };
+  s = s.split('/')
+    .map(seg => {
+      let q = seg.replace(/\s*\([^)]*\)/g, '');
+      const segs = q.split(/\s+-\s+/);
+      const keep = segs.filter(sg => !hasGeo(sg));
+      return (keep.length ? keep : segs.slice(0, 1)).join(' - ').trim();
+    })
+    .filter(Boolean).join(' / ');
+  s = s.replace(/\s{2,}/g, ' ').trim();
+  return s.length > 48 ? s.slice(0, 47).replace(/\s+\S*$/, '') + '…' : s;
 }
 
 /* ═══ 15. Aggregation (metrics) ═══ */
@@ -536,7 +565,9 @@ function admAggregate(rows, range) {
     open: 0, resolvedAll: 0,
     perDay30: [], perMonth: [],
     perUser: new Map(), perDir: new Map(),
-    donut: { open: 0, resolved: 0 }
+    donut: { open: 0, resolved: 0 },
+    perStatus: new Map(),
+    resDaysSum: 0, resDaysN: 0
   };
   // last 30 days buckets
   const dayMap = new Map();
@@ -573,6 +604,15 @@ function admAggregate(rows, range) {
       const rm = ymOf(r.resolvedAt);
       if (monMap.has(rm)) monMap.get(rm).resolved++;
     }
+    // status breakdown (all open work by status name)
+    const stn = r.status || '—';
+    if (!aggr.perStatus.has(stn)) aggr.perStatus.set(stn, 0);
+    aggr.perStatus.set(stn, aggr.perStatus.get(stn) + 1);
+    // avg resolution time (days) — real resolutiondate when relay provides it
+    if (r.resolved && r.resolvedAt && r.createdMs && r.resolvedAt > r.createdMs) {
+      aggr.resDaysSum += (r.resolvedAt - r.createdMs) / 864e5;
+      aggr.resDaysN++;
+    }
     // users
     const u = r.assignName || r.reportName || '—';
     if (!aggr.perUser.has(u)) aggr.perUser.set(u, { created: 0, resolved: 0, open: 0 });
@@ -591,6 +631,7 @@ function admAggregate(rows, range) {
   aggr.donut.open = aggr.open; aggr.donut.resolved = aggr.resolvedAll;
   // period total = rows created within selected period
   aggr.totalPeriod = rows.filter(r => r.createdMs >= from && r.createdMs <= to).length;
+  aggr.avgResDays = aggr.resDaysN ? (aggr.resDaysSum / aggr.resDaysN) : null;
   aggr.perDay30 = Array.from(dayMap, ([k, v]) => ({ day: k, ...v }));
   aggr.perMonth = Array.from(monMap, ([k, v]) => ({ ym: k, ...v }));
   return aggr;
@@ -627,11 +668,18 @@ function admGrid(g, c, w, h, pad, maxV, ticks) {
     g.fillText(String(Math.round(maxV * i / ticks)), pad.l - 6, y + 3);
   }
 }
+function admNoData(g, w, h, c) {
+  g.fillStyle = c.text; g.globalAlpha = 0.6; g.textAlign = 'center';
+  g.font = '12px Inter, sans-serif';
+  g.fillText(t('adm.lb.nodata'), w / 2, h / 2);
+  g.globalAlpha = 1;
+}
 function admChartBar(id, labels, series) {
   const cv = document.getElementById(id); if (!cv) return;
   const { g, w, h, c } = admChartSetup(cv);
   const pad = { l: 34, r: 10, t: 10, b: 26 };
   g.clearRect(0, 0, w, h);
+  if (!labels.length || !series.some(s => s.data.some(v => v > 0))) { admNoData(g, w, h, c); return; }
   const maxV = Math.max(1, ...series.flatMap(s => s.data));
   admGrid(g, c, w, h, pad, maxV, 4);
   const n = labels.length, nS = series.length;
@@ -659,6 +707,7 @@ function admChartLine(id, labels, series) {
   const { g, w, h, c } = admChartSetup(cv);
   const pad = { l: 34, r: 10, t: 10, b: 26 };
   g.clearRect(0, 0, w, h);
+  if (!labels.length || !series.some(s => s.data.some(v => v > 0))) { admNoData(g, w, h, c); return; }
   const maxV = Math.max(1, ...series.flatMap(s => s.data));
   admGrid(g, c, w, h, pad, maxV, 4);
   const n = labels.length;
@@ -710,6 +759,7 @@ function admChartHbar(id, items, color) {
   const cv = document.getElementById(id); if (!cv) return;
   const { g, w, h, c } = admChartSetup(cv);
   g.clearRect(0, 0, w, h);
+  if (!items.length) { admNoData(g, w, h, c); return; }
   const maxV = Math.max(1, ...items.map(i => i.value));
   const rowH = Math.min(28, (h - 8) / Math.max(items.length, 1));
   const labelW = Math.min(120, w * 0.28);
@@ -732,6 +782,7 @@ function admChartStacked(id, items, colors) {
   const cv = document.getElementById(id); if (!cv) return;
   const { g, w, h, c } = admChartSetup(cv);
   g.clearRect(0, 0, w, h);
+  if (!items.length) { admNoData(g, w, h, c); return; }
   const maxV = Math.max(1, ...items.map(i => i.parts.reduce((a, b) => a + b, 0)));
   const rowH = Math.min(30, (h - 8) / Math.max(items.length, 1));
   const labelW = Math.min(120, w * 0.26);
@@ -753,6 +804,17 @@ function admChartStacked(id, items, colors) {
     g.fillStyle = c.text; g.textAlign = 'left';
     g.fillText(String(tot), x + 4, y + rowH / 2 + 3);
   });
+  // legend under the rows
+  const legendLabels = ['adm.ch.legResolved', 'adm.ch.legOpen'];
+  g.font = '10px Inter, sans-serif';
+  let lx = 8; const ly = h - 4;
+  legendLabels.forEach((k, i) => {
+    g.fillStyle = colors[i] || c.blue; g.fillRect(lx, ly - 8, 8, 8);
+    g.fillStyle = c.text; g.textAlign = 'left';
+    const lb = t(k);
+    g.fillText(lb, lx + 12, ly - 1);
+    lx += 24 + g.measureText(lb).width + 10;
+  });
 }
 function redrawCharts() { if (adm.lastAggr) renderCharts(adm.lastAggr); }
 window.addEventListener('resize', () => { clearTimeout(window._admRs); window._admRs = setTimeout(redrawCharts, 250); });
@@ -770,7 +832,9 @@ function renderKpis(a) {
     admKpiCard('🗓', t('adm.kpi.month'), a.createdMonth, 'accent-cyan') +
     admKpiCard('✅', t('adm.kpi.resolved'), a.resolvedPeriod, 'accent-green') +
     admKpiCard('📂', t('adm.kpi.open'), a.open, 'accent-amber') +
-    admKpiCard('🏁', t('adm.kpi.resAll'), a.resolvedAll, 'accent-violet');
+    admKpiCard('🏁', t('adm.kpi.resAll'), a.resolvedAll, 'accent-violet') +
+    admKpiCard('⏱', t('adm.kpi.avgRes'), a.avgResDays != null ? (a.avgResDays < 1 ? Math.round(a.avgResDays * 24) + 'h' : (Math.round(a.avgResDays * 10) / 10) + 'd') : '–', 'accent-cyan') +
+    admKpiCard('🚦', t('adm.kpi.inwork'), a.perStatus.get('In Progress') || 0, 'accent-blue');
 }
 function monthLabel(ym) {
   const mi = parseInt(String(ym).slice(5, 7), 10) - 1;
@@ -823,6 +887,12 @@ function renderCharts(a) {
     .sort((x, y) => y.total - x.total).slice(0, 10);
   admChartStacked('chDirection', dirs.map(d => ({ label: d.n, parts: [d.resolved, d.open] })), [cc.green, cc.amber]);
   admChartStacked('chDirDone', dirs.map(d => ({ label: d.n, parts: [d.resolved, d.total - d.resolved] })), [cc.green, cc.cyan]);
+  // status breakdown of open work (hbar) — real service-desk workload view
+  const stItems = Array.from(a.perStatus.entries())
+    .filter(([st]) => lgStatusClass(st) !== 'lg-st-done')
+    .map(([st, n]) => ({ label: st, value: n }))
+    .sort((x, y) => y.value - x.value);
+  admChartHbar('chStatus', stItems, cc.cyan);
 }
 
 /* ═══ 18. Leaderboards ═══ */

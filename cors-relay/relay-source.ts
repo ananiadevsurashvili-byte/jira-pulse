@@ -47,13 +47,13 @@ const CREDS_KEY = "jirapulse_creds_v1";
 
 /* ── Logistics viewer page (?cmd=desk) ── */
 const DESK_EXCLUDE_LABEL = "Internal";
-const DESK_FIELDS_BASE = "summary,description,status,resolution,created,updated,assignee,reporter,labels,attachment,comment";
+const DESK_FIELDS_BASE = "summary,description,status,resolution,resolutiondate,created,updated,assignee,reporter,labels,attachment,comment";
 
 /* desk response blob-cache: one full LOG sync costs ~40 sequential Jira
    pages; caching the finished result (even very briefly) makes page
    revisits and multi-viewer bursts near-instant. Freshness remains
    viewer-controlled: ?fresh=1 bypasses and re-syncs. */
-const DESK_CACHE_KEY = "jirapulse_desk_cache_v1";
+const DESK_CACHE_KEY = "jirapulse_desk_cache_v2";
 const DESK_CACHE_TTL = 60 * 1000;
 
 /* ADF (Atlassian Document Format) body → plain text, one line per block */
