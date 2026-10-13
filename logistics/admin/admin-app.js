@@ -62,6 +62,7 @@ const I18N = {
     'adm.kpi.resolved': 'Resolved · period', 'adm.kpi.open': 'Open (all time)', 'adm.kpi.resAll': 'Resolved (all time)',
     'adm.kpi.active': 'Active now', 'adm.kpi.logins': 'Logins today',
     'adm.kpi.avgRes': 'Avg resolution time', 'adm.kpi.inwork': 'In progress now',
+    'adm.kpi.avgResNote': 'Based on tasks that carry a Jira resolution date. Most tasks here were closed without one, so the figure covers the sampled subset only.',
     'adm.ch.daily': 'New vs resolved · last 30 days', 'adm.ch.monthlyNew': 'New tasks per month · {n}',
     'adm.ch.monthlyDone': 'Resolved per month · {n}', 'adm.ch.donut': 'Open vs resolved · all time',
     'adm.ch.status': 'Open work by status',
@@ -104,6 +105,7 @@ const I18N = {
     'adm.kpi.resolved': 'გადაწყვეტილი · პერიოდში', 'adm.kpi.open': 'ღია (მთელი ისტორია)', 'adm.kpi.resAll': 'გადაწყვეტილი (მთელი ისტორია)',
     'adm.kpi.active': 'ახლა აქტიური', 'adm.kpi.logins': 'ლოგინები დღეს',
     'adm.kpi.avgRes': 'საშ. გადაწყვეტის დრო', 'adm.kpi.inwork': 'მიმდ. პროცესში',
+    'adm.kpi.avgResNote': 'ეყრდნობა დავალებებს, რომლებსაც Jira-ში აქვს გადაწყვეტის თარიღი. დავალებების უმეტესობა დაიხურა მის გარეშე, ამიტომ მაჩვენებელი მხოლოდ შერჩეულ ნაწილს ასახავს.',
     'adm.ch.daily': 'ახალი vs გადაწყვეტილი · 30 დღე', 'adm.ch.monthlyNew': 'ახალი დავალებები თვეებში · {n}',
     'adm.ch.monthlyDone': 'გადაწყვეტილი თვეებში · {n}', 'adm.ch.donut': 'ღია vs გადაწყვეტილი · მთელი ისტორია',
     'adm.ch.status': 'ღია სამუშაო სტატუსების მიხედვით',
@@ -509,6 +511,7 @@ function admNormalize(data) {
     if (labels.some(l => String(l).toLowerCase() === DESK_EXCLUDE_LABEL)) continue;
     const statusName = (f.status && f.status.name) || '';
     const resolved = admIsResolved(f);
+    const realRdMs = Date.parse(f.resolutiondate) || 0;
     rows.push({
       key: it.key || '',
       href: JIRA_BASE + (it.key || ''),
@@ -522,7 +525,8 @@ function admNormalize(data) {
       labels,
       createdMs: Date.parse(f.created) || 0,
       updatedMs: Date.parse(f.updated) || 0,
-      resolvedAt: resolved ? (Date.parse(f.resolutiondate) || Date.parse(f.updated) || Date.parse(f.created) || 0) : 0,
+      resolvedAt: resolved ? (realRdMs || Date.parse(f.updated) || Date.parse(f.created) || 0) : 0,
+      rdReal: realRdMs > 0,
       direction: admShortDir(dirId ? lgAdfText(f[dirId]) : '')
     });
   }
@@ -567,7 +571,8 @@ function admAggregate(rows, range) {
     perUser: new Map(), perDir: new Map(),
     donut: { open: 0, resolved: 0 },
     perStatus: new Map(),
-    resDaysSum: 0, resDaysN: 0
+    resDaysSum: 0, resDaysN: 0,
+    resRealN: 0, resApproxN: 0
   };
   // last 30 days buckets
   const dayMap = new Map();
@@ -584,7 +589,8 @@ function admAggregate(rows, range) {
   }
   for (const r of rows) {
     aggr.total++;
-    if (r.resolved) aggr.resolvedAll++; else aggr.open++;
+    if (r.resolved) { aggr.resolvedAll++; if (r.rdReal) aggr.resRealN++; else aggr.resApproxN++; }
+    else aggr.open++;
     if (r.createdMs >= todayStart) aggr.createdToday++;
     if (r.createdMs >= mStart) aggr.createdMonth++;
     const inPeriod = r.createdMs >= from && r.createdMs <= to;
@@ -608,8 +614,10 @@ function admAggregate(rows, range) {
     const stn = r.status || '—';
     if (!aggr.perStatus.has(stn)) aggr.perStatus.set(stn, 0);
     aggr.perStatus.set(stn, aggr.perStatus.get(stn) + 1);
-    // avg resolution time (days) — real resolutiondate when relay provides it
-    if (r.resolved && r.resolvedAt && r.createdMs && r.resolvedAt > r.createdMs) {
+    // avg resolution time (days) — only rows with a Jira-issued resolutiondate;
+    // no updated-fallback here: `updated` drifts on edits/comments and is not
+    // the resolve moment (probe: 2193/2217 resolved LOG issues lack rd)
+    if (r.resolved && r.rdReal && r.createdMs && r.resolvedAt > r.createdMs) {
       aggr.resDaysSum += (r.resolvedAt - r.createdMs) / 864e5;
       aggr.resDaysN++;
     }
@@ -833,7 +841,8 @@ function renderKpis(a) {
     admKpiCard('✅', t('adm.kpi.resolved'), a.resolvedPeriod, 'accent-green') +
     admKpiCard('📂', t('adm.kpi.open'), a.open, 'accent-amber') +
     admKpiCard('🏁', t('adm.kpi.resAll'), a.resolvedAll, 'accent-violet') +
-    admKpiCard('⏱', t('adm.kpi.avgRes'), a.avgResDays != null ? (a.avgResDays < 1 ? Math.round(a.avgResDays * 24) + 'h' : (Math.round(a.avgResDays * 10) / 10) + 'd') : '–', 'accent-cyan') +
+    admKpiCard('⏱', a.resApproxN > 0 ? t('adm.kpi.avgRes') + ' <span class="kpi-sub" title="' + t('adm.kpi.avgResNote') + '">· ' + a.resRealN + '/' + (a.resRealN + a.resApproxN) + '</span>' : t('adm.kpi.avgRes'),
+      a.avgResDays != null ? (a.avgResDays < 1 ? Math.round(a.avgResDays * 24) + 'h' : (Math.round(a.avgResDays * 10) / 10) + 'd') : '–', 'accent-cyan') +
     admKpiCard('🚦', t('adm.kpi.inwork'), a.perStatus.get('In Progress') || 0, 'accent-blue');
 }
 function monthLabel(ym) {

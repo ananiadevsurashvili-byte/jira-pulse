@@ -1054,3 +1054,5 @@ body.light .lg-st-badge.lg-st-other { color: #55607f; background: #eef1f8; borde
   gap: 12px;
 }
 .adm-act-tile .kpi-value { font-size: 1.55rem; }
+/* kpi label subscript — data-coverage note (e.g. "· 24/2217" on avg resolution) */
+.kpi-sub { font-size: 0.68rem; font-weight: 600; opacity: 0.65; letter-spacing: 0; }
