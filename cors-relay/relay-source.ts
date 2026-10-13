@@ -602,6 +602,7 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
         summary: String(f.summary || ''),
         status: { name: String(f.status?.name || '') },
         resolution: f.resolution ? { name: String(f.resolution.name || '') } : null,
+        resolutiondate: f.resolutiondate ? String(f.resolutiondate) : null,
         created: String(f.created || ''),
         updated: String(f.updated || ''),
         assignee: f.assignee ? { displayName: String(f.assignee.displayName || '') } : null,
