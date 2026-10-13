@@ -19,6 +19,7 @@ const ADMIN_EMAILS = [
 const LS_THEME = 'jp_theme', LS_LANG = 'jp_lang', LS_CONN = 'jp_conn_v1';
 const LS_ADM_SESSION = 'jp_adm_session_v1';
 const LS_ADM_PERIOD = 'jp_adm_period_v1';
+const LS_ADM_CHPERIOD = 'jp_adm_chperiod_v1';
 const LS_ADM_FIELDIDS = 'jp_lg_fieldids_v1';
 const ADM_LIVE_TTL = 30 * 1000;
 
@@ -29,6 +30,8 @@ const adm = {
   period: { kind: '30d', fromMs: null, toMs: null },
   lastAggr: null, lastStats: null,
   lbSearch: { user: '', dir: '', login: '' },
+  /* per-chart period overrides: chId → 'master' | '30d' | 'month' | … ('master' = follow the master period) */
+  chPeriod: {},
   lbSort: { user: { col: 'resolved', dir: 'desc' }, dir: { col: 'total', dir: 'desc' }, login: { col: 'lastTs', dir: 'desc' } },
   charts: {}, loading: false, lang: 'en'
 };
@@ -73,14 +76,17 @@ const I18N = {
     'adm.ch.reporters': 'Top reporters · created, by period',
     'adm.ch.direction': 'Tasks per direction · selected period',
     'adm.ch.dirDone': 'Resolved per direction · selected period',
-    'adm.ch.legResolved': 'Resolved', 'adm.ch.legOpen': 'Open / pending',
+    'adm.ch.legResolved': 'Resolved', 'adm.ch.legOpen': 'Open / pending', 'adm.ch.legCreated': 'Created',
     'adm.lb.users': 'Users · created / resolved (period)', 'adm.lb.dirs': 'Departments (directions) · period',
     'adm.lb.user': 'User', 'adm.lb.created': 'Created', 'adm.lb.resolved': 'Resolved', 'adm.lb.open': 'Open',
     'adm.lb.direction': 'Direction', 'adm.lb.total': 'Total', 'adm.lb.nodata': 'No data for this period',
     'adm.lb.search': 'Search…', 'adm.act.lastTs': 'Last seen',
-    'adm.activity': 'Platform logins', 'adm.act.now': 'Active now', 'adm.act.today': 'Today',
+    'adm.activity': 'Platform usage & logins', 'adm.act.now': 'Active now', 'adm.act.today': 'Visitors today',
     'adm.act.week': 'This week', 'adm.act.total': 'Total users', 'adm.act.lastSeen': 'Last seen',
     'adm.act.sessions': 'Sessions', 'adm.act.state': 'State', 'adm.act.online': 'Online', 'adm.act.offline': 'Offline',
+    'adm.act.desk': 'Logistics desk', 'adm.act.admin': 'Admin panel', 'adm.act.first': 'First visit',
+    'adm.act.surface': 'Surface', 'adm.act.union': 'Overall', 'adm.act.dwell': 'Usage',
+    'adm.ch.period': 'Period', 'adm.ch.periodMaster': 'Master period',
     'adm.count.n': '{n} task(s)', 'adm.count.loading': 'Loading…', 'adm.fetched': 'Updated {t}',
     'settings.email': 'Email',
     'theme.title': 'Switch color theme', 'theme.dark': 'Dark theme', 'theme.light': 'Light theme',
@@ -121,14 +127,17 @@ const I18N = {
     'adm.ch.reporters': 'საუკ. ავტორები · შექმნილი, პერიოდში',
     'adm.ch.direction': 'დავალებები განზის მიხედვით · პერიოდი',
     'adm.ch.dirDone': 'გადაწყვეტილი განზის მიხედვით · პერიოდი',
-    'adm.ch.legResolved': 'გადაწყვეტილი', 'adm.ch.legOpen': 'ღია / მოლოდინში',
+    'adm.ch.legResolved': 'გადაწყვეტილი', 'adm.ch.legOpen': 'ღია / მოლოდინში', 'adm.ch.legCreated': 'შექმნილი',
     'adm.lb.users': 'მომხმარებლები · შექმნა/გად. (პერიოდი)', 'adm.lb.dirs': 'განზები · პერიოდი',
     'adm.lb.user': 'მომხმარებელი', 'adm.lb.created': 'შექმნილი', 'adm.lb.resolved': 'გადაწყვეტილი', 'adm.lb.open': 'ღია',
     'adm.lb.direction': 'განზი', 'adm.lb.total': 'სულ', 'adm.lb.nodata': 'ამ პერიოდის მონაცემები არ არის',
     'adm.lb.search': 'ძებნა…', 'adm.act.lastTs': 'ბოლო აქტიური',
-    'adm.activity': 'პლატფორმის ლოგინები', 'adm.act.now': 'ახლა აქტიური', 'adm.act.today': 'დღეს',
+    'adm.activity': 'პლატფორმის გამოყენება და ლოგინები', 'adm.act.now': 'ახლა აქტიური', 'adm.act.today': 'დღეს ვიზიტორი',
     'adm.act.week': 'ამ კვირაში', 'adm.act.total': 'სულ მომხმარებელი', 'adm.act.lastSeen': 'ბოლო აქტიური',
-    'adm.act.sessions': 'სესიები', 'adm.act.state': 'ტანკ', 'adm.act.online': 'ლოგინში', 'adm.act.offline': 'არ არის',
+    'adm.act.sessions': 'სესიები', 'adm.act.state': 'სტატუსი', 'adm.act.online': 'ლოგინში', 'adm.act.offline': 'არ არის',
+    'adm.act.desk': 'ლოგისტიკის მაგიდა', 'adm.act.admin': 'ადმინ პანელი', 'adm.act.first': 'პირველი ვიზიტი',
+    'adm.act.surface': 'ზედაპირი', 'adm.act.union': 'საერთო', 'adm.act.dwell': 'გამოყენება',
+    'adm.ch.period': 'პერიოდი', 'adm.ch.periodMaster': 'ძირითადი პერიოდი',
     'adm.count.n': '{n} დავალება', 'adm.count.loading': 'იტვირთება…', 'adm.fetched': 'განახლდა {t}',
     'settings.email': 'ელფოსტა',
     'theme.title': 'თემის შეცვლა', 'theme.dark': 'მუქი თემა', 'theme.light': 'ღია თემა',
@@ -336,7 +345,7 @@ function admEnterVerified(msg) {
   hide($('#admGate')); show($('#admContent'));
   updateAdmUserChip();
   if (msg) toast(msg);
-  admRestorePeriod(); admRenderPeriodSelect(); admRenderCustomWrap();
+  admRestorePeriod(); admChRestorePeriods(); admRenderPeriodSelect(); admRenderCustomWrap();
   admLoadData();
 }
 function admSignOut() {
@@ -366,7 +375,7 @@ async function lgSendAdmPing(email) {
   try {
     await fetch(PUB_RELAY + '?cmd=lgPing', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ email, surface: 'admin' })
     });
   } catch (e) {}
 }
@@ -443,6 +452,41 @@ function admRestorePeriod() {
   } catch (e) {}
 }
 function admPeriodRange() { return lgPeriodRange(adm.period.kind, adm.period.fromMs, adm.period.toMs); }
+
+/* ── per-chart period overrides ──
+   Each of the 9 chart cards has its own select (default = the master period).
+   A chart that was changed individually gets its own range; the rest follow
+   the master period. Persists to localStorage so it survives reloads. */
+function admChSavePeriods() {
+  try { localStorage.setItem(LS_ADM_CHPERIOD, JSON.stringify(adm.chPeriod)); } catch (e) {}
+}
+function admChRestorePeriods() {
+  try { const p = JSON.parse(localStorage.getItem(LS_ADM_CHPERIOD) || 'null'); if (p && typeof p === 'object') adm.chPeriod = p; } catch (e) {}
+}
+function admChRenderSelects() {
+  document.querySelectorAll('select[data-ch-period]').forEach(sel => {
+    const ch = sel.dataset.chPeriod;
+    const cur = adm.chPeriod[ch] || 'master';
+    if (!sel.dataset.built) {
+      const opts = [['master', 'adm.ch.periodMaster'], ['30d', 'adm.p.30d'], ['month', 'adm.p.month'],
+        ['quarter', 'adm.p.quarter'], ['year', 'adm.p.year'], ['all', 'adm.p.all']];
+      sel.innerHTML = opts.map(([v, k]) => `<option value="${v}">${escapeHtml(t(k))}</option>`).join('');
+      sel.dataset.built = '1';
+      sel.addEventListener('change', () => {
+        adm.chPeriod[ch] = sel.value;
+        admChSavePeriods();
+        redrawCharts();
+      });
+    }
+    sel.value = cur;
+  });
+}
+/* aggregate for a specific chart card: its own override range, else the master aggregate */
+function admChAggregateFor(chId, masterAggr, masterRange) {
+  const kind = adm.chPeriod[chId] || 'master';
+  if (kind === 'master') return masterAggr;
+  return admAggregate(adm.rows, lgPeriodRange(kind, null, null));
+}
 
 /* ═══ 12. Status classification ═══ */
 const LG_ST_RE_DONE = /done|closed|resolved|complete|cancel|დასრულ|გადაწყ|cancel/i;
@@ -850,6 +894,52 @@ function admChartStacked(id, items, colors) {
 }
 function redrawCharts() { if (adm.lastAggr) renderCharts(adm.lastAggr); }
 window.addEventListener('resize', () => { clearTimeout(window._admRs); window._admRs = setTimeout(redrawCharts, 250); });
+
+/* ── chart hover tooltips (like Jira Pulse) ──
+   Each painter calls admTipBind(canvasId, hitTestFn). On mousemove it
+   re-runs the hit-test and positions an absolutely-positioned <div> over
+   the canvas' .adm-chart-card wrapper. hitTestFn(mouseX, mouseY) returns
+   { title, rows: [{ color, label, value }] } or null to hide the tip. */
+function admTipHost(id) {
+  const cv = document.getElementById(id); if (!cv) return null;
+  let tip = cv._tipEl;
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.className = 'adm-tip';
+    cv.parentElement.appendChild(tip);   /* wrapper = .adm-chart-card */
+    cv._tipEl = tip;
+    cv.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  }
+  return { cv, tip };
+}
+function admTipShow(tip, cv, hit) {
+  if (!hit) { tip.style.display = 'none'; return; }
+  tip.innerHTML =
+    (hit.title ? `<div class="adm-tip-title">${escapeHtml(hit.title)}</div>` : '') +
+    hit.rows.map(r => `<div class="adm-tip-row"><span class="adm-tip-dot" style="background:${r.color}"></span>` +
+      `<span>${escapeHtml(r.label)}</span><b>${escapeHtml(String(r.value))}</b></div>`).join('');
+  tip.style.display = 'block';
+  /* position: above the cursor, keep inside the card */
+  const wrap = tip.offsetParent || cv.parentElement;
+  const x = Math.max(8, Math.min(cv._mx + 14, wrap.clientWidth - tip.offsetWidth - 8));
+  const y = Math.max(8, cv._my - tip.offsetHeight - 12);
+  tip.style.left = x + 'px';
+  tip.style.top = Math.max(8, y) + 'px';
+}
+function admTipBind(id, hitTest) {
+  const h = admTipHost(id); if (!h) return;
+  const { cv, tip } = h;
+  cv._tipFn = hitTest;   /* latest painter's hit-test wins */
+  if (!cv._tipBound) {
+    cv._tipBound = '1';
+    cv.addEventListener('mousemove', (ev) => {
+      const r = cv.getBoundingClientRect();
+      cv._mx = ev.clientX - r.left; cv._my = ev.clientY - r.top;
+      if (cv._tipFn) admTipShow(tip, cv, cv._tipFn(cv._mx, cv._my));
+    });
+  }
+}
+
 /* ═══ 17. Render: KPI, charts, leaderboards, login activity ═══ */
 function admKpiCard(icon, label, value, cls, sub) {
   return `<div class="kpi glass ${cls || ''}"><div class="kpi-top"><span class="kpi-icon">${icon}</span>` +
@@ -888,53 +978,178 @@ function monthLabel(ym) {
 }
 function dayLabel(ymd) { return ymd.slice(5).replace('-', '/'); }
 function renderCharts(a) {
+  admChRenderSelects();
   if (!a) return;
   adm.lastAggr = a;
-  /* per-bucket label: day "MM/DD", week-start "MM/DD" (strip W prefix),
-     month "MonYYYY" when the trend is bucketed by month (very long ranges) */
-  const trendLbl = a.useMonths
-    ? (k) => monthLabel(k.replace(/^M/, '') + '-01')
-    : (k) => dayLabel(k.replace(/^W/, ''));
-  // trend (created vs resolved): day/week/month buckets across the SELECTED period
-  const daily = a.perDay.map(x => trendLbl(x.day));
-  admChartLine('chDaily', daily, [
-    { color: admColors().blue, data: a.perDay.map(x => x.created) },
-    { color: admColors().green, data: a.perDay.map(x => x.resolved) }
-  ]);
-  // monthly: months spanned by the SELECTED period, grouped bars (new vs resolved per month)
-  const monLbl = a.perMonth.map(x => monthLabel(x.ym));
-  admChartBar('chMonthlyNew', monLbl, [
-    { color: admColors().cyan, data: a.perMonth.map(x => x.created) }
-  ]);
-  admChartBar('chMonthlyDone', monLbl, [
-    { color: admColors().green, data: a.perMonth.map(x => x.resolved) }
-  ]);
-  // donut — period-scoped
-  const cc = admColors();
-  admChartDonut('chDonut', [
-    { label: t('adm.lb.open'), value: a.donut.open, color: cc.amber },
-    { label: t('adm.lb.resolved'), value: a.donut.resolved, color: cc.green }
-  ]);
-  // assignees: top 8 by open (period-created)
-  const users = Array.from(a.perUser.entries()).map(([n, v]) => ({ n, ...v }));
-  const topOpen = users.filter(u => u.open > 0).sort((x, y) => y.open - x.open).slice(0, 8)
-    .map(u => ({ label: u.n, value: u.open }));
-  admChartHbar('chAssignees', topOpen, cc.amber);
-  // reporters: top 8 by created (period-scoped, from aggregate)
-  const topRep = Array.from(a.perReporter.entries(), ([label, value]) => ({ label, value }))
-    .sort((x, y) => y.value - x.value).slice(0, 8);
-  admChartHbar('chReporters', topRep, cc.violet);
-  // directions stacked (resolved + open) — period-scoped
-  const dirs = Array.from(a.perDir.entries()).map(([n, v]) => ({ n, ...v }))
-    .sort((x, y) => y.total - x.total).slice(0, 10);
-  admChartStacked('chDirection', dirs.map(d => ({ label: d.n, parts: [d.resolved, d.open] })), [cc.green, cc.amber]);
-  admChartStacked('chDirDone', dirs.map(d => ({ label: d.n, parts: [d.resolved, d.total - d.resolved] })), [cc.green, cc.cyan]);
-  // status breakdown (period-created work)
-  const stItems = Array.from(a.perStatus.entries())
-    .filter(([st]) => lgStatusClass(st) !== 'lg-st-done')
-    .map(([st, n]) => ({ label: st, value: n }))
-    .sort((x, y) => y.value - x.value);
-  admChartHbar('chStatus', stItems, cc.cyan);
+  /* per-chart paint: each card gets the aggregate for ITS period (master, or
+     its own override computed on the fly). C[ch] = painter(admA, colors). */
+  C.forEach((draw, ch) => draw(admChAggregateFor(ch, a), admColors()));
+}
+
+/* ── chart registry: chId → painter(admA) ── the per-chart period filter and
+   tooltip wiring use this list. Rebuilt in one spot so at DOM level nothing
+   else needs to know which aggregate goes with which chart. */
+const _cv = (id) => document.getElementById(id);
+/* nearest bar/point index from mouse x (mirror of painter geometry: pad l=34 r=10) */
+function admHitIdxLineBar(cv, mx, n) {
+  const w = cv.clientWidth || 300;
+  const frac = (mx - 34) / (w - 34 - 10);
+  if (frac < 0 || frac > 1) return -1;
+  return n <= 1 ? 0 : Math.round(frac * (n - 1));
+}
+
+const C = new Map([
+  ['chDaily', (a, cc) => {
+    /* per-bucket label: day "MM/DD", week-start "MM/DD" (strip W prefix),
+       month "MonYYYY" when the trend is bucketed by month (very long ranges) */
+    const trendLbl = a.useMonths
+      ? (k) => monthLabel(k.replace(/^M/, '') + '-01')
+      : (k) => dayLabel(k.replace(/^W/, ''));
+    const labels = a.perDay.map(x => trendLbl(x.day));
+    const sCreated = a.perDay.map(x => x.created);
+    const sResolved = a.perDay.map(x => x.resolved);
+    admChartLine('chDaily', labels, [
+      { color: cc.blue, data: sCreated },
+      { color: cc.green, data: sResolved }
+    ]);
+    admTipBind('chDaily', (mx) => {
+      const n = labels.length; if (!n) return null;
+      const i = admHitIdxLineBar(_cv('chDaily'), mx, n);
+      if (i < 0 || i >= n) return null;
+      return {
+        title: labels[i],
+        rows: [
+          { color: cc.blue, label: t('adm.ch.legCreated'), value: sCreated[i] },
+          { color: cc.green, label: t('adm.ch.legResolved'), value: sResolved[i] }
+        ]
+      };
+    });
+  }],
+  /* monthly: months spanned by the chart's period, grouped bars */
+  ['chMonthlyNew', (a, cc) => {
+    const labels = a.perMonth.map(x => monthLabel(x.ym));
+    const data = a.perMonth.map(x => x.created);
+    admChartBar('chMonthlyNew', labels, [{ color: cc.cyan, data }]);
+    admTipBind('chMonthlyNew', (mx) => {
+      const n = labels.length; if (!n) return null;
+      const i = admHitIdxLineBar(_cv('chMonthlyNew'), mx, n);
+      if (i < 0 || i >= n) return null;
+      return {
+        title: labels[i],
+        rows: [{ color: cc.cyan, label: t('adm.ch.legCreated'), value: data[i] }]
+      };
+    });
+  }],
+  ['chMonthlyDone', (a, cc) => {
+    const labels = a.perMonth.map(x => monthLabel(x.ym));
+    const data = a.perMonth.map(x => x.resolved);
+    admChartBar('chMonthlyDone', labels, [{ color: cc.green, data }]);
+    admTipBind('chMonthlyDone', (mx) => {
+      const n = labels.length; if (!n) return null;
+      const i = admHitIdxLineBar(_cv('chMonthlyDone'), mx, n);
+      if (i < 0 || i >= n) return null;
+      return {
+        title: labels[i],
+        rows: [{ color: cc.green, label: t('adm.ch.legResolved'), value: data[i] }]
+      };
+    });
+  }],
+  /* donut — period-scoped; tooltip = hovered segment label + value + share */
+  ['chDonut', (a, cc) => {
+    const segs = [
+      { label: t('adm.lb.open'), value: a.donut.open, color: cc.amber },
+      { label: t('adm.lb.resolved'), value: a.donut.resolved, color: cc.green }
+    ];
+    admChartDonut('chDonut', segs);
+    admTipBind('chDonut', (mx, my) => {
+      const total = segs.reduce((s, x) => s + x.value, 0);
+      if (!total) return null;
+      const cv = _cv('chDonut');
+      const w = cv.clientWidth || 300, h = cv.clientHeight || 220;
+      const cx = w / 2, cy = (h - 22) / 2, R = Math.min(w, h - 30) / 2 - 12, r = R * 0.62;
+      const dx = mx - cx, dy = my - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < r - 2 || dist > R + 2) return null;
+      let ang = Math.atan2(dy, dx); /* same clock base as painter (-PI/2 start) */
+      if (ang < -Math.PI / 2) ang += Math.PI * 2;
+      const frac = (ang + Math.PI / 2) / (Math.PI * 2);
+      let acc = 0, hit = null;
+      for (const s of segs) {
+        acc += s.value / total;
+        if (frac <= acc) { hit = s; break; }
+      }
+      if (!hit) hit = segs[segs.length - 1];
+      return {
+        title: hit.label,
+        rows: [{ color: hit.color, label: hit.label, value: `${hit.value} (${Math.round(100 * hit.value / total)}%)` }]
+      };
+    });
+  }],
+  /* status breakdown (period-created work) */
+  ['chStatus', (a, cc) => {
+    const stItems = Array.from(a.perStatus.entries())
+      .filter(([st]) => lgStatusClass(st) !== 'lg-st-done')
+      .map(([st, n]) => ({ label: st, value: n }))
+      .sort((x, y) => y.value - x.value);
+    admChartHbar('chStatus', stItems, cc.cyan);
+    admTipBind('chStatus', (mx, my) => admHitHbarRow(_cv('chStatus'), my, stItems, [], true));
+  }],
+  /* assignees: top 8 by open (period-created) */
+  ['chAssignees', (a, cc) => {
+    const users = Array.from(a.perUser.entries()).map(([n, v]) => ({ n, ...v }));
+    const topOpen = users.filter(u => u.open > 0).sort((x, y) => y.open - x.open).slice(0, 8)
+      .map(u => ({ label: u.n, value: u.open }));
+    admChartHbar('chAssignees', topOpen, cc.amber);
+    admTipBind('chAssignees', (mx, my) => admHitHbarRow(_cv('chAssignees'), my, topOpen, [], true));
+  }],
+  /* reporters: top 8 by created (period-scoped) */
+  ['chReporters', (a, cc) => {
+    const topRep = Array.from(a.perReporter.entries(), ([label, value]) => ({ label, value }))
+      .sort((x, y) => y.value - x.value).slice(0, 8);
+    admChartHbar('chReporters', topRep, cc.violet);
+    admTipBind('chReporters', (mx, my) => admHitHbarRow(_cv('chReporters'), my, topRep, [], true));
+  }],
+  /* directions stacked (resolved + open) — period-scoped */
+  ['chDirection', (a, cc) => {
+    const dirs = Array.from(a.perDir.entries()).map(([n, v]) => ({ n, ...v }))
+      .sort((x, y) => y.total - x.total).slice(0, 10);
+    const rows = dirs.map(d => ({ label: d.n, parts: [d.resolved, d.open] }));
+    admChartStacked('chDirection', rows, [cc.green, cc.amber]);
+    admTipBind('chDirection', (mx, my) => admHitStackedRow(_cv('chDirection'), my, rows,
+      [{ color: cc.green, label: t('adm.ch.legResolved') }, { color: cc.amber, label: t('adm.ch.legOpen') }]));
+  }],
+  ['chDirDone', (a, cc) => {
+    const dirs = Array.from(a.perDir.entries()).map(([n, v]) => ({ n, ...v }))
+      .sort((x, y) => y.total - x.total).slice(0, 10);
+    const rows = dirs.map(d => ({ label: d.n, parts: [d.resolved, d.total - d.resolved] }));
+    admChartStacked('chDirDone', rows, [cc.green, cc.cyan]);
+    admTipBind('chDirDone', (mx, my) => admHitStackedRow(_cv('chDirDone'), my, rows,
+      [{ color: cc.green, label: t('adm.ch.legResolved') }, { color: cc.cyan, label: t('adm.lb.open') }]));
+  }]
+]);
+/* hbar hit-test: row = label + value */
+function admHitHbarRow(cv, my, items, _unused, _fullLbl) {
+  if (!items.length) return null;
+  const h = cv.clientHeight || 200;
+  const rowH = Math.min(28, (h - 8) / Math.max(items.length, 1));
+  const i = Math.floor((my - 6) / rowH);
+  if (i < 0 || i >= items.length) return null;
+  return { title: items[i].label, rows: [{ color: '', label: items[i].label, value: items[i].value }] };
+}
+/* stacked hit-test: row = label + each part + total */
+function admHitStackedRow(cv, my, rows, series) {
+  if (!rows.length) return null;
+  const h = cv.clientHeight || 200;
+  const rowH = Math.min(30, (h - 8) / Math.max(rows.length, 1));
+  const i = Math.floor((my - 6) / rowH);
+  if (i < 0 || i >= rows.length) return null;
+  const it = rows[i];
+  const tot = it.parts.reduce((s, v) => s + v, 0);
+  return {
+    title: it.label,
+    rows: series.map((s, pi) => ({ color: s.color, label: s.label, value: it.parts[pi] || 0 }))
+      .concat(tot ? [{ color: 'transparent', label: t('adm.lb.total'), value: tot }] : [])
+  };
 }
 
 /* ═══ 18. Leaderboards (searchable + sortable) ═══ */
@@ -1046,10 +1261,19 @@ function renderLoginActivity(st) {
   if (!st) return;
   adm.lastStats = st;
   const set = (id, v) => { const el = $(id); if (el) el.textContent = String(v); };
+  /* top-level = union across both surfaces (desk + admin) */
+  const s = (o, k) => (o && o[k] != null) ? o[k] : '–';
   set('#admActNow', st.activeNow != null ? st.activeNow : '–');
   set('#admActToday', st.today != null ? st.today : '–');
   set('#admActWeek', st.week != null ? st.week : '–');
   set('#admActTotal', (st.users && st.users.length) || 0);
+  set('#admActSessions', st.sessions != null ? st.sessions : '–');
+  /* per-surface breakdown: logistics desk vs admin panel */
+  const desk = st.desk || {}, ad = st.admin || {};
+  set('#admDeskToday', s(desk, 'today')); set('#admDeskWeek', s(desk, 'week'));
+  set('#admDeskTotal', s(desk, 'total')); set('#admDeskSessions', s(desk, 'sessions'));
+  set('#admAdmToday', s(ad, 'today')); set('#admAdmWeek', s(ad, 'week'));
+  set('#admAdmTotal', s(ad, 'total')); set('#admAdmSessions', s(ad, 'sessions'));
   admRenderLeaderboard('login');
 }
 /* ═══ 20. Period select / count / fetched-at ═══ */

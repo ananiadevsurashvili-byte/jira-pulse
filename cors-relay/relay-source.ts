@@ -793,10 +793,44 @@ async function handleDeskAttachCmd(u: URL, request: Request): Promise<Response> 
 }
 
 /* ───────────────── login-activity tracking (admin dashboard) ──────────
-   One blob record per viewer email: firstTs, lastTs, count, sample UA.
-   Fired from the logistics + logistics/admin pages on load / on sign-in. */
+   One blob record per viewer email per surface: desk | admin.
+   Fired from the logistics desk + logistics/admin pages on load / on sign-in.
+   `jirapulse_lg_logins_v1` = legacy combined record (kept for existing data);
+   `jirapulse_lg_logins_v2` = { desk: {email: rec}, admin: {email: rec} } */
 const LG_LOGINS_KEY = "jirapulse_lg_logins_v1";
+const LG_LOGINS_V2_KEY = "jirapulse_lg_logins_v2";
 const LG_ACTIVE_MS = 15 * 60 * 1000;        /* "active now" window */
+
+type LgLoginRec = { email: string; firstTs: number; lastTs: number; count: number; lastUa: string };
+
+async function lgUpsertLogin(surface: "desk" | "admin", email: string, now: number, ua: string): Promise<LgLoginRec> {
+  const map2 = (await blob.getJSON(LG_LOGINS_V2_KEY)) || { desk: {}, admin: {} };
+  if (!map2.desk) map2.desk = {};
+  if (!map2.admin) map2.admin = {};
+  const bucket = surface === "admin" ? map2.admin : map2.desk;
+  /* legacy seed: migrate an existing v1 record into desk (the desk page is
+     where most traffic came from while v1 was the only sink) */
+  if (!bucket[email]) {
+    const legacy = (await blob.getJSON(LG_LOGINS_KEY)) || {};
+    const lr = legacy[email];
+    if (lr) bucket[email] = { email, firstTs: Number(lr.firstTs) || now, lastTs: Number(lr.lastTs) || 0, count: Number(lr.count) || 0, lastUa: String(lr.lastUa || "") };
+  }
+  const rec: LgLoginRec = bucket[email] || { email, firstTs: now, lastTs: 0, count: 0, lastUa: "" };
+  const isNewSession = now - Number(rec.lastTs || 0) > 30 * 60 * 1000;  /* 30min gap = new "session" */
+  bucket[email] = {
+    email,
+    firstTs: Number(rec.firstTs) || now,
+    lastTs: now,
+    count: (Number(rec.count) || 0) + (isNewSession ? 1 : 0),
+    lastUa: ua,
+  };
+  await blob.setJSON(LG_LOGINS_V2_KEY, map2);
+  /* keep v1 in sync as a running union so downgrades / older admin builds still see something */
+  const v1 = (await blob.getJSON(LG_LOGINS_KEY)) || {};
+  v1[email] = { email, firstTs: bucket[email].firstTs, lastTs: now, count: Math.max(Number(v1[email]?.count) || 0, bucket[email].count), lastUa: ua };
+  await blob.setJSON(LG_LOGINS_KEY, v1);
+  return bucket[email];
+}
 
 async function handleLgPing(request: Request): Promise<Response> {
   const body = await request.json().catch(() => null);
@@ -805,23 +839,13 @@ async function handleLgPing(request: Request): Promise<Response> {
     return json({ error: 'email required' }, 400);
   }
   const now = Date.now();
-  const map = (await blob.getJSON(LG_LOGINS_KEY)) || {};
-  const rec = map[email] || { email, firstTs: now, lastTs: 0, count: 0, lastUa: '' };
-  const isNewSession = now - Number(rec.lastTs || 0) > 30 * 60 * 1000;  /* 30min gap = new "session" */
-  map[email] = {
-    email,
-    firstTs: Number(rec.firstTs) || now,
-    lastTs: now,
-    count: (Number(rec.count) || 0) + (isNewSession ? 1 : 0),
-    lastUa: String((request.headers.get('user-agent') || '').slice(0, 120)),
-  };
-  await blob.setJSON(LG_LOGINS_KEY, map);
-  return json({ ok: true, email, lastTs: now, count: map[email].count });
+  const surface = body?.surface === 'admin' ? 'admin' : 'desk';
+  const rec = await lgUpsertLogin(surface, email, now, String((request.headers.get('user-agent') || '').slice(0, 120)));
+  return json({ ok: true, email, lastTs: rec.lastTs, count: rec.count });
 }
 
-async function handleLgStats(): Promise<Response> {
-  const map = (await blob.getJSON(LG_LOGINS_KEY)) || {};
-  const users = Object.values(map)
+async function lgStatsFor(bucket: Record<string, any> | undefined): Promise<any> {
+  const users = Object.values(bucket || {})
     .map((r: any) => ({
       email: String(r.email || ''),
       firstTs: Number(r.firstTs) || 0,
@@ -833,16 +857,35 @@ async function handleLgStats(): Promise<Response> {
   const now = Date.now();
   const dayStart = new Date(new Date(now).setHours(0, 0, 0, 0)).getTime();
   const weekStart = now - 7 * 24 * 60 * 60 * 1000;
-  return json({
-    ok: true,
-    cmd: 'lgStats',
-    now,
+  const sessions = users.reduce((s: number, r: any) => s + (Number(r.count) || 0), 0);
+  return {
     activeNow: users.filter((r: any) => now - r.lastTs <= LG_ACTIVE_MS).length,
     today: users.filter((r: any) => r.lastTs >= dayStart).length,
     week: users.filter((r: any) => r.lastTs >= weekStart).length,
     total: users.length,
+    sessions,
     users,
-  });
+  };
+}
+
+async function handleLgStats(): Promise<Response> {
+  /* v2 = per-surface { desk, admin }; fall back to v1 (legacy union) when empty */
+  const v2 = (await blob.getJSON(LG_LOGINS_V2_KEY)) || null;
+  const now = Date.now();
+  if (v2 && ((v2.desk && Object.keys(v2.desk).length) || (v2.admin && Object.keys(v2.admin).length))) {
+    return json({
+      ok: true,
+      cmd: 'lgStats',
+      now,
+      desk: await lgStatsFor(v2.desk),
+      admin: await lgStatsFor(v2.admin),
+      /* top-level: union across both surfaces (back-compat for older admin page) */
+      ...await lgStatsFor({ ...(v2.desk || {}), ...(v2.admin || {}) }),
+    });
+  }
+  const map = (await blob.getJSON(LG_LOGINS_KEY)) || {};
+  const stats = await lgStatsFor(map);
+  return json({ ok: true, cmd: 'lgStats', now, desk: stats, ...stats });
 }
 
 /* ────────────────────────── plain CORS proxy ────────────────────────── */

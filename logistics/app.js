@@ -429,6 +429,19 @@ function lgClearSession() {
   try { localStorage.removeItem(LS_PUB_SESSION); } catch { /* noop */ }
 }
 
+/* ── usage ping: tell the relay this viewer opened the logistics desk ──
+   one-shot per page load · powers the admin panel's "platform logins" */
+function lgSendPing(email) {
+  try {
+    fetch(PUB_RELAY + '?cmd=lgPing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, surface: 'desk' }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch (_) { /* telemetry must never break the page */ }
+}
+
 /* ── stored Jira connection (shared with the main app) ─────────────── */
 function loadConn() {
   try {
@@ -544,6 +557,7 @@ function lgEnterVerified() {
      against the whole DOM on every insertion and makes big renders crawl) */
   document.body.classList.add('lg-list-active');
   updateLgUserChip();
+  lgSendPing(lgState.email);
   lgLoadPeriod();   /* restore the remembered time period (default: last 30 days) */
   _lgPainted.n = 0;
   lgLoad(false);

@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="../../styles.css?v=8241341" />
-<link rel="stylesheet" href="../styles.css?v=32" />
+<link rel="stylesheet" href="../styles.css?v=33" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -131,15 +131,15 @@
     <!-- charts -->
     <div class="card glass" style="padding:18px;margin-top:14px">
       <div class="adm-chart-grid">
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.daily">New vs resolved · selected period</h4><canvas id="chDaily" height="220"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.monthlyNew">New tasks per month · selected period</h4><canvas id="chMonthlyNew" height="220"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.monthlyDone">Resolved per month · selected period</h4><canvas id="chMonthlyDone" height="220"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.donut">Open vs resolved · selected period</h4><canvas id="chDonut" height="220"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.status">Work by status · selected period</h4><canvas id="chStatus" height="240"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.assignees">Top assignees · open, by period</h4><canvas id="chAssignees" height="240"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.reporters">Top reporters · created, by period</h4><canvas id="chReporters" height="240"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.direction">Tasks per direction · selected period</h4><canvas id="chDirection" height="260"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.dirDone">Resolved per direction · selected period</h4><canvas id="chDirDone" height="260"></canvas></div>
+        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.ch.daily">New vs resolved · selected period</h4><select class="input tl-select adm-ch-period" data-ch-period="chDaily" title="Period"></select></div><canvas id="chDaily" height="220"></canvas></div>
+        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.ch.monthlyNew">New tasks per month · selected period</h4><select class="input tl-select adm-ch-period" data-ch-period="chMonthlyNew" title="Period"></select></div><canvas id="chMonthlyNew" height="220"></canvas></div>
+        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.ch.monthlyDone">Resolved per month · selected period</h4><select class="input tl-select adm-ch-period" data-ch-period="chMonthlyDone" title="Period"></select></div><canvas id="chMonthlyDone" height="220"></canvas></div>
+        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.ch.donut">Open vs resolved · selected period</h4><select class="input tl-select adm-ch-period" data-ch-period="chDonut" title="Period"></select></div><canvas id="chDonut" height="220"></canvas></div>
+        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.ch.status">Work by status · selected period</h4><select class="input tl-select adm-ch-period" data-ch-period="chStatus" title="Period"></select></div><canvas id="chStatus" height="240"></canvas></div>
+        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.ch.assignees">Top assignees · open, by period</h4><select class="input tl-select adm-ch-period" data-ch-period="chAssignees" title="Period"></select></div><canvas id="chAssignees" height="240"></canvas></div>
+        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.ch.reporters">Top reporters · created, by period</h4><select class="input tl-select adm-ch-period" data-ch-period="chReporters" title="Period"></select></div><canvas id="chReporters" height="240"></canvas></div>
+        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.ch.direction">Tasks per direction · selected period</h4><select class="input tl-select adm-ch-period" data-ch-period="chDirection" title="Period"></select></div><canvas id="chDirection" height="260"></canvas></div>
+        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.ch.dirDone">Resolved per direction · selected period</h4><select class="input tl-select adm-ch-period" data-ch-period="chDirDone" title="Period"></select></div><canvas id="chDirDone" height="260"></canvas></div>
       </div>
     </div>
 
@@ -163,12 +163,33 @@
 
     <!-- login activity -->
     <div class="card glass" style="padding:16px;margin-top:14px" id="admActivityCard">
-      <h4 style="margin:0 0 10px" data-i18n="adm.activity">Platform logins</h4>
+      <h4 style="margin:0 0 10px" data-i18n="adm.activity">Platform usage &amp; logins</h4>
       <div class="adm-activity-tiles">
         <div class="kpi adm-act-tile"><div class="kpi-top"><span class="kpi-icon">🟢</span><span class="kpi-label" data-i18n="adm.act.now">Active now</span></div><div class="kpi-value" id="admActNow">–</div></div>
-        <div class="kpi adm-act-tile"><div class="kpi-top"><span class="kpi-icon">📅</span><span class="kpi-label" data-i18n="adm.act.today">Today</span></div><div class="kpi-value" id="admActToday">–</div></div>
+        <div class="kpi adm-act-tile"><div class="kpi-top"><span class="kpi-icon">📅</span><span class="kpi-label" data-i18n="adm.act.today">Visitors today</span></div><div class="kpi-value" id="admActToday">–</div></div>
         <div class="kpi adm-act-tile"><div class="kpi-top"><span class="kpi-icon">🗓</span><span class="kpi-label" data-i18n="adm.act.week">This week</span></div><div class="kpi-value" id="admActWeek">–</div></div>
         <div class="kpi adm-act-tile"><div class="kpi-top"><span class="kpi-icon">👥</span><span class="kpi-label" data-i18n="adm.act.total">Total users</span></div><div class="kpi-value" id="admActTotal">–</div></div>
+        <div class="kpi adm-act-tile"><div class="kpi-top"><span class="kpi-icon">🔁</span><span class="kpi-label" data-i18n="adm.act.sessions">Sessions</span></div><div class="kpi-value" id="admActSessions">–</div></div>
+      </div>
+      <div class="adm-act-surface-grid">
+        <div class="adm-act-surface">
+          <div class="adm-act-surface-name"><span class="kpi-icon">🧾</span><span data-i18n="adm.act.desk">Logistics desk</span></div>
+          <dl class="adm-act-surface-stats">
+            <div><dt data-i18n="adm.act.today">Visitors today</dt><dd id="admDeskToday">–</dd></div>
+            <div><dt data-i18n="adm.act.week">This week</dt><dd id="admDeskWeek">–</dd></div>
+            <div><dt data-i18n="adm.act.total">Total users</dt><dd id="admDeskTotal">–</dd></div>
+            <div><dt data-i18n="adm.act.sessions">Sessions</dt><dd id="admDeskSessions">–</dd></div>
+          </dl>
+        </div>
+        <div class="adm-act-surface">
+          <div class="adm-act-surface-name"><span class="kpi-icon">🛡</span><span data-i18n="adm.act.admin">Admin panel</span></div>
+          <dl class="adm-act-surface-stats">
+            <div><dt data-i18n="adm.act.today">Visitors today</dt><dd id="admAdmToday">–</dd></div>
+            <div><dt data-i18n="adm.act.week">This week</dt><dd id="admAdmWeek">–</dd></div>
+            <div><dt data-i18n="adm.act.total">Total users</dt><dd id="admAdmTotal">–</dd></div>
+            <div><dt data-i18n="adm.act.sessions">Sessions</dt><dd id="admAdmSessions">–</dd></div>
+          </dl>
+        </div>
       </div>
       <input id="admLoginSearch" class="input" data-i18n-placeholder="adm.lb.search" placeholder="Search…" style="margin:12px 0 8px;width:100%" />
       <div class="table-scroll" style="max-height:280px"><table class="data-table" id="admLoginTable"><thead><tr>
@@ -184,6 +205,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="admin-app.js?v=7"></script>
+<script src="admin-app.js?v=8"></script>
 </body>
 </html>

@@ -1030,12 +1030,30 @@ body.light .lg-st-badge.lg-st-other { color: #55607f; background: #eef1f8; borde
   border-radius: 13px;
   padding: 13px 14px 8px;
   min-width: 0;
+  position: relative; /* tooltip anchor */
 }
-.adm-chart-card h4 {
-  margin: 0 0 8px;
-  font-size: 0.8rem; font-weight: 700;
-  color: var(--text); opacity: 0.9;
+/* per-chart header: title left, period select right */
+.adm-ch-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 8px;
 }
+.adm-ch-head h4 { margin: 0; }
+.adm-ch-head .adm-ch-period {
+  min-width: auto; max-width: none; padding: 5px 26px 5px 9px;
+  font-size: 0.72rem; border-radius: 8px; flex: 0 0 auto;
+}
+/* hover tooltip (Jira-Pulse style) */
+.adm-tip {
+  display: none; position: absolute; z-index: 30; pointer-events: none;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 8px 11px; min-width: 120px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.28);
+  font-size: 0.74rem; line-height: 1.45;
+}
+.adm-tip-title { font-weight: 700; margin-bottom: 4px; color: var(--text); }
+.adm-tip-row { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.adm-tip-row b { margin-left: auto; color: var(--text); padding-left: 12px; }
+.adm-tip-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
 .adm-chart-card canvas { display: block; width: 100%; height: 220px; }
 
 /* ── leaderboards ── */
@@ -1054,6 +1072,27 @@ body.light .lg-st-badge.lg-st-other { color: #55607f; background: #eef1f8; borde
   gap: 12px;
 }
 .adm-act-tile .kpi-value { font-size: 1.55rem; }
+/* per-surface breakdown (logistics desk vs admin panel) */
+.adm-act-surface-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px; margin-top: 12px;
+}
+.adm-act-surface {
+  border: 1px solid var(--border); border-radius: 11px;
+  padding: 10px 14px; background: rgba(255, 255, 255, 0.02);
+}
+body.light .adm-act-surface { background: rgba(15, 23, 42, 0.03); }
+.adm-act-surface-name {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.8rem; font-weight: 700; color: var(--text); margin-bottom: 6px;
+}
+.adm-act-surface-stats {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; margin: 0;
+}
+.adm-act-surface-stats > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.adm-act-surface-stats dt { font-size: 0.68rem; color: var(--muted); }
+.adm-act-surface-stats dd { margin: 0; font-size: 0.88rem; font-weight: 700; color: var(--text); }
 /* kpi footnote line (e.g. "based on {n} tasks with resolution date") */
 .kpi-foot { margin-top: 6px; font-size: 0.66rem; font-weight: 500; color: var(--muted); line-height: 1.25; }
 /* admin KPI row: exactly 4 columns on desktop × 2 rows, equal heights;
