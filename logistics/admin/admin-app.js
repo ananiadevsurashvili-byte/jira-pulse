@@ -19,7 +19,6 @@ const ADMIN_EMAILS = [
 const LS_THEME = 'jp_theme', LS_LANG = 'jp_lang', LS_CONN = 'jp_conn_v1';
 const LS_ADM_SESSION = 'jp_adm_session_v1';
 const LS_ADM_PERIOD = 'jp_adm_period_v1';
-const LS_ADM_MONTHS = 'jp_adm_months_v1';
 const LS_ADM_FIELDIDS = 'jp_lg_fieldids_v1';
 const ADM_LIVE_TTL = 30 * 1000;
 
@@ -28,7 +27,9 @@ const adm = {
   rows: [], jqlTotal: 0, fetchedAt: 0, countIn: 0,
   fieldIds: { direction: null, title: null },
   period: { kind: '30d', fromMs: null, toMs: null },
-  months: 3,
+  lastAggr: null, lastStats: null,
+  lbSearch: { user: '', dir: '', login: '' },
+  lbSort: { user: { col: 'resolved', dir: 'desc' }, dir: { col: 'total', dir: 'desc' }, login: { col: 'lastTs', dir: 'desc' } },
   charts: {}, loading: false, lang: 'en'
 };
 let _admCache = null, _admAbort = null;
@@ -55,23 +56,28 @@ const I18N = {
     'adm.title': 'Logistics admin', 'adm.subtitle': 'Metrics and activity dashboard · admin accounts only',
     'adm.dashTitle': 'Dashboard', 'adm.dashSub': 'All LOG service-desk metrics · items labeled “Internal” are hidden',
     'adm.period': 'Period', 'adm.customRange': 'Custom range',
-    'adm.m.window': 'Monthly window', 'adm.m.months': '{n} month(s)',
     'adm.p.30d': 'Last 30 days', 'adm.p.month': 'This month', 'adm.p.quarter': 'This quarter',
     'adm.p.year': 'This year', 'adm.p.all': 'All time', 'adm.p.custom': 'Custom…',
     'adm.kpi.total': 'Tasks · period', 'adm.kpi.today': 'Created today', 'adm.kpi.month': 'Created this month',
-    'adm.kpi.resolved': 'Resolved · period', 'adm.kpi.open': 'Open (all time)', 'adm.kpi.resAll': 'Resolved (all time)',
+    'adm.kpi.resolved': 'Resolved · period', 'adm.kpi.open': 'Open (in period)', 'adm.kpi.resAll': 'Resolved (all time)',
     'adm.kpi.active': 'Active now', 'adm.kpi.logins': 'Logins today',
     'adm.kpi.avgRes': 'Avg resolution time', 'adm.kpi.inwork': 'In progress now',
-    'adm.kpi.avgResNote': 'Based on tasks that carry a Jira resolution date. Most tasks here were closed without one, so the figure covers the sampled subset only.',
-    'adm.ch.daily': 'New vs resolved · last 30 days', 'adm.ch.monthlyNew': 'New tasks per month · {n}',
-    'adm.ch.monthlyDone': 'Resolved per month · {n}', 'adm.ch.donut': 'Open vs resolved · all time',
-    'adm.ch.status': 'Open work by status',
-    'adm.ch.assignees': 'Top assignees · open tasks', 'adm.ch.reporters': 'Top reporters · all created',
-    'adm.ch.direction': 'Tasks per direction · all time', 'adm.ch.dirDone': 'Resolved per direction · all time',
+    'adm.kpi.totalSub': 'created in selected period', 'adm.kpi.openSub': 'not resolved yet',
+    'adm.kpi.basedOn': 'based on {n} tasks with resolution date',
+    'adm.ch.daily': 'New vs resolved · selected period',
+    'adm.ch.monthlyNew': 'New tasks per month · selected period',
+    'adm.ch.monthlyDone': 'Resolved per month · selected period',
+    'adm.ch.donut': 'Open vs resolved · selected period',
+    'adm.ch.status': 'Work by status · selected period',
+    'adm.ch.assignees': 'Top assignees · open, by period',
+    'adm.ch.reporters': 'Top reporters · created, by period',
+    'adm.ch.direction': 'Tasks per direction · selected period',
+    'adm.ch.dirDone': 'Resolved per direction · selected period',
     'adm.ch.legResolved': 'Resolved', 'adm.ch.legOpen': 'Open / pending',
-    'adm.lb.users': 'Top users · created / resolved (period)', 'adm.lb.dirs': 'Departments (directions) · all time',
+    'adm.lb.users': 'Users · created / resolved (period)', 'adm.lb.dirs': 'Departments (directions) · period',
     'adm.lb.user': 'User', 'adm.lb.created': 'Created', 'adm.lb.resolved': 'Resolved', 'adm.lb.open': 'Open',
     'adm.lb.direction': 'Direction', 'adm.lb.total': 'Total', 'adm.lb.nodata': 'No data for this period',
+    'adm.lb.search': 'Search…', 'adm.act.lastTs': 'Last seen',
     'adm.activity': 'Platform logins', 'adm.act.now': 'Active now', 'adm.act.today': 'Today',
     'adm.act.week': 'This week', 'adm.act.total': 'Total users', 'adm.act.lastSeen': 'Last seen',
     'adm.act.sessions': 'Sessions', 'adm.act.state': 'State', 'adm.act.online': 'Online', 'adm.act.offline': 'Offline',
@@ -98,23 +104,28 @@ const I18N = {
     'adm.title': 'ლოგისტიკის ადმინი', 'adm.subtitle': 'მეტრიკები და აქტივობები · მხოლოდ ადმინისთვის',
     'adm.dashTitle': 'დაშბორდი', 'adm.dashSub': 'LOG სერვის-დესკის სრული მეტრიკები · “Internal” ეტიკეტი მალუფებულია',
     'adm.period': 'პერიოდი', 'adm.customRange': 'თვითონ არჩეული',
-    'adm.m.window': 'თვიური ფანჯარა', 'adm.m.months': '{n} თვე',
     'adm.p.30d': 'ბოლო 30 დღე', 'adm.p.month': 'ეს თვე', 'adm.p.quarter': 'ეს კვარტალი',
     'adm.p.year': 'ეს წელი', 'adm.p.all': 'მთელი ისტორია', 'adm.p.custom': 'სხვა…',
     'adm.kpi.total': 'დავალებები · პერიოდში', 'adm.kpi.today': 'დღეს შექმნილი', 'adm.kpi.month': 'ამ თვეს შექმნილი',
-    'adm.kpi.resolved': 'გადაწყვეტილი · პერიოდში', 'adm.kpi.open': 'ღია (მთელი ისტორია)', 'adm.kpi.resAll': 'გადაწყვეტილი (მთელი ისტორია)',
+    'adm.kpi.resolved': 'გადაწყვეტილი · პერიოდში', 'adm.kpi.open': 'ღია (პერიოდში)', 'adm.kpi.resAll': 'გადაწყვეტილი (მთელი ისტორია)',
     'adm.kpi.active': 'ახლა აქტიური', 'adm.kpi.logins': 'ლოგინები დღეს',
     'adm.kpi.avgRes': 'საშ. გადაწყვეტის დრო', 'adm.kpi.inwork': 'მიმდ. პროცესში',
-    'adm.kpi.avgResNote': 'ეყრდნობა დავალებებს, რომლებსაც Jira-ში აქვს გადაწყვეტის თარიღი. დავალებების უმეტესობა დაიხურა მის გარეშე, ამიტომ მაჩვენებელი მხოლოდ შერჩეულ ნაწილს ასახავს.',
-    'adm.ch.daily': 'ახალი vs გადაწყვეტილი · 30 დღე', 'adm.ch.monthlyNew': 'ახალი დავალებები თვეებში · {n}',
-    'adm.ch.monthlyDone': 'გადაწყვეტილი თვეებში · {n}', 'adm.ch.donut': 'ღია vs გადაწყვეტილი · მთელი ისტორია',
-    'adm.ch.status': 'ღია სამუშაო სტატუსების მიხედვით',
-    'adm.ch.assignees': 'საუკ. შემსრულებლები · ღია', 'adm.ch.reporters': 'საუკ. ავტორები · ყველა',
-    'adm.ch.direction': 'დავალებები განზის მიხედვით', 'adm.ch.dirDone': 'გადაწყვეტილი განზის მიხედვით',
+    'adm.kpi.totalSub': 'შექმნილი არჩეულ პერიოდში', 'adm.kpi.openSub': 'ჯერ გადაუწყვეტელი',
+    'adm.kpi.basedOn': 'ეყრდნობა {n} დავალებას გადაწყვეტის თარიღით',
+    'adm.ch.daily': 'ახალი vs გადაწყვეტილი · არჩეული პერიოდი',
+    'adm.ch.monthlyNew': 'ახალი დავალებები თვეებში · არჩეული პერიოდი',
+    'adm.ch.monthlyDone': 'გადაწყვეტილი თვეებში · არჩეული პერიოდი',
+    'adm.ch.donut': 'ღია vs გადაწყვეტილი · არჩეული პერიოდი',
+    'adm.ch.status': 'სტატუსები · არჩეული პერიოდი',
+    'adm.ch.assignees': 'საუკ. შემსრულებლები · ღია, პერიოდში',
+    'adm.ch.reporters': 'საუკ. ავტორები · შექმნილი, პერიოდში',
+    'adm.ch.direction': 'დავალებები განზის მიხედვით · პერიოდი',
+    'adm.ch.dirDone': 'გადაწყვეტილი განზის მიხედვით · პერიოდი',
     'adm.ch.legResolved': 'გადაწყვეტილი', 'adm.ch.legOpen': 'ღია / მოლოდინში',
-    'adm.lb.users': 'საუკ. მომხმარებლები · შექმნა/გად.(პერიოდი)', 'adm.lb.dirs': 'განზები · მთელი ისტორია',
+    'adm.lb.users': 'მომხმარებლები · შექმნა/გად. (პერიოდი)', 'adm.lb.dirs': 'განზები · პერიოდი',
     'adm.lb.user': 'მომხმარებელი', 'adm.lb.created': 'შექმნილი', 'adm.lb.resolved': 'გადაწყვეტილი', 'adm.lb.open': 'ღია',
     'adm.lb.direction': 'განზი', 'adm.lb.total': 'სულ', 'adm.lb.nodata': 'ამ პერიოდის მონაცემები არ არის',
+    'adm.lb.search': 'ძებნა…', 'adm.act.lastTs': 'ბოლო აქტიური',
     'adm.activity': 'პლატფორმის ლოგინები', 'adm.act.now': 'ახლა აქტიური', 'adm.act.today': 'დღეს',
     'adm.act.week': 'ამ კვირაში', 'adm.act.total': 'სულ მომხმარებელი', 'adm.act.lastSeen': 'ბოლო აქტიური',
     'adm.act.sessions': 'სესიები', 'adm.act.state': 'ტანკ', 'adm.act.online': 'ლოგინში', 'adm.act.offline': 'არ არის',
@@ -150,7 +161,7 @@ function setLangButtons() {
 function setLang(lang) {
   adm.lang = (lang === 'ka') ? 'ka' : 'en';
   try { localStorage.setItem(LS_LANG, adm.lang); } catch (e) {}
-  setLangButtons(); applyI18n(); admRenderPeriodSelect(); admRenderMonthsSelect(); renderAll();
+  setLangButtons(); applyI18n(); admRenderPeriodSelect(); renderAll();
 }
 function applyThemeClass() {
   let th = 'dark';
@@ -326,7 +337,6 @@ function admEnterVerified(msg) {
   updateAdmUserChip();
   if (msg) toast(msg);
   admRestorePeriod(); admRenderPeriodSelect(); admRenderCustomWrap();
-  admRestoreMonths(); admRenderMonthsSelect();
   admLoadData();
 }
 function admSignOut() {
@@ -425,23 +435,6 @@ function lgPeriodRange(kind, fromMs, toMs) {
 }
 function admSavePeriod() {
   try { localStorage.setItem(LS_ADM_PERIOD, JSON.stringify(adm.period)); } catch (e) {}
-}
-function admSaveMonths() {
-  try { localStorage.setItem(LS_ADM_MONTHS, String(adm.months)); } catch (e) {}
-}
-function admRestoreMonths() {
-  try {
-    const n = parseInt(localStorage.getItem(LS_ADM_MONTHS) || '0', 10);
-    if ([1, 2, 3, 6, 9, 12].indexOf(n) !== -1) adm.months = n;
-  } catch (e) {}
-  adm.months = [1, 2, 3, 6, 9, 12].indexOf(adm.months) === -1 ? 3 : adm.months;
-}
-function admRenderMonthsSelect() {
-  const sel = $('#admMonths'); if (!sel) return;
-  const opts = [1, 2, 3, 6, 9, 12].map(n =>
-    `<option value="${n}">${escapeHtml(tReplace('adm.m.months', { n }))}</option>`).join('');
-  sel.innerHTML = opts;
-  sel.value = String(adm.months);
 }
 function admRestorePeriod() {
   try {
@@ -561,59 +554,83 @@ function ymdOf(ms) { const d = new Date(ms); const p = (n) => String(n).padStart
 function ymOf(ms) { return ymdOf(ms).slice(0, 7); }
 function admAggregate(rows, range) {
   const from = range.from.getTime(), to = range.to.getTime();
-  const now = Date.now();
-  const todayStart = lgDayStart(new Date()).getTime();
-  const mStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+  const periodDays = Math.max(1, Math.round((to - from) / 864e5));
   const aggr = {
-    total: 0, createdToday: 0, createdMonth: 0, resolvedPeriod: 0,
+    total: 0, resolvedPeriod: 0, createdToday: 0, createdMonth: 0,
     open: 0, resolvedAll: 0,
-    perDay30: [], perMonth: [],
+    perDay: [], perMonth: [],
     perUser: new Map(), perDir: new Map(),
+    perReporter: new Map(),
     donut: { open: 0, resolved: 0 },
     perStatus: new Map(),
     resDaysSum: 0, resDaysN: 0,
-    resRealN: 0, resApproxN: 0
+    resRealN: 0, resApproxN: 0, periodDays
   };
-  // last 30 days buckets
+  /* bucket granularity for the created-vs-resolved trend:
+     ≤120 days → daily · ≤560 days → weekly (Monday-anchored) · beyond → monthly */
+  const useDay = periodDays <= 120;
+  const useWeeks = !useDay && periodDays <= 560;
+  const useMonths = !useDay && !useWeeks;
+  const dayKey = (ms) => useDay ? ymdOf(ms)
+    : useWeeks ? 'W' + ymdOf(ms - ((ms - 4 * 864e5) % (7 * 864e5)))   /* anchor Monday */
+    : 'M' + ymOf(ms);
   const dayMap = new Map();
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    dayMap.set(ymdOf(d.getTime()), { created: 0, resolved: 0 });
+  if (useDay) {
+    for (let i = periodDays - 1; i >= 0; i--) {
+      const d = new Date(to - i * 864e5);
+      dayMap.set(ymdOf(d.getTime()), { created: 0, resolved: 0 });
+    }
+  } else if (useWeeks) {
+    /* seed week buckets from period start to end */
+    let ws = from - ((from - 4 * 864e5) % (7 * 864e5));
+    for (; ws <= to; ws += 7 * 864e5) dayMap.set('W' + ymdOf(ws), { created: 0, resolved: 0 });
   }
-  // monthly buckets (selected window: adm.months)
-  const nMon = Math.max(1, Math.min(12, adm.months | 0 || 3));
+  /* for month-granularity ranges the trend chart reuses the (capped-24) monthly
+     buckets; monMap below is seeded first and merged back into dayMap after */
+  // monthly buckets: months spanned by the selected period, seeded BACKWARD from
+  // the period end and capped at 24 so "all time" keeps the most recent months
   const monMap = new Map();
-  for (let i = nMon - 1; i >= 0; i--) {
-    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i);
-    monMap.set(ymOf(d.getTime()), { created: 0, resolved: 0 });
+  {
+    const endD = new Date(to);
+    let y = endD.getFullYear(), m = endD.getMonth();
+    const startRef = new Date(from);
+    while (monMap.size < 24) {
+      monMap.set(`${y}-${String(m + 1).padStart(2, '0')}`, { created: 0, resolved: 0 });
+      if (y === startRef.getFullYear() && m === startRef.getMonth()) break;
+      m--; if (m < 0) { m = 11; y--; }
+    }
   }
   for (const r of rows) {
-    aggr.total++;
+    if (r.createdMs >= todayStart0()) aggr.createdToday++;
+    if (r.createdMs >= mStart0()) aggr.createdMonth++;
     if (r.resolved) { aggr.resolvedAll++; if (r.rdReal) aggr.resRealN++; else aggr.resApproxN++; }
-    else aggr.open++;
-    if (r.createdMs >= todayStart) aggr.createdToday++;
-    if (r.createdMs >= mStart) aggr.createdMonth++;
     const inPeriod = r.createdMs >= from && r.createdMs <= to;
-    if (inPeriod) aggr.total = aggr.total; // total already all-time; track period separately below
-    if (r.resolved && r.resolvedAt >= from && r.resolvedAt <= to) aggr.resolvedPeriod++;
-    // daily buckets
-    const cd = ymdOf(r.createdMs);
-    if (dayMap.has(cd)) dayMap.get(cd).created++;
-    if (r.resolved && r.resolvedAt) {
-      const rd = ymdOf(r.resolvedAt);
-      if (dayMap.has(rd)) dayMap.get(rd).resolved++;
+    if (!inPeriod) {
+      /* still allow resolutions that happened inside the period for tasks
+         created earlier — they count in "resolved · period" */
+      if (r.resolved && r.resolvedAt >= from && r.resolvedAt <= to) aggr.resolvedPeriod++;
+      continue;
     }
-    // monthly buckets
+    aggr.total++;
+    if (r.resolved) aggr.donut.resolved++; else aggr.donut.open++;
+    if (r.resolved && r.resolvedAt >= from && r.resolvedAt <= to) aggr.resolvedPeriod++;
+    // status breakdown ( period-created work )
+    const stn = r.status || '—';
+    aggr.perStatus.set(stn, (aggr.perStatus.get(stn) || 0) + 1);
+    // daily buckets (period-scoped)
+    const ck = dayKey(r.createdMs);
+    if (dayMap.has(ck)) dayMap.get(ck).created++;
+    if (r.resolved && r.resolvedAt) {
+      const rk = dayKey(r.resolvedAt);
+      if (dayMap.has(rk)) dayMap.get(rk).resolved++;
+    }
+    // monthly buckets (period-scoped)
     const cm = ymOf(r.createdMs);
     if (monMap.has(cm)) monMap.get(cm).created++;
     if (r.resolved && r.resolvedAt) {
       const rm = ymOf(r.resolvedAt);
       if (monMap.has(rm)) monMap.get(rm).resolved++;
     }
-    // status breakdown (all open work by status name)
-    const stn = r.status || '—';
-    if (!aggr.perStatus.has(stn)) aggr.perStatus.set(stn, 0);
-    aggr.perStatus.set(stn, aggr.perStatus.get(stn) + 1);
     // avg resolution time (days) — only rows with a Jira-issued resolutiondate;
     // no updated-fallback here: `updated` drifts on edits/comments and is not
     // the resolve moment (probe: 2193/2217 resolved LOG issues lack rd)
@@ -621,29 +638,36 @@ function admAggregate(rows, range) {
       aggr.resDaysSum += (r.resolvedAt - r.createdMs) / 864e5;
       aggr.resDaysN++;
     }
-    // users
+    // users (period-created)
     const u = r.assignName || r.reportName || '—';
     if (!aggr.perUser.has(u)) aggr.perUser.set(u, { created: 0, resolved: 0, open: 0 });
     const ur = aggr.perUser.get(u);
-    if (inPeriod) ur.created++;
+    ur.created++;
     if (r.resolved && r.resolvedAt >= from && r.resolvedAt <= to) ur.resolved++;
     if (!r.resolved) ur.open++;
-    // directions
+    // directions (period-created)
     const dn = r.direction || '—';
     if (!aggr.perDir.has(dn)) aggr.perDir.set(dn, { total: 0, resolved: 0, open: 0 });
     const dr = aggr.perDir.get(dn);
     dr.total++;
     if (r.resolved) dr.resolved++; else dr.open++;
+    // reporters (period-created)
+    const rp = r.reportName || '—';
+    aggr.perReporter.set(rp, (aggr.perReporter.get(rp) || 0) + 1);
   }
-  // donut
-  aggr.donut.open = aggr.open; aggr.donut.resolved = aggr.resolvedAll;
-  // period total = rows created within selected period
-  aggr.totalPeriod = rows.filter(r => r.createdMs >= from && r.createdMs <= to).length;
   aggr.avgResDays = aggr.resDaysN ? (aggr.resDaysSum / aggr.resDaysN) : null;
-  aggr.perDay30 = Array.from(dayMap, ([k, v]) => ({ day: k, ...v }));
-  aggr.perMonth = Array.from(monMap, ([k, v]) => ({ ym: k, ...v }));
+  if (useMonths) {
+    /* trend buckets are the monthly buckets themselves: rebuild dayMap from monMap */
+    dayMap.clear();
+    for (const [k, v] of monMap) dayMap.set('M' + k, { created: v.created, resolved: v.resolved });
+  }
+  aggr.perDay = Array.from(dayMap, ([k, v]) => ({ day: k, ...v }));
+  aggr.perMonth = Array.from(monMap, ([k, v]) => ({ ym: k, ...v })).sort((x, y) => x.ym.localeCompare(y.ym));
+  aggr.useDay = useDay; aggr.useWeeks = useWeeks; aggr.useMonths = useMonths;
   return aggr;
 }
+function todayStart0() { return lgDayStart(new Date()).getTime(); }
+function mStart0() { return new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime(); }
 /* ═══ 16. Canvas chart drawing (no libs) ═══ */
 function admColors() {
   const light = document.body.classList.contains('light');
@@ -827,23 +851,34 @@ function admChartStacked(id, items, colors) {
 function redrawCharts() { if (adm.lastAggr) renderCharts(adm.lastAggr); }
 window.addEventListener('resize', () => { clearTimeout(window._admRs); window._admRs = setTimeout(redrawCharts, 250); });
 /* ═══ 17. Render: KPI, charts, leaderboards, login activity ═══ */
-function admKpiCard(icon, label, value, cls) {
+function admKpiCard(icon, label, value, cls, sub) {
   return `<div class="kpi glass ${cls || ''}"><div class="kpi-top"><span class="kpi-icon">${icon}</span>` +
     `<span class="kpi-label">${escapeHtml(label)}</span></div>` +
-    `<div class="kpi-value">${escapeHtml(String(value))}</div></div>`;
+    `<div class="kpi-value">${escapeHtml(String(value))}</div>` +
+    (sub ? `<div class="kpi-foot">${escapeHtml(sub)}</div>` : '') +
+    `</div>`;
+}
+function admFmtResDays(d) {
+  return d < 1 ? Math.round(d * 24) + 'h' : (Math.round(d * 10) / 10) + 'd';
 }
 function renderKpis(a) {
   const g = $('#admKpiGrid'); if (!g) return;
+  if (!a) { g.innerHTML = ''; return; }
+  const avgSub = a.avgResDays != null
+    ? tReplace('adm.kpi.basedOn', { n: a.resDaysN })
+    : t('adm.lb.nodata');
+  const inProg = Array.from(a.perStatus.entries()).filter(([st]) => lgStatusClass(st) === 'lg-st-progress')
+    .reduce((s, [, n]) => s + n, 0);
+  const openPeriod = a.donut.open;
   g.innerHTML =
-    admKpiCard('📋', t('adm.kpi.total'), a.totalPeriod, 'accent-blue') +
-    admKpiCard('☀️', t('adm.kpi.today'), a.createdToday, 'accent-green') +
-    admKpiCard('🗓', t('adm.kpi.month'), a.createdMonth, 'accent-cyan') +
-    admKpiCard('✅', t('adm.kpi.resolved'), a.resolvedPeriod, 'accent-green') +
-    admKpiCard('📂', t('adm.kpi.open'), a.open, 'accent-amber') +
-    admKpiCard('🏁', t('adm.kpi.resAll'), a.resolvedAll, 'accent-violet') +
-    admKpiCard('⏱', a.resApproxN > 0 ? t('adm.kpi.avgRes') + ' <span class="kpi-sub" title="' + t('adm.kpi.avgResNote') + '">· ' + a.resRealN + '/' + (a.resRealN + a.resApproxN) + '</span>' : t('adm.kpi.avgRes'),
-      a.avgResDays != null ? (a.avgResDays < 1 ? Math.round(a.avgResDays * 24) + 'h' : (Math.round(a.avgResDays * 10) / 10) + 'd') : '–', 'accent-cyan') +
-    admKpiCard('🚦', t('adm.kpi.inwork'), a.perStatus.get('In Progress') || 0, 'accent-blue');
+    admKpiCard('📅', t('adm.kpi.total'), a.total, 'accent-blue', t('adm.kpi.totalSub')) +
+    admKpiCard('☀️', t('adm.kpi.today'), a.createdToday, 'accent-green', '') +
+    admKpiCard('✅', t('adm.kpi.resolved'), a.resolvedPeriod, 'accent-cyan', '') +
+    admKpiCard('📂', t('adm.kpi.open'), openPeriod, 'accent-amber', t('adm.kpi.openSub')) +
+    admKpiCard('⏱', t('adm.kpi.avgRes'), a.avgResDays != null ? admFmtResDays(a.avgResDays) : '–', 'accent-violet', avgSub) +
+    admKpiCard('🏁', t('adm.kpi.resAll'), a.resolvedAll, 'accent-green', '') +
+    admKpiCard('🚦', t('adm.kpi.inwork'), inProg, 'accent-blue', '') +
+    admKpiCard('🗓', t('adm.kpi.month'), a.createdMonth, 'accent-cyan', '');
 }
 function monthLabel(ym) {
   const mi = parseInt(String(ym).slice(5, 7), 10) - 1;
@@ -853,17 +888,20 @@ function monthLabel(ym) {
 }
 function dayLabel(ymd) { return ymd.slice(5).replace('-', '/'); }
 function renderCharts(a) {
+  if (!a) return;
   adm.lastAggr = a;
-  // dynamic monthly titles ({n} = selected window)
-  const tNew = $('#tiMonthlyNew'), tDone = $('#tiMonthlyDone');
-  if (tNew) tNew.textContent = tReplace('adm.ch.monthlyNew', { n: tReplace('adm.m.months', { n: adm.months }) });
-  if (tDone) tDone.textContent = tReplace('adm.ch.monthlyDone', { n: tReplace('adm.m.months', { n: adm.months }) });
-  // daily: last 30 days line (created vs resolved)
-  admChartLine('chDaily', a.perDay30.map(x => dayLabel(x.day)), [
-    { color: admColors().blue, data: a.perDay30.map(x => x.created) },
-    { color: admColors().green, data: a.perDay30.map(x => x.resolved) }
+  /* per-bucket label: day "MM/DD", week-start "MM/DD" (strip W prefix),
+     month "MonYYYY" when the trend is bucketed by month (very long ranges) */
+  const trendLbl = a.useMonths
+    ? (k) => monthLabel(k.replace(/^M/, '') + '-01')
+    : (k) => dayLabel(k.replace(/^W/, ''));
+  // trend (created vs resolved): day/week/month buckets across the SELECTED period
+  const daily = a.perDay.map(x => trendLbl(x.day));
+  admChartLine('chDaily', daily, [
+    { color: admColors().blue, data: a.perDay.map(x => x.created) },
+    { color: admColors().green, data: a.perDay.map(x => x.resolved) }
   ]);
-  // monthly: selected window, grouped bars (new vs resolved per month)
+  // monthly: months spanned by the SELECTED period, grouped bars (new vs resolved per month)
   const monLbl = a.perMonth.map(x => monthLabel(x.ym));
   admChartBar('chMonthlyNew', monLbl, [
     { color: admColors().cyan, data: a.perMonth.map(x => x.created) }
@@ -871,32 +909,27 @@ function renderCharts(a) {
   admChartBar('chMonthlyDone', monLbl, [
     { color: admColors().green, data: a.perMonth.map(x => x.resolved) }
   ]);
-  // donut
+  // donut — period-scoped
   const cc = admColors();
   admChartDonut('chDonut', [
     { label: t('adm.lb.open'), value: a.donut.open, color: cc.amber },
     { label: t('adm.lb.resolved'), value: a.donut.resolved, color: cc.green }
   ]);
-  // assignees: top 8 by open
+  // assignees: top 8 by open (period-created)
   const users = Array.from(a.perUser.entries()).map(([n, v]) => ({ n, ...v }));
   const topOpen = users.filter(u => u.open > 0).sort((x, y) => y.open - x.open).slice(0, 8)
     .map(u => ({ label: u.n, value: u.open }));
   admChartHbar('chAssignees', topOpen, cc.amber);
-  // reporters: top 8 by created (all time)
-  const repMap = new Map();
-  for (const r of adm.rows) {
-    const nm = r.reportName || '—';
-    repMap.set(nm, (repMap.get(nm) || 0) + 1);
-  }
-  const topRep = Array.from(repMap, ([label, value]) => ({ label, value }))
+  // reporters: top 8 by created (period-scoped, from aggregate)
+  const topRep = Array.from(a.perReporter.entries(), ([label, value]) => ({ label, value }))
     .sort((x, y) => y.value - x.value).slice(0, 8);
   admChartHbar('chReporters', topRep, cc.violet);
-  // directions stacked (resolved + open)
+  // directions stacked (resolved + open) — period-scoped
   const dirs = Array.from(a.perDir.entries()).map(([n, v]) => ({ n, ...v }))
     .sort((x, y) => y.total - x.total).slice(0, 10);
   admChartStacked('chDirection', dirs.map(d => ({ label: d.n, parts: [d.resolved, d.open] })), [cc.green, cc.amber]);
   admChartStacked('chDirDone', dirs.map(d => ({ label: d.n, parts: [d.resolved, d.total - d.resolved] })), [cc.green, cc.cyan]);
-  // status breakdown of open work (hbar) — real service-desk workload view
+  // status breakdown (period-created work)
   const stItems = Array.from(a.perStatus.entries())
     .filter(([st]) => lgStatusClass(st) !== 'lg-st-done')
     .map(([st, n]) => ({ label: st, value: n }))
@@ -904,52 +937,120 @@ function renderCharts(a) {
   admChartHbar('chStatus', stItems, cc.cyan);
 }
 
-/* ═══ 18. Leaderboards ═══ */
-function renderLeaderboards(a) {
-  const ut = $('#admUserTable tbody'); if (ut) {
-    const users = Array.from(a.perUser.entries()).map(([n, v]) => ({ n, ...v }))
-      .filter(u => u.created || u.resolved || u.open)
-      .sort((x, y) => (y.resolved - x.resolved) || (y.created - x.created));
+/* ═══ 18. Leaderboards (searchable + sortable) ═══ */
+function admBindSearch(inputId, tableId, key) {
+  const inp = $(inputId);
+  if (!inp || inp.dataset.bound) return;
+  inp.dataset.bound = '1';
+  inp.addEventListener('input', () => { adm.lbSearch[key] = inp.value; admRenderLeaderboard(key); });
+}
+function admBindSort(tableId, key) {
+  const tbl = $(tableId);
+  if (!tbl || tbl.dataset.sortBound) return;
+  tbl.dataset.sortBound = '1';
+  tbl.querySelectorAll('th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      const cur = adm.lbSort[key];
+      adm.lbSort[key] = { col, dir: cur.col === col ? (cur.dir === 'asc' ? 'desc' : 'asc') : 'desc' };
+      admRenderLeaderboard(key);
+    });
+  });
+}
+function admSortRows(rows, key) {
+  const { col, dir } = adm.lbSort[key];
+  const sgn = dir === 'asc' ? 1 : -1;
+  return rows.slice().sort((x, y) => {
+    const a = x[col], b = y[col];
+    if (typeof a === 'string' || typeof b === 'string') return sgn * String(a || '').localeCompare(String(b || ''));
+    return sgn * ((a || 0) - (b || 0));
+  });
+}
+function admMarkSortHeads(tableId, key) {
+  const tbl = $(tableId); if (!tbl) return;
+  const { col, dir } = adm.lbSort[key];
+  tbl.querySelectorAll('th[data-col]').forEach(th => {
+    th.classList.toggle('lg-sorted', th.dataset.col === col);
+    if (th.dataset.col === col) th.dataset.sort = dir; else delete th.dataset.sort;
+  });
+}
+function admRenderLeaderboard(key) {
+  const a = adm.lastAggr;
+  if (key === 'user') {
+    const ut = $('#admUserTable'); if (!ut) return;
+    admMarkSortHeads('#admUserTable', 'user');
+    if (!a) { ut.querySelector('tbody').innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`; return; }
+    let users = Array.from(a.perUser.entries()).map(([n, v]) => ({ n, ...v }))
+      .filter(u => u.created || u.resolved || u.open);
+    const q = String(adm.lbSearch.user || '').toLowerCase();
+    if (q) users = users.filter(u => u.n.toLowerCase().includes(q));
+    users = admSortRows(users, 'user').slice(0, 25);
     if (!users.length) {
-      ut.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`;
+      ut.querySelector('tbody').innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`;
     } else {
-      ut.innerHTML = users.slice(0, 25).map(u =>
+      ut.querySelector('tbody').innerHTML = users.map(u =>
         `<tr><td>${escapeHtml(u.n)}</td><td>${u.created}</td><td>${u.resolved}</td><td>${u.open}</td></tr>`).join('');
     }
-  }
-  const dt = $('#admDirTable tbody'); if (dt) {
-    const dirs = Array.from(a.perDir.entries()).map(([n, v]) => ({ n, ...v }))
-      .sort((x, y) => y.total - x.total);
+  } else if (key === 'dir') {
+    const dt = $('#admDirTable'); if (!dt) return;
+    admMarkSortHeads('#admDirTable', 'dir');
+    if (!a) { dt.querySelector('tbody').innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`; return; }
+    let dirs = Array.from(a.perDir.entries()).map(([n, v]) => ({ n, ...v }));
+    const q = String(adm.lbSearch.dir || '').toLowerCase();
+    if (q) dirs = dirs.filter(d => d.n.toLowerCase().includes(q));
+    dirs = admSortRows(dirs, 'dir');
     if (!dirs.length) {
-      dt.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`;
+      dt.querySelector('tbody').innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`;
     } else {
-      dt.innerHTML = dirs.map(d =>
+      dt.querySelector('tbody').innerHTML = dirs.map(d =>
         `<tr><td>${escapeHtml(d.n)}</td><td>${d.total}</td><td>${d.resolved}</td><td>${d.open}</td></tr>`).join('');
     }
+  } else {
+    const tbl = $('#admLoginTable'); if (!tbl) return;
+    admMarkSortHeads('#admLoginTable', 'login');
+    const st = adm.lastStats;
+    if (!st) return;
+    let users = (st.users || []).slice();
+    const q = String(adm.lbSearch.login || '').toLowerCase();
+    if (q) users = users.filter(u => String(u.email || '').toLowerCase().includes(q));
+    users = admSortRows(users, 'login');
+    const tb = tbl.querySelector('tbody');
+    if (!users.length) {
+      tb.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`;
+      return;
+    }
+    tb.innerHTML = users.map(u => {
+      const on = (Date.now() - (u.lastTs || 0)) < 15 * 60 * 1000;
+      return `<tr><td>${escapeHtml(u.email || '')}</td>` +
+        `<td>${u.lastTs ? relTime(u.lastTs) + ' ago' : '–'}</td>` +
+        `<td>${u.count != null ? u.count : '–'}</td>` +
+        `<td><span class="lg-st-badge ${on ? 'lg-st-done' : 'lg-st-other'}">${escapeHtml(on ? t('adm.act.online') : t('adm.act.offline'))}</span></td></tr>`;
+    }).join('');
   }
+}
+function renderLeaderboards(a) {
+  if (a) adm.lastAggr = a;
+  ['user', 'dir', 'login'].forEach(admRenderLeaderboard);
+}
+function admBindLeaderboard() {
+  admBindSearch('#admUserSearch', '#admUserTable', 'user');
+  admBindSearch('#admDirSearch', '#admDirTable', 'dir');
+  admBindSearch('#admLoginSearch', '#admLoginTable', 'login');
+  admBindSort('#admUserTable', 'user');
+  admBindSort('#admDirTable', 'dir');
+  admBindSort('#admLoginTable', 'login');
 }
 
 /* ═══ 19. Login activity ═══ */
 function renderLoginActivity(st) {
   if (!st) return;
+  adm.lastStats = st;
   const set = (id, v) => { const el = $(id); if (el) el.textContent = String(v); };
   set('#admActNow', st.activeNow != null ? st.activeNow : '–');
   set('#admActToday', st.today != null ? st.today : '–');
   set('#admActWeek', st.week != null ? st.week : '–');
   set('#admActTotal', (st.users && st.users.length) || 0);
-  const tb = $('#admLoginTable tbody'); if (!tb) return;
-  const users = (st.users || []).slice();
-  if (!users.length) {
-    tb.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`;
-    return;
-  }
-  tb.innerHTML = users.map(u => {
-    const on = (Date.now() - (u.lastTs || 0)) < 15 * 60 * 1000;
-    return `<tr><td>${escapeHtml(u.email || '')}</td>` +
-      `<td>${u.lastTs ? relTime(u.lastTs) + ' ago' : '–'}</td>` +
-      `<td>${u.count != null ? u.count : '–'}</td>` +
-      `<td><span class="lg-st-badge ${on ? 'lg-st-done' : 'lg-st-other'}">${escapeHtml(on ? t('adm.act.online') : t('adm.act.offline'))}</span></td></tr>`;
-  }).join('');
+  admRenderLeaderboard('login');
 }
 /* ═══ 20. Period select / count / fetched-at ═══ */
 function admRenderPeriodSelect() {
@@ -976,12 +1077,6 @@ function admOnPeriodChange() {
   if (sel.value !== 'custom') { adm.period.fromMs = null; adm.period.toMs = null; }
   admSavePeriod(); admRenderCustomWrap(); renderAll();
 }
-function admOnMonthsChange() {
-  const sel = $('#admMonths'); if (!sel) return;
-  const n = parseInt(sel.value, 10);
-  if ([1, 2, 3, 6, 9, 12].indexOf(n) === -1) return;
-  adm.months = n; admSaveMonths(); renderAll();
-}
 function admOnCustomDates() {
   const f = $('#admFrom'), tt = $('#admTo');
   if (!f || !tt || !f.value || !tt.value) return;
@@ -999,10 +1094,9 @@ function admSetFetched(ms) {
   el.textContent = ms ? tReplace('adm.fetched', { t: fmtDateTime(ms) }) : '';
 }
 function renderAll() {
-  if (!adm.verified || !adm.rows.length) { admSetCount(adm.loading ? null : 0); return; }
   const range = admPeriodRange();
-  const a = admAggregate(adm.rows, range);
-  admSetCount(a.totalPeriod);
+  const a = adm.verified && adm.rows.length ? admAggregate(adm.rows, range) : null;
+  admSetCount(a ? a.total : (adm.loading ? null : 0));
   renderKpis(a); renderCharts(a); renderLeaderboards(a);
   admSetFetched(adm.fetchedAt);
 }
@@ -1059,7 +1153,7 @@ async function admRefresh() {
 
   const rb = $('#admRefreshBtn'); if (rb) rb.addEventListener('click', admRefresh);
   const ps = $('#admPeriod'); if (ps) ps.addEventListener('change', admOnPeriodChange);
-  const ms = $('#admMonths'); if (ms) ms.addEventListener('change', admOnMonthsChange);
+  admBindLeaderboard();
   const f = $('#admFrom'), tt = $('#admTo');
   if (f) f.addEventListener('change', admOnCustomDates);
   if (tt) tt.addEventListener('change', admOnCustomDates);

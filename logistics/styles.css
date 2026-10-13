@@ -1054,5 +1054,13 @@ body.light .lg-st-badge.lg-st-other { color: #55607f; background: #eef1f8; borde
   gap: 12px;
 }
 .adm-act-tile .kpi-value { font-size: 1.55rem; }
-/* kpi label subscript — data-coverage note (e.g. "· 24/2217" on avg resolution) */
-.kpi-sub { font-size: 0.68rem; font-weight: 600; opacity: 0.65; letter-spacing: 0; }
+/* kpi footnote line (e.g. "based on {n} tasks with resolution date") */
+.kpi-foot { margin-top: 6px; font-size: 0.66rem; font-weight: 500; color: var(--muted); line-height: 1.25; }
+/* admin KPI row: exactly 4 columns on desktop × 2 rows, equal heights;
+   labels sentence-case, compact values — no more exploded upper-case walls */
+.adm-kpi-grid.kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.adm-kpi-grid .kpi { display: flex; flex-direction: column; padding: 14px 16px; }
+.adm-kpi-grid .kpi-value { font-size: 1.7rem; margin-top: auto; }
+.adm-kpi-grid .kpi-label { text-transform: none; font-size: 0.8rem; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+@media (max-width: 1140px) { .adm-kpi-grid.kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .adm-kpi-grid.kpi-grid { grid-template-columns: 1fr 1fr; } .adm-kpi-grid .kpi-label { white-space: normal; } }

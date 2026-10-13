@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="../../styles.css?v=8241341" />
-<link rel="stylesheet" href="../styles.css?v=31" />
+<link rel="stylesheet" href="../styles.css?v=32" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -119,14 +119,6 @@
             <input id="admTo" class="input tl-select" type="date" />
           </span>
         </span>
-        <span class="lg-filter-item">
-          <label class="lg-filter-label" data-i18n="adm.m.window">Monthly window</label>
-          <select id="admMonths" class="input tl-select" style="width:120px">
-            <option value="1">1 month</option><option value="2">2 months</option>
-            <option value="3">3 months</option><option value="6">6 months</option>
-            <option value="9">9 months</option><option value="12">12 months</option>
-          </select>
-        </span>
         <span class="lg-toolbar-right">
           <span id="admCount" class="pub-count-chip"></span>
         </span>
@@ -134,35 +126,37 @@
     </div>
 
     <!-- KPI grid -->
-    <div class="kpi-grid" id="admKpiGrid"></div>
+    <div class="kpi-grid adm-kpi-grid" id="admKpiGrid"></div>
 
     <!-- charts -->
     <div class="card glass" style="padding:18px;margin-top:14px">
       <div class="adm-chart-grid">
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.daily">New vs resolved · last 30 days</h4><canvas id="chDaily" height="220"></canvas></div>
-        <div class="adm-chart-card"><h4 id="tiMonthlyNew">New tasks per month</h4><canvas id="chMonthlyNew" height="220"></canvas></div>
-        <div class="adm-chart-card"><h4 id="tiMonthlyDone">Resolved per month</h4><canvas id="chMonthlyDone" height="220"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.donut">Open vs resolved · all time</h4><canvas id="chDonut" height="220"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.status">Open work by status</h4><canvas id="chStatus" height="240"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.assignees">Top assignees · open tasks</h4><canvas id="chAssignees" height="240"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.reporters">Top reporters · all created</h4><canvas id="chReporters" height="240"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.direction">Tasks per direction · all time</h4><canvas id="chDirection" height="260"></canvas></div>
-        <div class="adm-chart-card"><h4 data-i18n="adm.ch.dirDone">Resolved per direction · all time</h4><canvas id="chDirDone" height="260"></canvas></div>
+        <div class="adm-chart-card"><h4 data-i18n="adm.ch.daily">New vs resolved · selected period</h4><canvas id="chDaily" height="220"></canvas></div>
+        <div class="adm-chart-card"><h4 data-i18n="adm.ch.monthlyNew">New tasks per month · selected period</h4><canvas id="chMonthlyNew" height="220"></canvas></div>
+        <div class="adm-chart-card"><h4 data-i18n="adm.ch.monthlyDone">Resolved per month · selected period</h4><canvas id="chMonthlyDone" height="220"></canvas></div>
+        <div class="adm-chart-card"><h4 data-i18n="adm.ch.donut">Open vs resolved · selected period</h4><canvas id="chDonut" height="220"></canvas></div>
+        <div class="adm-chart-card"><h4 data-i18n="adm.ch.status">Work by status · selected period</h4><canvas id="chStatus" height="240"></canvas></div>
+        <div class="adm-chart-card"><h4 data-i18n="adm.ch.assignees">Top assignees · open, by period</h4><canvas id="chAssignees" height="240"></canvas></div>
+        <div class="adm-chart-card"><h4 data-i18n="adm.ch.reporters">Top reporters · created, by period</h4><canvas id="chReporters" height="240"></canvas></div>
+        <div class="adm-chart-card"><h4 data-i18n="adm.ch.direction">Tasks per direction · selected period</h4><canvas id="chDirection" height="260"></canvas></div>
+        <div class="adm-chart-card"><h4 data-i18n="adm.ch.dirDone">Resolved per direction · selected period</h4><canvas id="chDirDone" height="260"></canvas></div>
       </div>
     </div>
 
     <!-- people & department leaderboards -->
     <div class="adm-leader-grid">
       <div class="card glass" style="padding:16px">
-        <h4 style="margin:0 0 10px" data-i18n="adm.lb.users">Top users · created / resolved (period)</h4>
+        <h4 style="margin:0 0 10px" data-i18n="adm.lb.users">Users · created / resolved (period)</h4>
+        <input id="admUserSearch" class="input" data-i18n-placeholder="adm.lb.search" placeholder="Search…" style="margin-bottom:8px;width:100%" />
         <div class="table-scroll" style="max-height:340px"><table class="data-table" id="admUserTable"><thead><tr>
-          <th data-i18n="adm.lb.user">User</th><th data-i18n="adm.lb.created">Created</th><th data-i18n="adm.lb.resolved">Resolved</th><th data-i18n="adm.lb.open">Open</th>
+          <th data-col="n" data-i18n="adm.lb.user">User</th><th data-col="created" data-i18n="adm.lb.created">Created</th><th data-col="resolved" data-i18n="adm.lb.resolved">Resolved</th><th data-col="open" data-i18n="adm.lb.open">Open</th>
         </tr></thead><tbody></tbody></table></div>
       </div>
       <div class="card glass" style="padding:16px">
-        <h4 style="margin:0 0 10px" data-i18n="adm.lb.dirs">Departments (directions) · all time</h4>
+        <h4 style="margin:0 0 10px" data-i18n="adm.lb.dirs">Departments (directions) · period</h4>
+        <input id="admDirSearch" class="input" data-i18n-placeholder="adm.lb.search" placeholder="Search…" style="margin-bottom:8px;width:100%" />
         <div class="table-scroll" style="max-height:340px"><table class="data-table" id="admDirTable"><thead><tr>
-          <th data-i18n="adm.lb.direction">Direction</th><th data-i18n="adm.lb.total">Total</th><th data-i18n="adm.lb.resolved">Resolved</th><th data-i18n="adm.lb.open">Open</th>
+          <th data-col="n" data-i18n="adm.lb.direction">Direction</th><th data-col="total" data-i18n="adm.lb.total">Total</th><th data-col="resolved" data-i18n="adm.lb.resolved">Resolved</th><th data-col="open" data-i18n="adm.lb.open">Open</th>
         </tr></thead><tbody></tbody></table></div>
       </div>
     </div>
@@ -176,8 +170,9 @@
         <div class="kpi adm-act-tile"><div class="kpi-top"><span class="kpi-icon">🗓</span><span class="kpi-label" data-i18n="adm.act.week">This week</span></div><div class="kpi-value" id="admActWeek">–</div></div>
         <div class="kpi adm-act-tile"><div class="kpi-top"><span class="kpi-icon">👥</span><span class="kpi-label" data-i18n="adm.act.total">Total users</span></div><div class="kpi-value" id="admActTotal">–</div></div>
       </div>
-      <div class="table-scroll" style="max-height:280px;margin-top:12px"><table class="data-table" id="admLoginTable"><thead><tr>
-        <th data-i18n="adm.lb.user">User</th><th data-i18n="adm.act.lastSeen">Last seen</th><th data-i18n="adm.act.sessions">Sessions</th><th data-i18n="adm.act.state">State</th>
+      <input id="admLoginSearch" class="input" data-i18n-placeholder="adm.lb.search" placeholder="Search…" style="margin:12px 0 8px;width:100%" />
+      <div class="table-scroll" style="max-height:280px"><table class="data-table" id="admLoginTable"><thead><tr>
+        <th data-col="email" data-i18n="adm.lb.user">User</th><th data-col="lastTs" data-i18n="adm.act.lastSeen">Last seen</th><th data-col="count" data-i18n="adm.act.sessions">Sessions</th><th data-i18n="adm.act.state">State</th>
       </tr></thead><tbody></tbody></table></div>
     </div>
   </section>
@@ -189,6 +184,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="admin-app.js?v=6"></script>
+<script src="admin-app.js?v=7"></script>
 </body>
 </html>
