@@ -28,7 +28,7 @@ const adm = {
   rows: [], jqlTotal: 0, fetchedAt: 0, countIn: 0,
   fieldIds: { direction: null, title: null },
   period: { kind: '30d', fromMs: null, toMs: null },
-  lastAggr: null, lastStats: null,
+  lastAggr: null, lastStats: null, statsTimer: null,
   lbSearch: { user: '', dir: '', login: '' },
   /* per-chart period overrides: chId → 'master' | '30d' | 'month' | … ('master' = follow the master period) */
   chPeriod: {},
@@ -85,7 +85,7 @@ const I18N = {
     'adm.act.week': 'This week', 'adm.act.total': 'Total users', 'adm.act.lastSeen': 'Last seen',
     'adm.act.sessions': 'Sessions', 'adm.act.state': 'State', 'adm.act.online': 'Online', 'adm.act.offline': 'Offline',
     'adm.act.desk': 'Logistics desk', 'adm.act.admin': 'Admin panel', 'adm.act.first': 'First visit',
-    'adm.act.surface': 'Surface', 'adm.act.union': 'Overall', 'adm.act.dwell': 'Usage',
+    'adm.act.surface': 'Surface', 'adm.act.union': 'Overall platform', 'adm.act.dwell': 'Usage', 'adm.act.both': 'Desk + Admin',
     'adm.ch.period': 'Period', 'adm.ch.periodMaster': 'Master period',
     'adm.count.n': '{n} task(s)', 'adm.count.loading': 'Loading…', 'adm.fetched': 'Updated {t}',
     'settings.email': 'Email',
@@ -136,7 +136,7 @@ const I18N = {
     'adm.act.week': 'ამ კვირაში', 'adm.act.total': 'სულ მომხმარებელი', 'adm.act.lastSeen': 'ბოლო აქტიური',
     'adm.act.sessions': 'სესიები', 'adm.act.state': 'სტატუსი', 'adm.act.online': 'ლოგინში', 'adm.act.offline': 'არ არის',
     'adm.act.desk': 'ლოგისტიკის მაგიდა', 'adm.act.admin': 'ადმინ პანელი', 'adm.act.first': 'პირველი ვიზიტი',
-    'adm.act.surface': 'ზედაპირი', 'adm.act.union': 'საერთო', 'adm.act.dwell': 'გამოყენება',
+    'adm.act.surface': 'ზედაპირი', 'adm.act.union': 'მთლიანი პლატფორმა', 'adm.act.dwell': 'გამოყენება', 'adm.act.both': 'მაგიდა + ადმინი',
     'adm.ch.period': 'პერიოდი', 'adm.ch.periodMaster': 'ძირითადი პერიოდი',
     'adm.count.n': '{n} დავალება', 'adm.count.loading': 'იტვირთება…', 'adm.fetched': 'განახლდა {t}',
     'settings.email': 'ელფოსტა',
@@ -1225,18 +1225,31 @@ function admRenderLeaderboard(key) {
     admMarkSortHeads('#admLoginTable', 'login');
     const st = adm.lastStats;
     if (!st) return;
+    /* per-user surface chips: desk / admin / both (from the per-surface buckets) */
+    const dU = new Set(((st.desk || {}).users || []).map(u => String(u.email || '').toLowerCase()));
+    const aU = new Set(((st.admin || {}).users || []).map(u => String(u.email || '').toLowerCase()));
     let users = (st.users || []).slice();
+    users.forEach(u => {
+      const e = String(u.email || '').toLowerCase();
+      const inD = dU.has(e), inA = aU.has(e);
+      u.surface = inD && inA ? 'both' : inD ? 'desk' : inA ? 'admin' : '';
+    });
     const q = String(adm.lbSearch.login || '').toLowerCase();
-    if (q) users = users.filter(u => String(u.email || '').toLowerCase().includes(q));
+    if (q) users = users.filter(u =>
+      String(u.email || '').toLowerCase().includes(q) || String(u.surface || '').includes(q));
     users = admSortRows(users, 'login');
     const tb = tbl.querySelector('tbody');
     if (!users.length) {
-      tb.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`;
+      tb.innerHTML = `<tr><td colspan="5" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`;
       return;
     }
+    const sLbl = { desk: t('adm.act.desk'), admin: t('adm.act.admin'), both: t('adm.act.both'), '': '–' };
     tb.innerHTML = users.map(u => {
       const on = (Date.now() - (u.lastTs || 0)) < 15 * 60 * 1000;
+      const sf = String(u.surface || '');
+      const badge = sf === 'desk' ? 'lg-st-done' : sf === 'admin' ? 'lg-st-admin' : 'lg-st-other';
       return `<tr><td>${escapeHtml(u.email || '')}</td>` +
+        `<td>${sf ? `<span class="lg-st-badge ${badge}">${escapeHtml(sLbl[sf])}</span>` : '–'}</td>` +
         `<td>${u.lastTs ? relTime(u.lastTs) + ' ago' : '–'}</td>` +
         `<td>${u.count != null ? u.count : '–'}</td>` +
         `<td><span class="lg-st-badge ${on ? 'lg-st-done' : 'lg-st-other'}">${escapeHtml(on ? t('adm.act.online') : t('adm.act.offline'))}</span></td></tr>`;
@@ -1256,24 +1269,24 @@ function admBindLeaderboard() {
   admBindSort('#admLoginTable', 'login');
 }
 
-/* ═══ 19. Login activity ═══ */
+/* ═══ 19. Login activity ═══
+   Tiles = logistics-desk traffic (what we care about); Admin and Overall
+   (union of desk + admin) shown as secondary breakdowns below. */
 function renderLoginActivity(st) {
   if (!st) return;
   adm.lastStats = st;
   const set = (id, v) => { const el = $(id); if (el) el.textContent = String(v); };
-  /* top-level = union across both surfaces (desk + admin) */
-  const s = (o, k) => (o && o[k] != null) ? o[k] : '–';
-  set('#admActNow', st.activeNow != null ? st.activeNow : '–');
-  set('#admActToday', st.today != null ? st.today : '–');
-  set('#admActWeek', st.week != null ? st.week : '–');
-  set('#admActTotal', (st.users && st.users.length) || 0);
-  set('#admActSessions', st.sessions != null ? st.sessions : '–');
-  /* per-surface breakdown: logistics desk vs admin panel */
-  const desk = st.desk || {}, ad = st.admin || {};
-  set('#admDeskToday', s(desk, 'today')); set('#admDeskWeek', s(desk, 'week'));
-  set('#admDeskTotal', s(desk, 'total')); set('#admDeskSessions', s(desk, 'sessions'));
-  set('#admAdmToday', s(ad, 'today')); set('#admAdmWeek', s(ad, 'week'));
-  set('#admAdmTotal', s(ad, 'total')); set('#admAdmSessions', s(ad, 'sessions'));
+  const paint = (stats, prefix) => {
+    set(`#${prefix}Now`, stats.activeNow != null ? stats.activeNow : 0);
+    set(`#${prefix}Today`, stats.today != null ? stats.today : 0);
+    set(`#${prefix}Week`, stats.week != null ? stats.week : 0);
+    set(`#${prefix}Total`, stats.total != null ? stats.total : 0);
+    set(`#${prefix}Sessions`, stats.sessions != null ? stats.sessions : 0);
+  };
+  paint(st.desk || {}, 'admDesk');
+  paint(st.admin || {}, 'admAdm');
+  /* union top-level (desk ∪ admin) */
+  paint({ activeNow: st.activeNow, today: st.today, week: st.week, total: st.total ?? ((st.users && st.users.length) || 0), sessions: st.sessions }, 'admUni');
   admRenderLeaderboard('login');
 }
 /* ═══ 20. Period select / count / fetched-at ═══ */
@@ -1345,6 +1358,13 @@ async function admLoadData() {
     renderAll();
     fetchAdmStats().then(st => renderLoginActivity(st));
     lgSendAdmPing(adm.email);
+    /* keep the activity tiles fresh (active-now / last-seen age) */
+    clearInterval(adm.statsTimer);
+    adm.statsTimer = setInterval(async () => {
+      if (adm.loading) return;
+      const st = await fetchAdmStats();
+      if (st) renderLoginActivity(st);
+    }, 60 * 1000);
   } catch (e) {
     hide($('#admLoading'));
     admError((e && e.message) || 'load failed');

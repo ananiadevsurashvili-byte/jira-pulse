@@ -1009,8 +1009,10 @@ body.light #admContent .lg-list-sub { color: #6b7394; }
 }
 .lg-st-badge.lg-st-done { color: #4ade80; background: rgba(74, 222, 128, 0.12); border-color: rgba(74, 222, 128, 0.35); }
 .lg-st-badge.lg-st-other { color: var(--muted); background: rgba(255, 255, 255, 0.06); border-color: var(--border); }
+.lg-st-badge.lg-st-admin { color: #818cf8; background: rgba(129, 140, 248, 0.12); border-color: rgba(129, 140, 248, 0.35); }
 body.light .lg-st-badge.lg-st-done { color: #15803d; background: #dcfce7; border-color: #86efac; }
 body.light .lg-st-badge.lg-st-other { color: #55607f; background: #eef1f8; border-color: #d4daea; }
+body.light .lg-st-badge.lg-st-admin { color: #4f46e5; background: #e0e7ff; border-color: #a5b4fc; }
 
 /* ── period filter bar (select variant) ── */
 #admPeriodBar { align-items: flex-end; gap: 10px; display: flex; flex-wrap: wrap; }
