@@ -565,6 +565,29 @@
       <div class="pub-meta-row">
         <span id="pubIssueCount" class="pub-count-chip"></span>
         <span id="pubChangelogBadge" class="data-badge ok" data-i18n="pub.changelog">✓ changelog</span>
+        <div class="board-range" id="pubBoardRange">
+          <button id="pubBoardRangeBtn" type="button" class="chart-range-btn board-range-btn" data-i18n-title="brd.periodTitle" title="Filter this board's KPIs and all charts by a date range">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span id="pubBoardRangeLabel" data-i18n="brd.period">Board period</span>
+            <span class="chart-range-caret">▾</span>
+          </button>
+          <div id="pubBoardRangeMenu" class="chart-range-menu hidden">
+            <button type="button" class="chart-range-opt" data-pdays="7" data-i18n="range.7">Last 7 days</button>
+            <button type="button" class="chart-range-opt" data-pdays="14" data-i18n="range.14">Last 2 weeks</button>
+            <button type="button" class="chart-range-opt" data-pdays="30" data-i18n="range.30">Last 30 days</button>
+            <button type="button" class="chart-range-opt" data-pdays="90" data-i18n="range.90">Last 90 days</button>
+            <button type="button" class="chart-range-opt" data-pdays="182" data-i18n="range.182">Last 6 months</button>
+            <button type="button" class="chart-range-opt" data-pdays="365" data-i18n="range.365">Last 12 months</button>
+            <button type="button" class="chart-range-opt" data-pdays="0" data-i18n="range.0">All time</button>
+            <div class="chart-range-cal">
+              <label class="chart-range-cal-row"><span data-i18n="range.from">From</span><input type="date" id="pubBrdFrom" class="chart-range-date"></label>
+              <label class="chart-range-cal-row"><span data-i18n="range.to">To</span><input type="date" id="pubBrdTo" class="chart-range-date"></label>
+              <button type="button" id="pubBrdApply" class="chart-range-apply" data-i18n="range.apply">Apply</button>
+              <button type="button" id="pubBrdReset" class="chart-range-opt board-range-reset" data-i18n="brd.reset">↺ Back to default</button>
+            </div>
+          </div>
+        </div>
+        <button id="pubExportExcelBtn" class="btn btn-ghost btn-excel" type="button" data-i18n-title="brd.exportTitle" title="Export all board data (respecting the active date filter) to an Excel workbook"><span data-i18n="brd.export">⇩ Excel</span></button>
         <button id="pubBackBtn" class="btn btn-ghost hidden" style="margin-left:auto" data-i18n="pub.back">← Back</button>
       </div>
 

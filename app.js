@@ -1632,6 +1632,7 @@ let pubState = {
   pickCompare: null,       /* { a, b, c } board ids while the user is picking boards to compare (c optional) */
   compare: null,           /* { a, b, c?, nameA, nameB, nameC?, recA, recB, recC? } active pub compare view */
   compareGen: 0,           /* staleness guard for in-flight compare loads */
+  boardRange: null,        /* viewer's own board date filter {from,to} — single-board view only */
 };
 
 /* ── viewer session persistence (refresh keeps you signed in) ─────────
@@ -2047,6 +2048,12 @@ function pubVerifyCode() {
 const _pubBoardCache = new Map();   /* boardId:mode → { rec, ts } per-session memo (30 s) */
 const PUB_LIVE_TTL = 30 * 1000;
 
+/* true while the pub viewer is looking at a single board (not the all-boards
+   grid / compare view) — the board date filter only applies there */
+function snapScopeIsBoard() {
+  return pubState.snapshot?.scope === 'board' && !pubState.compare;
+}
+
 /* master [P] board on the pub side: the synthetic "All [P] boards" entry appears
    in the published board list first (before the real [P] boards) whenever at
    least one [P] board is published and visible. Its id is reserved, mirroring
@@ -2119,12 +2126,17 @@ async function pubMasterLoad(mode = 'full') {
 }
 
 /* assemble the render record from a raw fetch result: metrics + freshly
-   translated chart data (see pubLoadBoardLive — charts are never cached) */
+   translated chart data (see pubLoadBoardLive — charts are never cached).
+   When the viewer has a board date filter on (single-board view), the pool
+   is restricted first so KPIs, charts AND the task list all respect it —
+   mirroring the admin dashboard's selectBoard behavior. */
 function _pubBuildBoardRec(rec, boardId) {
-  const issues = Array.isArray(rec.issues) ? rec.issues : [];
-  const m = computeMetrics(issues);
-  rememberDoneStatuses(issues);                       /* learn custom done-status names */
-  detectComplexityField(issues);                      /* learn the complexity custom field id */
+  const rawIssues = Array.isArray(rec.issues) ? rec.issues : [];
+  const bw = boardWindowOf();
+  const viewable = snapScopeIsBoard() ? filterIssuesByWindow(rawIssues, bw?.from, bw?.to) : rawIssues;
+  const m = computeMetrics(viewable);
+  rememberDoneStatuses(viewable);                     /* learn custom done-status names */
+  detectComplexityField(viewable);                    /* learn the complexity custom field id */
   const defs = pubState.chartDefs;                    /* snapshot-configured chart defs */
   /* viewer-local per-chart range overrides (own localStorage map, not the
      admin store) — applied at build time so charts re-window instantly */
@@ -2133,12 +2145,13 @@ function _pubBuildBoardRec(rec, boardId) {
     const o = rStore[def.id];
     return o ? { ...def, ...o } : def;
   });
-  const charts = effDefs.map((def) => ({ def, data: buildChartData(def, m, issues, rec.hasChangelog) }));
+  const charts = effDefs.map((def) => ({ def, data: buildChartData(def, m, viewable, rec.hasChangelog) }));
   return {
     boardId,
-    issues,
+    issues: viewable,
+    issuesRaw: rawIssues,
     metrics: m,
-    issuesCount: rec.count ?? issues.length,
+    issuesCount: rec.count ?? rawIssues.length,
     hasChangelog: !!rec.hasChangelog,
     fetchedAt: rec.fetchedAt || Date.now(),
     source: rec.source || '',
@@ -2352,6 +2365,58 @@ function fillPubBoardKpis(m) {
   animateValue($('#pkpiWip'), m.wip);
 }
 
+/* ── pub-side board date filter (public view's own state) ──────────
+   Mirrors the admin dashboard's #boardRange control: sets pubState.boardRange,
+   updates the button label/badge, then re-renders the pub content (the 30 s
+   board cache is bypassed by clearing pubState's filter — the fresh rec is
+   rebuilt through _pubBuildBoardRec, which re-filters the pool). */
+function pubSetBoardFilter({ days = null, from = null, to = null } = {}) {
+  let win = null;
+  if (from && to) {
+    const fTs = Date.parse(from);
+    const tEnd = new Date(to); tEnd.setHours(23, 59, 59, 999);
+    const tTs = tEnd.getTime();
+    if (!isFinite(fTs) || !isFinite(tTs) || fTs > tTs) { toast(t('brd.invalid'), 'warn'); return false; }
+    win = { from: fTs, to: tTs };
+  } else if (days != null) {
+    if (days === 0) win = null;
+    else win = { from: Date.now() - days * DAY, to: Date.now() };
+  }
+  pubState.boardRange = win;
+  pubSyncBoardRangeUI();
+  return true;
+}
+
+/* reflect the active pub filter on the pub header control */
+function pubSyncBoardRangeUI() {
+  const btn = $('#pubBoardRangeBtn');
+  if (!btn) return;
+  const label = $('#pubBoardRangeLabel');
+  const win = pubState.boardRange;
+  if (win) {
+    label.textContent = t('brd.active') + ': ' + fmtBoardWin();
+    btn.classList.add('active');
+  } else {
+    label.textContent = t('brd.period');
+    btn.classList.remove('active');
+  }
+  document.querySelectorAll('#pubBoardRangeMenu .chart-range-opt[data-pdays]').forEach((opt) => opt.classList.remove('active'));
+  $('#pubBrdReset')?.classList.remove('active');
+  if (win) {
+    const fEl = $('#pubBrdFrom'), t2El = $('#pubBrdTo');
+    if (fEl) fEl.value = new Date(win.from).toISOString().slice(0, 10);
+    if (t2El) t2El.value = new Date(win.to).toISOString().slice(0, 10);
+  }
+}
+
+/* show/hide the pub board tools row: only the single-board view gets them
+   (the all-boards grid and compare views have their own controls) */
+function syncPubBoardTools() {
+  const on = snapScopeIsBoard();
+  $('#pubBoardRange')?.classList.toggle('hidden', !on);
+  $('#pubExportExcelBtn')?.classList.toggle('hidden', !on);
+}
+
 /* live task list state — reset whenever the viewer switches to another board */
 function pubTaskListState(boardId) {
   if (!pubState.tl || pubState.tl.boardId !== boardId) {
@@ -2480,6 +2545,12 @@ async function renderPubContent() {
   /* an active compare view owns the whole pub content area — re-render it
      (this also covers setLang re-renders while comparing) */
   if (pubState.compare) { renderPubCompareView(); return; }
+  /* board tools (date filter + Excel) belong to the single-board view only;
+     leaving that view also clears the viewer's filter so the all-boards
+     grid shows unfiltered stats */
+  const toolsOn = snapScopeIsBoard();
+  if (!toolsOn && pubState.boardRange) { pubState.boardRange = null; pubSyncBoardRangeUI(); }
+  syncPubBoardTools();
   /* keep the topbar identity chip + org badge in sync on every render */
   updatePubUserChip();
   const orgBadge = $('#pubOrgBadge');
@@ -2676,7 +2747,12 @@ async function renderPubContent() {
       return;
     }
     const charts = rec.charts;
-    $('#pubIssueCount').textContent = tReplace('pub.nIssues', { n: rec.issuesCount });
+    /* issue chip: when the viewer's date filter is on, show filtered/total */
+    const pw = boardWindowOf();
+    const rawCount = rec.issuesRaw?.length ?? rec.issuesCount;
+    $('#pubIssueCount').textContent = (pw && rec.issues.length < rawCount)
+      ? `${t('brd.active')}: ${rec.issues.length}/${rawCount}`
+      : tReplace('pub.nIssues', { n: rawCount });
     $('#pubChangelogBadge').textContent = rec.hasChangelog ? t('badge.changelog') : t('badge.noChangelog');
     $('#pubChangelogBadge').className = 'data-badge ' + (rec.hasChangelog ? 'ok' : 'missing');
 
@@ -4199,8 +4275,14 @@ function filterIssuesByWindow(issues, from, to) {
   return issues.filter((iss) => issueInBoardWindow(iss.fields || {}, from, to, iss.changelog));
 }
 
-/* resolve the active board window: explicit {from,to} in ms, or null */
+/* resolve the active board window: explicit {from,to} in ms, or null.
+   On the public share view the viewer's own filter (pubState.boardRange)
+   is used instead of the admin's session filter. */
 function boardWindowOf() {
+  if (state.inShareScreen) {
+    const pw = pubState.boardRange;
+    return (pw && pw.from && pw.to) ? pw : null;
+  }
   if (!state.boardRange || !state.boardRange.from || !state.boardRange.to) return null;
   return state.boardRange;
 }
@@ -4327,7 +4409,7 @@ function exportBoardExcel(board, issues, m) {
       [t('brd.hdrCycle')]: created && completed && !blocked ? +((completed - created) / DAY).toFixed(2) : '',
       [t('brd.hdrAge')]: completed ? '' : created ? Math.max(0, Math.floor((Date.now() - created) / DAY)) : '',
       [t('brd.hdrLabels')]: (f.labels || []).join(', '),
-      [t('brd.hdrLink')]: state.conn ? `${state.conn.domain}/browse/${iss.key}` : '',
+      [t('brd.hdrLink')]: jiraIssueBase() ? `${jiraIssueBase()}/browse/${iss.key}` : '',
     };
   });
   const issSheet = XLSX.utils.json_to_sheet(issueRows);
@@ -7879,6 +7961,57 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
       toast(t('brd.exportFailed') + ': ' + (e?.message || ''), 'warn');
       logDiag('error', 'Excel export failed', { message: e?.message });
+    }
+  });
+
+  /* ── pub-side board date filter + Excel export (public view) ─────
+     Same UX as the admin header control, but operating on pubState and
+     re-rendering the pub board instead of the admin dashboard. */
+  $('#pubBoardRangeBtn')?.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    closeChartRangeMenus(document);
+    const menu = $('#pubBoardRangeMenu');
+    menu.classList.toggle('hidden');
+    if (!menu.classList.contains('hidden')) {
+      const fEl = $('#pubBrdFrom'), tEl = $('#pubBrdTo');
+      if (fEl && !fEl.value) fEl.value = new Date(Date.now() - 30 * DAY).toISOString().slice(0, 10);
+      if (tEl && !tEl.value) tEl.value = new Date().toISOString().slice(0, 10);
+    }
+  });
+  $('#pubBrdApply')?.addEventListener('click', async () => {
+    const ok = pubSetBoardFilter({ from: $('#pubBrdFrom').value, to: $('#pubBrdTo').value });
+    if (ok) { hide($('#pubBoardRangeMenu')); renderPubContent(); }
+  });
+  $('#pubBrdReset')?.addEventListener('click', async () => {
+    pubSetBoardFilter({ days: 0 });
+    hide($('#pubBoardRangeMenu'));
+    renderPubContent();
+  });
+  document.querySelectorAll('#pubBoardRangeMenu .chart-range-opt[data-pdays]').forEach((opt) => {
+    opt.addEventListener('click', async () => {
+      const ok = pubSetBoardFilter({ days: parseInt(opt.dataset.pdays, 10) });
+      if (ok) { hide($('#pubBoardRangeMenu')); renderPubContent(); }
+    });
+  });
+  /* click-away + Escape closes the pub board range menu */
+  document.addEventListener('click', (ev) => {
+    if (ev.target.closest && ev.target.closest('#pubBoardRange')) return;
+    $('#pubBoardRangeMenu')?.classList.add('hidden');
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') $('#pubBoardRangeMenu')?.classList.add('hidden');
+  });
+  $('#pubExportExcelBtn')?.addEventListener('click', async () => {
+    const snap = pubState.snapshot;
+    if (!snap?.boardId) { toast(t('toast.noConn'), 'warn'); return; }
+    try {
+      toast(t('pub.loadingLive'));
+      const rec = await pubLoadBoardLive(snap.boardId);
+      exportBoardExcel({ name: snap.boardName || '' }, rec.issues, rec.metrics);
+      toast(t('brd.exportDone'), 'ok');
+    } catch (e) {
+      toast(t('brd.exportFailed') + ': ' + (e?.message || ''), 'warn');
+      logDiag('error', 'Pub Excel export failed', { boardId: snap.boardId, message: e?.message });
     }
   });
 
