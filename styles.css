@@ -700,15 +700,42 @@ body.light .chart-range-date {
   color-scheme: light;
 }
 
-/* ── range dropdown · DARK theme hardening ──
-   `--panel-strong` is translucent on the dark glass theme, so cupertino menus
-   could bleed background through. Give the dark menu an opaque surface and a
-   slightly stronger hover so option selection is clearly visible. */
+/* ── range dropdown · DARK theme hardening ── */
 .chart-range-menu {
   background: #161a2b;
   box-shadow: 0 16px 40px rgba(0,0,0,0.55);
 }
 body:not(.light) .chart-range-opt:hover { background: rgba(99, 102, 241, 0.18); }
+
+/* ── board-level date filter (header control on every board dashboard) ──
+   Reuses the .chart-range-menu dropdown geometry; the button is upsized to
+   match the other header buttons and the label swaps to "Filtered · date–date"
+   while a filter is active (button gets .active → accent border). */
+.board-range { position: relative; }
+.board-range .chart-range-btn {
+  height: 34px; padding: 0 12px; font-size: 0.74rem; border-radius: 9px;
+  background: var(--panel); border: 1px solid var(--border);
+}
+.board-range .chart-range-btn.active {
+  border-color: rgba(99, 102, 241, 0.65);
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--text);
+}
+.board-range-reset {
+  border-top: 1px solid var(--border); margin-top: 3px; padding-top: 9px;
+}
+.board-range-reset:hover { background: rgba(251, 146, 60, 0.12); color: #fdba74; }
+/* Excel export button: a subtle green accent so it reads as "download data" */
+.btn-excel {
+  background: rgba(52, 211, 153, 0.12) !important;
+  border-color: rgba(52, 211, 153, 0.4) !important;
+  color: #6ee7b7 !important;
+}
+.btn-excel:hover { background: rgba(52, 211, 153, 0.22) !important; border-color: rgba(52, 211, 153, 0.6) !important; color: #a7f3d0 !important; }
+body.light .btn-excel { background: rgba(16, 185, 129, 0.08) !important; color: #059669 !important; border-color: rgba(16, 185, 129, 0.35) !important; }
+body.light .btn-excel:hover { background: rgba(16, 185, 129, 0.16) !important; }
+body.light .board-range .chart-range-btn { background: #ffffff; }
+body.light .board-range .chart-range-btn.active { background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.55); }
 
 .scope-chip {
   display: inline-flex; align-items: center; gap: 4px;

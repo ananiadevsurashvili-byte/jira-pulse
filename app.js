@@ -126,6 +126,8 @@ const state = {
   boardLoadMeta: null,
   lastBoard: null,     // last board object, for re-rendering charts after edits
   lastMetrics: null,   // cached computeMetrics() result for the last board
+  boardRange: null,    // board-level date filter { from, to } in ms — null = default view
+  boardRangeKey: null, // board id the filter was set on (cleared when switching boards)
   inShareScreen: false, // true while the public share overlay (#pubScreen) is open
   compare: null,       // compare mode: { boardId, board, issues, metrics, syncedAt } for board B
   compareC: null,      // compare mode: same shape as `compare` for the optional third board C
@@ -396,6 +398,24 @@ const I18N = {
     'range.apply': 'Apply', 'range.title': 'Time range', 'range.invalid': 'Pick a valid from–to window',
     'range.now': 'now',
     'range.noData': 'No status transitions in this time range',
+    'brd.period': 'Board period', 'brd.periodTitle': 'Filter all KPIs and charts of this board by a date range',
+    'brd.default': 'Default view', 'brd.reset': '↺ Back to default',
+    'brd.resetTitle': 'Clear the board date filter and go back to the standard 30-days view',
+    'brd.custom': 'Custom', 'brd.active': 'Filtered', 'brd.invalid': 'Pick a valid from–to window',
+    'brd.export': '⇩ Excel', 'brd.exportTitle': 'Export all board data (respecting the active date filter) to an Excel workbook',
+    'brd.exportDone': 'Excel exported', 'brd.exportFailed': 'Excel export failed',
+    'brd.sheetSummary': 'Summary', 'brd.sheetIssues': 'Issues', 'brd.sheetStatuses': 'Statuses',
+    'brd.sheetTimeStatus': 'Time in status', 'brd.sheetCreated': 'Created per day', 'brd.sheetResolved': 'Resolved per day',
+    'brd.hdrIssue': 'Issue key', 'brd.hdrSummary': 'Summary', 'brd.hdrType': 'Type',
+    'brd.hdrStatus': 'Current status', 'brd.hdrCategory': 'Status category', 'brd.hdrPriority': 'Priority',
+    'brd.hdrAssignee': 'Assignee', 'brd.hdrReporter': 'Reporter', 'brd.hdrCreated': 'Created',
+    'brd.hdrCompleted': 'Completed', 'brd.hdrCycle': 'Cycle (days)', 'brd.hdrAge': 'Age in current status (days)',
+    'brd.hdrLabels': 'Labels', 'brd.hdrLink': 'Link',
+    'brd.hdrMetric': 'Metric', 'brd.hdrValue': 'Value',
+    'brd.rowTotal': 'Issues analyzed', 'brd.rowCreated': 'Created in period', 'brd.rowResolved': 'Resolved in period',
+    'brd.rowDone': 'Done overall', 'brd.rowDoneRate': 'Completion rate %', 'brd.rowWip': 'Work in progress',
+    'brd.rowCycle': 'Avg cycle time (days)', 'brd.rowBlocked': 'Blocked / canceled',
+    'brd.window': 'Date filter', 'brd.windowNone': 'Default (board view)',
     'age.le2d': '≤ 2d', 'age.3_7d': '3–7d', 'age.1_2w': '1–2w', 'age.2_4w': '2–4w',
     'age.1_3mo': '1–3mo', 'age.3_6mo': '3–6mo', 'age.6moPlus': '6mo+',
     'chart.title.pipeline': 'Incoming vs Completed', 'chart.sub.pipeline': 'Created vs resolved over time',
@@ -989,6 +1009,24 @@ const I18N = {
     'range.apply': 'მიღება', 'range.title': 'დროის პერიოდი', 'range.invalid': 'აირჩიეთ სწორი პერიოდი',
     'range.now': 'ახლა',
     'range.noData': 'ამ პერიოდში სტატუსის ცვლილებები არ არის',
+    'brd.period': 'დაფის პერიოდი', 'brd.periodTitle': 'ამ დაფის ყველა KPI-სა და გრაფიკის თარიღის ფილტრი',
+    'brd.default': 'სტანდარტული', 'brd.reset': '↺ სტანდარტულზე დაბრუნება',
+    'brd.resetTitle': 'თარიღის ფილტრის გასუფთავება და სტანდარტულ ხედზე დაბრუნება',
+    'brd.custom': 'არჩეული', 'brd.active': 'ფილტრი აქტიურია', 'brd.invalid': 'აირჩიეთ სწორი პერიოდი',
+    'brd.export': '⇩ Excel', 'brd.exportTitle': 'დაფის ყველა მონაცემის ექსპორტი Excel-ში (აქტიური თარიღის ფილტრით)',
+    'brd.exportDone': 'Excel გადმოწერილია', 'brd.exportFailed': 'Excel-ის ექსპორტი ვერ შესრულდა',
+    'brd.sheetSummary': 'შეჯამება', 'brd.sheetIssues': 'დავალებები', 'brd.sheetStatuses': 'სტატუსები',
+    'brd.sheetTimeStatus': 'დრო სტატუსში', 'brd.sheetCreated': 'შექმნილი დღეებში', 'brd.sheetResolved': 'დახურული დღეებში',
+    'brd.hdrIssue': 'დავალების კოდი', 'brd.hdrSummary': 'სათაური', 'brd.hdrType': 'ტიპი',
+    'brd.hdrStatus': 'მიმდინარე სტატუსი', 'brd.hdrCategory': 'სტატუსის კატეგორია', 'brd.hdrPriority': 'პრიორიტეტი',
+    'brd.hdrAssignee': 'აღმასრულებელი', 'brd.hdrReporter': 'ავტორი', 'brd.hdrCreated': 'შექმნის თარიღი',
+    'brd.hdrCompleted': 'დასრულების თარიღი', 'brd.hdrCycle': 'ციკლი (დღე)', 'brd.hdrAge': 'არსებობა მიმდინარე სტატუსში (დღე)',
+    'brd.hdrLabels': 'ლეიბლები', 'brd.hdrLink': 'ბმული',
+    'brd.hdrMetric': 'მეტრიკა', 'brd.hdrValue': 'მნიშვნელობა',
+    'brd.rowTotal': 'დაანალიზებული დავალებები', 'brd.rowCreated': 'შექმნილი პერიოდში', 'brd.rowResolved': 'დახურული პერიოდში',
+    'brd.rowDone': 'დასრულებული სულ', 'brd.rowDoneRate': 'დასრულების %', 'brd.rowWip': 'მიმდინარე სამუშაო',
+    'brd.rowCycle': 'საშ. ციკლის დრო (დღე)', 'brd.rowBlocked': 'დაბლოკილი / გაუქმებული',
+    'brd.window': 'თარიღის ფილტრი', 'brd.windowNone': 'სტანდარტული (დაფის ხედი)',
     'age.le2d': '≤ 2 დღე', 'age.3_7d': '3–7 დღე', 'age.1_2w': '1–2 კვირა', 'age.2_4w': '2–4 კვირა',
     'age.1_3mo': '1–3 თვე', 'age.3_6mo': '3–6 თვე', 'age.6moPlus': '6 თვე+',
     'chart.title.pipeline': 'შემოსვლა vs დასრულება', 'chart.sub.pipeline': 'შექმნა vs დახურვა დროში',
@@ -4137,6 +4175,217 @@ async function loadBoardIssues(board) {
   throw err;
 }
 
+/* ── board-level date filter ────────────────────────────────────────
+   A user-picked from–to window (or a preset like "Last 30 days") that is
+   applied to the WHOLE board: every KPI card, the insights strip and all
+   charts are computed on the issue pool restricted to that window.
+   An issue belongs to the window when its "life" overlaps it — created on
+    or before the window end and (if completed) completed on or after the
+    window start. Issues still open count if they were created before the
+    window end. */
+function issueInBoardWindow(f, from, to, changelog) {
+  const created = f.created ? Date.parse(f.created) : null;
+  if (!created || !isFinite(created)) return false;
+  const completed = issueCompletedAt(f, changelog);
+  /* the issue is "active" during [created, completed || NOW] */
+  const activeTo = completed || Date.now();
+  return created <= to && activeTo >= from;
+}
+
+function filterIssuesByWindow(issues, from, to) {
+  if (!from || !to || !(from < to)) return issues;
+  return issues.filter((iss) => issueInBoardWindow(iss.fields || {}, from, to, iss.changelog));
+}
+
+/* resolve the active board window: explicit {from,to} in ms, or null */
+function boardWindowOf() {
+  if (!state.boardRange || !state.boardRange.from || !state.boardRange.to) return null;
+  return state.boardRange;
+}
+
+/* rebuild the board window from either a preset day-count (anchored at now)
+   or an explicit from/to ISO date pair from the calendar inputs */
+function setBoardFilter({ days = null, from = null, to = null } = {}) {
+  let win = null;
+  if (from && to) {
+    const fTs = Date.parse(from);
+    /* the end date is inclusive through end-of-day local time */
+    const tEnd = new Date(to); tEnd.setHours(23, 59, 59, 999);
+    const tTs = tEnd.getTime();
+    if (!isFinite(fTs) || !isFinite(tTs) || fTs > tTs) { toast(t('brd.invalid'), 'warn'); return false; }
+    win = { from: fTs, to: tTs };
+  } else if (days != null) {
+    /* preset: "All time" (0) needs no filter at all — the whole pool passes */
+    if (days === 0) win = null;
+    else win = { from: Date.now() - days * DAY, to: Date.now() };
+  }
+  state.boardRange = win;
+  state.boardRangeKey = state.boardId;
+  syncBoardRangeUI();
+  return true;
+}
+
+function clearBoardFilter() {
+  state.boardRange = null;
+  state.boardRangeKey = state.boardId;
+  syncBoardRangeUI();
+}
+
+async function applyBoardWindow({ refetch = true } = {}) {
+  /* re-run the last board through selectBoard so the whole pipeline
+     (metrics + KPIs + charts + insights + slow table) is rebuilt on the
+     filtered pool; compare mode is dropped — the filter is per-board */
+  closeChartRangeMenus(document);
+  hide($('#boardRangeMenu'));
+  if (state.compare) {
+    state.compare = null; state.compareC = null; state.compareGen++;
+    hide($('#compareBar'));
+    $('#compareBtn').classList.remove('active');
+  }
+  const master = isMasterPBoard(state.lastBoard);
+  const b = master ? masterPBoard() : state.boards.find((x) => x.id === state.boardId);
+  if (!b && !master) return;
+  if (refetch) await selectBoard(b || masterPBoard());
+}
+
+/* reflect the active filter on the header control: button label + badge */
+function fmtBoardWin() {
+  const win = boardWindowOf();
+  if (!win) return '';
+  return new Date(win.from).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })
+    + ' – ' + new Date(win.to).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' });
+}
+
+function syncBoardRangeUI() {
+  const btn = $('#boardRangeBtn');   /* hidden on small boards page — absent elsewhere */
+  if (!btn) return;
+  const label = $('#boardRangeLabel');
+  const win = boardWindowOf();
+  if (win) {
+    label.textContent = t('brd.active') + ': ' + fmtBoardWin();
+    btn.classList.add('active');
+  } else {
+    label.textContent = t('brd.period');
+    btn.classList.remove('active');
+  }
+  /* menu active states */
+  document.querySelectorAll('#boardRangeMenu .chart-range-opt[data-bdays]').forEach((opt) => opt.classList.remove('active'));
+  $('#brdReset')?.classList.remove('active');
+  /* reflect current value into the calendar inputs */
+  if (win) {
+    const fEl = $('#brdFrom'), t2El = $('#brdTo');
+    if (fEl) fEl.value = new Date(win.from).toISOString().slice(0, 10);
+    if (t2El) t2El.value = new Date(win.to).toISOString().slice(0, 10);
+  }
+}
+
+/* ── Excel export (SheetJS) ─────────────────────────────────────────
+   Exports the CURRENTly-open board exactly as it is filtered on screen
+   (default view or the active board date filter): KPI summary, full issue
+   rows, per-status distribution and per-issue time-in-status sheets. */
+function exportBoardExcel(board, issues, m) {
+  if (!window.XLSX) throw new Error('XLSX library not loaded');
+  const wb = XLSX.utils.book_new();
+  const win = boardWindowOf();
+  const isoDate = (ts) => (ts ? new Date(ts).toISOString().slice(0, 10) : '');
+
+  /* ── Sheet 1: Summary (KPI cards + the active date filter) ── */
+  const sumRows = [
+    { [t('brd.hdrMetric')]: t('brd.rowTotal'), [t('brd.hdrValue')]: m.total },
+    { [t('brd.hdrMetric')]: t('brd.rowCreated'), [t('brd.hdrValue')]: m.created30 },
+    { [t('brd.hdrMetric')]: t('brd.rowResolved'), [t('brd.hdrValue')]: m.resolved30 },
+    { [t('brd.hdrMetric')]: t('brd.rowDone'), [t('brd.hdrValue')]: m.done },
+    { [t('brd.hdrMetric')]: t('brd.rowDoneRate'), [t('brd.hdrValue')]: m.doneRate },
+    { [t('brd.hdrMetric')]: t('brd.rowWip'), [t('brd.hdrValue')]: m.wip },
+    { [t('brd.hdrMetric')]: t('brd.rowBlocked'), [t('brd.hdrValue')]: m.blockedCount },
+    { [t('brd.hdrMetric')]: t('brd.rowCycle'), [t('brd.hdrValue')]: m.cycleAvg != null ? +(m.cycleAvg / DAY).toFixed(2) : '' },
+    { [t('brd.hdrMetric')]: t('brd.window'), [t('brd.hdrValue')]: win ? `${isoDate(win.from)} – ${isoDate(win.to)}` : t('brd.windowNone') },
+    { [t('brd.hdrMetric')]: t('brd.hdrIssue'), [t('brd.hdrValue')]: board?.name || '' },
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sumRows), safeSheetName(t('brd.sheetSummary')));
+
+  /* ── Sheet 2: Issues — one accurate row per task in the filtered pool ── */
+  const issueRows = issues.map((iss) => {
+    const f = iss.fields || {};
+    const created = f.created ? Date.parse(f.created) : null;
+    const completed = issueCompletedAt(f, iss.changelog);
+    const isDone = statusIsDone(f) || isCompletedStatus(f, false);
+    const blocked = isBlockedStatus(f);
+    return {
+      [t('brd.hdrIssue')]: iss.key,
+      [t('brd.hdrSummary')]: f.summary || '',
+      [t('brd.hdrType')]: f.issuetype?.name || '',
+      [t('brd.hdrStatus')]: f.status?.name || '',
+      [t('brd.hdrCategory')]: f.status?.statusCategory?.name || '',
+      [t('brd.hdrPriority')]: f.priority?.name || '',
+      [t('brd.hdrAssignee')]: f.assignee?.displayName || 'Unassigned',
+      [t('brd.hdrReporter')]: f.reporter?.displayName || '',
+      [t('brd.hdrCreated')]: isoDate(created),
+      [t('brd.hdrCompleted')]: isoDate(completed),
+      [t('brd.hdrCycle')]: created && completed && !blocked ? +((completed - created) / DAY).toFixed(2) : '',
+      [t('brd.hdrAge')]: completed ? '' : created ? Math.max(0, Math.floor((Date.now() - created) / DAY)) : '',
+      [t('brd.hdrLabels')]: (f.labels || []).join(', '),
+      [t('brd.hdrLink')]: state.conn ? `${state.conn.domain}/browse/${iss.key}` : '',
+    };
+  });
+  const issSheet = XLSX.utils.json_to_sheet(issueRows);
+  issSheet['!cols'] = [{ wch: 14 }, { wch: 50 }, { wch: 12 }, { wch: 18 }, { wch: 14 }, { wch: 10 }, { wch: 20 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 24 }, { wch: 40 }];
+  XLSX.utils.book_append_sheet(wb, issSheet, safeSheetName(t('brd.sheetIssues')));
+
+  /* ── Sheet 3: Statuses — the live per-status distribution ── */
+  const stRows = [...(m.statusDist || []).entries()].map(([status, n]) => ({
+    [t('brd.hdrStatus')]: status, [t('brd.hdrValue')]: n,
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(stRows), safeSheetName(t('brd.sheetStatuses')));
+
+  /* ── Sheet 4: Time in status — per-issue changelog segment ledger ── */
+  const tisRows = [];
+  for (const iss of issues) {
+    const f = iss.fields || {};
+    const evts = [];
+    for (const h of iss.changelog?.histories || []) {
+      for (const it of h.items || []) {
+        if (String(it.field).toLowerCase() === 'status') evts.push({ ts: Date.parse(h.created), to: it.toString || it.to || null });
+      }
+    }
+    evts.sort((a, b) => a.ts - b.ts);
+    let prevTs = f.created ? Date.parse(f.created) : (evts[0]?.ts ?? null);
+    let prevName = evts.length ? 'Start' : (f.status?.name || '');
+    for (const ev of evts) {
+      if (prevTs != null && ev.ts > prevTs) {
+        tisRows.push({ [t('brd.hdrIssue')]: iss.key, [t('brd.hdrStatus')]: prevName, [t('brd.hdrValue')]: +((ev.ts - prevTs) / DAY).toFixed(2) });
+      }
+      prevTs = ev.ts;
+      if (ev.to) prevName = ev.to;
+    }
+    const now = Date.now();
+    if (prevTs != null && now > prevTs && !isExcludedStatus(f)) {
+      tisRows.push({ [t('brd.hdrIssue')]: iss.key, [t('brd.hdrStatus')]: prevName, [t('brd.hdrValue')]: +((now - prevTs) / DAY).toFixed(2) });
+    }
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tisRows), safeSheetName(t('brd.sheetTimeStatus')));
+
+  /* ── Sheet 5+6: created / resolved per day under the active window ── */
+  if (m.dailyCreated?.length) {
+    const NOW = Date.now();
+    const rows = m.dailyCreated.map((n, i) => ({ [t('brd.hdrCreated')]: isoDate(NOW - (29 - i) * DAY), [t('brd.hdrValue')]: n }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), safeSheetName(t('brd.sheetCreated')));
+  }
+  if (m.dailyResolved?.length) {
+    const NOW = Date.now();
+    const rows = m.dailyResolved.map((n, i) => ({ [t('brd.hdrCompleted')]: isoDate(NOW - (29 - i) * DAY), [t('brd.hdrValue')]: n }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), safeSheetName(t('brd.sheetResolved')));
+  }
+
+  const fname = `${(board?.name || 'board').replace(/[^\w\-]+/g, '_')}_jirapulse_${isoDate(Date.now())}.xlsx`;
+  XLSX.writeFile(wb, fname);
+}
+
+/* Excel sheet names must be ≤31 chars and cannot contain : \ / ? * [ ] */
+function safeSheetName(name) {
+  return (String(name).replace(/[:\\/?*[\]]/g, ' ').slice(0, 28)) || 'Sheet';
+}
+
 async function selectBoard(board) {
   state.boardId = board.id;
   localStorage.setItem(LS_LAST_BOARD, String(board.id));
@@ -4164,9 +4413,18 @@ async function selectBoard(board) {
   try {
     logDiag('info', 'Board selected', { boardId: board.id, name: board.name, type: board.type, location: board.location || null });
     const issues = isMasterPBoard(board) ? await loadMasterPIssues() : await loadBoardIssues(board);
-    /* only replace data AFTER a successful load — never lose the previous board on failure */
-    state.issues = issues;
-    const m = computeMetrics(issues);
+    /* board-level date filter (session-scoped): restrict the pool the whole
+       dashboard (KPIs + insights + charts) is computed from. Reset when the
+       user switches to a different board. */
+    const win = boardWindowOf();
+    if (win && state.boardRangeKey === board.id) {
+      state.issues = filterIssuesByWindow(issues, win.from, win.to);
+      $('#issueCountBadge').textContent = `${t('brd.active')}: ${state.issues.length}/${issues.length}`;
+    } else {
+      if (win && state.boardRangeKey !== board.id) { state.boardRange = null; state.boardRangeKey = null; syncBoardRangeUI(); }
+      state.issues = issues;
+    }
+    const m = computeMetrics(state.issues);
     state.lastBoard = board;
     state.lastMetrics = m;
 
@@ -7173,7 +7431,10 @@ function renderDashboard(board, m) {
   animateValue($('#kpiTotal'), m.total);
   $('#kpiTotalSub').textContent = t('dash.issuesOnBoard');
   animateValue($('#kpiCreated'), m.created30);
-  $('#kpiCreatedSub').innerHTML = trendBadge(m.createdPrev30, m.created30, t('dash.vsPrior30d'), 'neutral');
+  /* when a board date filter is active the KPI subtitle shows the exact window */
+  $('#kpiCreatedSub').innerHTML = boardWindowOf()
+    ? `<span class="muted">${escapeHtml(t('brd.period') + ': ' + fmtBoardWin())}</span>`
+    : trendBadge(m.createdPrev30, m.created30, t('dash.vsPrior30d'), 'neutral');
   animateValue($('#kpiDone'), m.done);
   $('#kpiDoneSub').textContent = tReplace('dash.completionRate', { p: m.doneRate });
   animateValue($('#kpiResolved'), m.resolved30);
@@ -7525,6 +7786,55 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('#pubCode').addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') pubVerifyCode();
+  });
+
+  /* board-level date filter + Excel export wiring */
+  const brdBtn = $('#boardRangeBtn');
+  if (brdBtn) {
+    brdBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      closeChartRangeMenus(document);
+      const menu = $('#boardRangeMenu');
+      menu.classList.toggle('hidden');
+      if (!menu.classList.contains('hidden')) {
+        /* prefill empty calendar inputs with a sensible last-30-days window */
+        const fEl = $('#brdFrom'), tEl = $('#brdTo');
+        if (fEl && !fEl.value) fEl.value = new Date(Date.now() - 30 * DAY).toISOString().slice(0, 10);
+        if (tEl && !tEl.value) tEl.value = new Date().toISOString().slice(0, 10);
+      }
+    });
+    $('#brdApply')?.addEventListener('click', async () => {
+      const ok = setBoardFilter({ from: $('#brdFrom').value, to: $('#brdTo').value });
+      if (ok && state.lastBoard) await applyBoardWindow();
+    });
+    $('#brdReset')?.addEventListener('click', async () => {
+      clearBoardFilter();
+      if (state.lastBoard) await applyBoardWindow();
+    });
+  }
+  document.querySelectorAll('#boardRangeMenu .chart-range-opt[data-bdays]').forEach((opt) => {
+    opt.addEventListener('click', () => {
+      const ok = setBoardFilter({ days: parseInt(opt.dataset.bdays, 10) });
+      if (ok && state.lastBoard) applyBoardWindow();
+    });
+  });
+  /* click-away + Escape closes the board range menu */
+  document.addEventListener('click', (ev) => {
+    if (ev.target.closest && ev.target.closest('#boardRange')) return;
+    $('#boardRangeMenu')?.classList.add('hidden');
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') $('#boardRangeMenu')?.classList.add('hidden');
+  });
+  $('#exportExcelBtn').addEventListener('click', () => {
+    if (!state.lastBoard) { toast(t('toast.noConn'), 'warn'); return; }
+    try {
+      exportBoardExcel(state.lastBoard, state.issues, state.lastMetrics);
+      toast(t('brd.exportDone'), 'ok');
+    } catch (e) {
+      toast(t('brd.exportFailed') + ': ' + (e?.message || ''), 'warn');
+      logDiag('error', 'Excel export failed', { message: e?.message });
+    }
   });
 
   /* language switcher: one handler covers every .lang-btn on the page
