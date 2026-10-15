@@ -251,6 +251,7 @@ const I18N = {
     'cmp.pubB': 'Board B',
     'table.title': 'Longest sitting in current status',
     'table.titleSub': '· open work',
+    'table.subFiltered': '· under board period ',
     'th.key': 'Key', 'th.summary': 'Summary', 'th.status': 'Status',
     'th.timeInStatus': 'Time in status', 'th.type': 'Type', 'th.assignee': 'Assignee', 'th.created': 'Created',
     'th.updated': 'Updated',
@@ -862,6 +863,7 @@ const I18N = {
     'cmp.pubB': 'დაფა B',
     'table.title': 'ყველაზე დიდხანს დგას მიმდინარე სტატუსში',
     'table.titleSub': '· ღია სამუშაო',
+    'table.subFiltered': '· დაფის პერიოდის ფარგლებში ',
     'th.key': 'გასაღები', 'th.summary': 'დავალების სახელი', 'th.status': 'სტატუსი',
     'th.timeInStatus': 'დრო სტატუსში', 'th.type': 'ტიპი', 'th.assignee': 'შემსრულებელი', 'th.created': 'შექმნის თარიღი',
     'th.updated': 'განახლების თარიღი',
@@ -4358,22 +4360,24 @@ function exportBoardExcel(board, issues, m) {
       prevTs = ev.ts;
       if (ev.to) prevName = ev.to;
     }
-    const now = Date.now();
+    const now = win ? win.to : Date.now();   /* cap the trailing segment at the window end when a filter is on */
     if (prevTs != null && now > prevTs && !isExcludedStatus(f)) {
       tisRows.push({ [t('brd.hdrIssue')]: iss.key, [t('brd.hdrStatus')]: prevName, [t('brd.hdrValue')]: +((now - prevTs) / DAY).toFixed(2) });
     }
   }
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tisRows), safeSheetName(t('brd.sheetTimeStatus')));
 
-  /* ── Sheet 5+6: created / resolved per day under the active window ── */
+  /* ── Sheet 5+6: created / resolved per day for the metric anchor window ──
+     labels count back from the same anchor the daily buckets used
+     (board-window end when a date filter is on, else today) */
   if (m.dailyCreated?.length) {
-    const NOW = Date.now();
-    const rows = m.dailyCreated.map((n, i) => ({ [t('brd.hdrCreated')]: isoDate(NOW - (29 - i) * DAY), [t('brd.hdrValue')]: n }));
+    const dAnchor = m.dailyAnchor || Date.now();
+    const rows = m.dailyCreated.map((n, i) => ({ [t('brd.hdrCreated')]: isoDate(dAnchor - (29 - i) * DAY), [t('brd.hdrValue')]: n }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), safeSheetName(t('brd.sheetCreated')));
   }
   if (m.dailyResolved?.length) {
-    const NOW = Date.now();
-    const rows = m.dailyResolved.map((n, i) => ({ [t('brd.hdrCompleted')]: isoDate(NOW - (29 - i) * DAY), [t('brd.hdrValue')]: n }));
+    const dAnchor = m.dailyAnchor || Date.now();
+    const rows = m.dailyResolved.map((n, i) => ({ [t('brd.hdrCompleted')]: isoDate(dAnchor - (29 - i) * DAY), [t('brd.hdrValue')]: n }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), safeSheetName(t('brd.sheetResolved')));
   }
 
@@ -4464,8 +4468,12 @@ function addStatusKey(map, name, key) {
 }
 
 function computeMetrics(issues) {
-  const NOW = Date.now();
-  const WEEKS = 26; // 6 months of weekly pipeline buckets
+  /* ANCHOR = the end of the active board date filter, or "now" when no filter is
+     on. ALL "last 30 days"-style metrics (KPIs, daily buckets, cycle recents,
+     slow-issue ages) are counted back from this anchor so a historical window
+     (e.g. Jan–Mar 2024) shows that period's numbers, not today's empty zeros. */
+  const bw = boardWindowOf();
+  const ANCHOR = bw ? bw.to : Date.now();
   const m = {
     total: issues.length,
     created30: 0, resolved30: 0, done: 0, wip: 0,
@@ -4481,14 +4489,7 @@ function computeMetrics(issues) {
     slow: [],
     dailyCreated: Array(30).fill(0),
     dailyResolved: Array(30).fill(0),
-    weekly: Array.from({ length: 12 }, (_, i) => ({
-      count: 0,
-      label: fmtDate(NOW - (11 - i) * 7 * DAY),
-    })),
-    pipelineWeekly: Array.from({ length: WEEKS }, (_, i) => ({
-      created: 0, resolved: 0,
-      label: fmtDate(NOW - (WEEKS - 1 - i) * 7 * DAY),
-    })),
+    dailyAnchor: ANCHOR,        /* end point the daily[] buckets count back from */
   };
 
   for (const iss of issues) {
@@ -4501,34 +4502,26 @@ function computeMetrics(issues) {
     const doneCat = f.status?.statusCategory?.key === 'done'
       || String(f.status?.statusCategory?.name || '').toLowerCase() === 'done';
 
-    if (created && NOW - created < 30 * DAY) {
+    if (created && ANCHOR - created >= 0 && ANCHOR - created < 30 * DAY) {
       m.created30++;
-      m.dailyCreated[Math.max(0, 29 - Math.floor((NOW - created) / DAY))]++;
+      m.dailyCreated[Math.max(0, Math.min(29, 29 - Math.floor((ANCHOR - created) / DAY)))]++;
     }
-    if (created && NOW - created >= 30 * DAY && NOW - created < 60 * DAY) m.createdPrev30++;
+    if (created && ANCHOR - created >= 30 * DAY && ANCHOR - created < 60 * DAY) m.createdPrev30++;
     if (resolved) {
-      if (NOW - resolved < 30 * DAY) {
+      if (ANCHOR - resolved >= 0 && ANCHOR - resolved < 30 * DAY) {
         m.resolved30++;
-        m.dailyResolved[Math.max(0, 29 - Math.floor((NOW - resolved) / DAY))]++;
+        m.dailyResolved[Math.max(0, Math.min(29, 29 - Math.floor((ANCHOR - resolved) / DAY)))]++;
       }
-      if (NOW - resolved >= 30 * DAY && NOW - resolved < 60 * DAY) m.resolvedPrev30++;
-      const wkIdx = Math.floor((NOW - resolved) / (7 * DAY));
-      if (wkIdx >= 0 && wkIdx < 12) m.weekly[11 - wkIdx].count++;
-      const pwIdx = WEEKS - 1 - Math.floor((NOW - resolved) / (7 * DAY));
-      if (pwIdx >= 0 && pwIdx < WEEKS) m.pipelineWeekly[pwIdx].resolved++;
+      if (ANCHOR - resolved >= 30 * DAY && ANCHOR - resolved < 60 * DAY) m.resolvedPrev30++;
       /* cycle time = real flow time only. Blocked/Canceled/On-Hold issues are
          excluded — their months of parked time are not delivery speed and were
          inflating the Avg cycle time KPI (canceled issues often carry a
          resolutiondate, which made them look "resolved"). */
       if (created && !isBlockedStatus(f)) {
         m.cycles.push(resolved - created);
-        if (NOW - resolved < 30 * DAY) m.cycleRecent.push(resolved - created);
-        else if (NOW - resolved < 60 * DAY) m.cyclePrev.push(resolved - created);
+        if (ANCHOR - resolved >= 0 && ANCHOR - resolved < 30 * DAY) m.cycleRecent.push(resolved - created);
+        else if (ANCHOR - resolved >= 30 * DAY && ANCHOR - resolved < 60 * DAY) m.cyclePrev.push(resolved - created);
       }
-    }
-    if (created) {
-      const pwIdx = WEEKS - 1 - Math.floor((NOW - created) / (7 * DAY));
-      if (pwIdx >= 0 && pwIdx < WEEKS) m.pipelineWeekly[pwIdx].created++;
     }
     /* done = Jira's statusCategory=done OR an org-flow "green" completed status
        (Released / Babysitting / Done Approved… — these carry no resolutiondate on
@@ -4559,7 +4552,7 @@ function computeMetrics(issues) {
       }
     }
     evts.sort((a, b) => a.ts - b.ts);
-    let prevTs = created ?? NOW;
+    let prevTs = created ?? ANCHOR;
     let prevName = evts.length ? (evts[0].from || statusName) : statusName;
     for (const ev of evts) {
       if (ev.ts > prevTs && !excludedNow && !isExcludedStatus({ status: { name: prevName } })) {
@@ -4569,7 +4562,9 @@ function computeMetrics(issues) {
       prevTs = ev.ts;
       if (ev.to) prevName = ev.to;
     }
-    const curAge = Math.max(0, NOW - prevTs);
+    /* age of the current status: from the anchor (window end / now), clamped so
+       a historical window does not add post-window time to active issues */
+    const curAge = Math.max(0, ANCHOR - prevTs);
     if (!excludedNow && !isExcludedStatus({ status: { name: prevName } })) {
       addTime(m.statusTime, prevName, curAge);
       addStatusKey(m.statusKeys, prevName, iss.key);
@@ -5986,9 +5981,22 @@ function buildTimeSeries(def, issues, ctx) {
   const customWin = def.range === RANGE_CUSTOM && def.rangeFrom && def.rangeTo
     ? { from: Date.parse(def.rangeFrom), to: Date.parse(def.rangeTo) }
     : null;
+  /* board-level date filter intersection: when the dashboard has a period
+     filter on (e.g. Jan–Mar 2024), every preset range must live inside that
+     window instead of back from "today" (which would show an empty chart). */
+  const boardWin = (ctx && ctx.boardWin) || null;
+  const bxFrom = boardWin ? boardWin.from : null;
+  const bxTo = boardWin ? boardWin.to : null;
   const hasCustom = !!(customWin && isFinite(customWin.from) && isFinite(customWin.to) && customWin.to > customWin.from);
-  const ANCHOR = hasCustom ? customWin.to : NOW;
+  /* ANCHOR prefers the custom per-chart end, then the board window end, then now */
+  const ANCHOR = hasCustom ? customWin.to : (bxTo != null && isFinite(bxTo) ? bxTo : NOW);
+  /* effective start for preset ranges when a board window is on */
+  const presetFloor = ANCHOR != null && isFinite(ANCHOR) && bxFrom != null && isFinite(bxFrom)
+    ? Math.max(0, Math.floor((ANCHOR - bxFrom) / DAY) + 1)
+    : null;
   if (hasCustom) rangeDays = Math.ceil((customWin.to - customWin.from) / DAY) + 1;
+  else if (presetFloor != null && rangeDays > 0 && rangeDays > presetFloor) rangeDays = presetFloor;
+  else if (presetFloor != null && rangeDays === 0) rangeDays = presetFloor;
 
   let oldest = Infinity;
   for (const iss of issues) {
@@ -6097,7 +6105,9 @@ function buildTimeSeries(def, issues, ctx) {
   else parts.push(t('series.resolved'));
   const rangeTxt = hasCustom
     ? `${fmtDate(customWin.from)} – ${fmtDate(customWin.to)}`
-    : rangeLabel(def.range);
+    : (presetFloor != null
+      ? `${fmtDate(ANCHOR - Math.max(1, rangeDays) * DAY)} – ${fmtDate(ANCHOR)}`   /* board-window clipped range */
+      : rangeLabel(def.range));
   const subtitle = `${parts.join(' · ')} · ${tReplace('series.perBucket', { b: t('bucket.' + bucket).toLowerCase() })} · ${rangeTxt}`;
 
   const total = isNet
@@ -6111,16 +6121,26 @@ function buildTimeSeries(def, issues, ctx) {
 }
 
 /* category aggregation: count / avgCycle / openAge */
-function buildCategoryData(def, issues) {
+function buildCategoryData(def, issues, ctx) {
   const metric = METRIC_DEFS[def.metric];
   const NOW = Date.now();
   /* per-chart time range (dropdown): preset day counts and custom calendar
      windows also constrain category charts. Done-only charts window on the
      completion timestamp, everything else on the creation timestamp — issues
      without the relevant timestamp fall outside the window. */
-  const win = def.range === RANGE_CUSTOM && def.rangeFrom && def.rangeTo
+  let win = def.range === RANGE_CUSTOM && def.rangeFrom && def.rangeTo
     ? { from: Date.parse(def.rangeFrom), to: Date.parse(def.rangeTo) }
     : (def.range > 0 ? { from: NOW - def.range * DAY, to: NOW } : null);
+  /* board-level date filter intersection: presets and custom windows are clipped
+     to the active dashboard period so a historical filter does not blank charts */
+  const bw = (ctx && ctx.boardWin) || null;
+  if (bw && bw.from != null && isFinite(bw.from) && bw.to != null && isFinite(bw.to)) {
+    if (win && isFinite(win.from) && isFinite(win.to)) {
+      win = { from: Math.max(win.from, bw.from), to: Math.min(win.to, bw.to) };
+    } else {
+      win = { from: bw.from, to: bw.to };
+    }
+  }
   const hasWin = !!(win && isFinite(win.from) && isFinite(win.to) && win.to > win.from);
   const inWindow = (f, iss) => {
     if (!hasWin) return true;
@@ -6206,8 +6226,10 @@ function buildCategoryData(def, issues) {
     : values.reduce((a, b) => a + b, 0);
 
   const filterTxt = def.filter === 'open' ? ` · ${t('filter.openOnly')}` : def.filter === 'done' ? ` · ${t('filter.doneOnly')}` : '';
+  /* when the board window clipped the chart's own range, show the effective dates */
+  const clipped = bw && hasWin && win && (win.from === bw.from || win.to === bw.to);
   const rangeTxt = hasWin
-    ? (def.range === RANGE_CUSTOM ? ` · ${fmtDate(win.from)} – ${fmtDate(win.to)}` : ` · ${rangeLabel(def.range)}`)
+    ? (def.range === RANGE_CUSTOM || clipped ? ` · ${fmtDate(win.from)} – ${fmtDate(win.to)}` : ` · ${rangeLabel(def.range)}`)
     : '';
   const subtitle = `${metric.duration ? t('series.avg') : t('series.count')} ${tReplace('series.byGroup', { g: groupLabel(def.groupBy) || GROUP_LABELS[def.groupBy] || def.groupBy })}${metric.duration ? '' : filterTxt}${rangeTxt}`;
   return {
@@ -6232,7 +6254,20 @@ function buildStatusTimeData(def, m, hasChangelog, issues) {
      a duration metric): any issue whose life OVERLAPS the window counts, and
      only the status time actually spent INSIDE the window contributes (segment
      clamping below). "All time" keeps the cheap precomputed lifetime map. */
-  const win = rangeWindowOf(def);
+  /* board-level date filter: intersect with the chart's own range so a
+     historical dashboard period does not blank these charts */
+  const bwRaw = rangeWindowOf(def);
+  const bwBox = boardWindowOf();
+  let win = bwRaw;
+  if (bwBox && bwBox.from != null && bwBox.to != null && bwBox.to > bwBox.from) {
+    const rFrom = bwRaw.days > 0 ? null : (bwRaw.from != null ? bwRaw.from : null);
+    const rTo = bwRaw.days > 0 ? null : (bwRaw.to != null ? bwRaw.to : null);
+    win = {
+      from: Math.max(rFrom ?? bwBox.from, bwBox.from),
+      to: Math.min(rTo ?? bwBox.to, bwBox.to),
+      days: 0,
+    };
+  }
   let statusTimeMap = m.statusTime;
   let keyMap = m.statusKeys || new Map();
   let windowed = false;
@@ -6303,8 +6338,11 @@ function buildStatusTimeData(def, m, hasChangelog, issues) {
     .map(([k, v]) => ({ k, avg: v.sum / v.n, side: classifySide(k), sum: v.sum, n: v.n, keys: keyMap.get(k) || [] }));
   if (!rows.length) return { empty: [windowed ? t('range.noData') : t('statusTime.noTransitions')] };
 
-  /* show the active window in the subtitle (matches category/time charts) */
-  const rangeSuffix = windowed ? ` · ${rangeLabel(def.range)}` : '';
+  /* show the active window in the subtitle (matches category/time charts);
+     when the board window intersects the range, show the effective dates */
+  const rangeSuffix = windowed
+    ? ` · ${(bwBox && (win.from === bwBox.from || win.to === bwBox.to)) ? `${fmtDate(win.from)} – ${fmtDate(win.to)}` : rangeLabel(def.range)}`
+    : '';
 
   let extraSub = '';
   let labels, values, colors;
@@ -6394,9 +6432,9 @@ function buildChartData(def, m, issues, hasChangelog) {
   const iss = issues || state.issues;
   const hc = hasChangelog != null ? hasChangelog : state.hasChangelog;
   if (!metric) return { empty: [t('err.unknownMetric')] };
-  if (metric.kind === 'time') return buildTimeSeries(def, iss, { boardName: currentChartBoardName() });
+  if (metric.kind === 'time') return buildTimeSeries(def, iss, { boardName: currentChartBoardName(), boardWin: boardWindowOf() });
   if (metric.kind === 'statusTime') return buildStatusTimeData(def, m, hc, iss);
-  return buildCategoryData(def, iss);
+  return buildCategoryData(def, iss, { boardWin: boardWindowOf() });
 }
 
 /* ── chart card rendering ────────────────────────────────────────── */
@@ -7476,6 +7514,13 @@ function renderDashboard(board, m) {
 
   /* dynamic charts (built-in + custom, per-board/global) */
   renderCharts(effectiveCharts(), m);
+
+  /* slow table — subtitle notes the active board period (ages are anchored
+     to the window end, so time-in-status reflects the chosen period) */
+  const tableSub = document.querySelector('.table-card .muted.small[data-i18n="table.titleSub"]');
+  if (tableSub) {
+    tableSub.textContent = boardWindowOf() ? t('table.subFiltered') + fmtBoardWin() : t('table.titleSub');
+  }
 
   /* slow table */
   const rows = m.slow.slice(0, 12).map((r) => {
