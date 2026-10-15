@@ -1026,6 +1026,12 @@ body.light .board-range .chart-range-btn.active { background: rgba(99, 102, 241,
 .tl-search::placeholder { color: var(--muted); }
 .tl-search:focus { outline: none; border-color: var(--accent); }
 .tl-count { font-size: 0.76rem; white-space: nowrap; }
+/* task-list pagination footer: "Showing a–b of n" + Show-more button */
+.tl-footer-wrap { margin-top: 10px; }
+.tl-footer { display: flex; align-items: center; gap: 12px; justify-content: center; }
+.tl-more { font-size: 0.76rem; padding: 6px 14px; border-radius: 9px; }
+/* task-list Excel export: same Excel-brand button as the header export */
+.tl-export { font-size: 0.74rem; padding: 6px 12px; gap: 6px; flex-shrink: 0; }
 /* the pub table shares .data-table, but summary/assignee should be allowed to flow */
 #pubTaskListCard .data-table { min-width: 760px; }
 #pubTaskListCard th, #pubTaskListCard td { white-space: nowrap; }

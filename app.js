@@ -260,6 +260,8 @@ const I18N = {
     'tl.sortTitle': 'Sort tasks', 'tl.filterTitle': 'Filter tasks',
     'tl.any': 'All', 'tl.searchPh': 'Search tasks…',
     'tl.count': '{n} tasks', 'tl.empty': 'No tasks match the current filters.',
+    'tl.more': 'Show more', 'tl.moreTitle': 'Show the next 50 tasks of the current filtered list',
+    'tl.pageOf': 'Showing {a}–{b} of {n}', 'tl.export': 'Tasks Excel', 'tl.exportTitle': 'Download the current task list (with the active filters) as an Excel workbook',
     'ilist.empty': 'No issue data available for this selection.',
     'ilist.count': '{n} issue(s)',
     'ilist.openJira': 'open in Jira',
@@ -876,6 +878,8 @@ const I18N = {
     'tl.sortTitle': 'დავალებების დალაგება', 'tl.filterTitle': 'დავალებების ფილტრი',
     'tl.any': 'ყველა', 'tl.searchPh': 'დავალებების ძებნა…',
     'tl.count': '{n} დავალება', 'tl.empty': 'ფილტრებს ვერცერთი დავალება არ ერგება.',
+    'tl.more': 'მეტის ჩვენება', 'tl.moreTitle': 'შემდეგი 50 დავალების ჩვენება მიმდინარე შერჩევიდან',
+    'tl.pageOf': 'ნაჩვენებია {a}–{b} / {n}', 'tl.export': 'დავალებები Excel', 'tl.exportTitle': 'მიმდინარე დავალებების სიის გადმოწერა Excel-ში (აქტიური ფილტრებით)',
     'ilist.empty': 'ამ შერჩევისთვის დავალების მონაცემები არ არის.',
     'ilist.count': '{n} დავალება',
     'ilist.openJira': 'Jira-ში გახსნა',
@@ -2480,11 +2484,17 @@ function pubTaskListFiltered(issues) {
   return rows;
 }
 
-/* table rows for the filtered task list (capped so huge boards stay snappy) */
+/* table rows for the task list — paginated (50 per page, "Show more" grows
+   the page) so huge boards stay snappy while every row stays reachable */
+const TL_PAGE = 50;
+function tlPageOf() {
+  const st = pubState.tl;
+  if (!st || typeof st.page !== 'number') return TL_PAGE;
+  return Math.max(TL_PAGE, st.page);
+}
 function pubTaskListRows(issues) {
-  const MAX = 50;
   const all = pubTaskListFiltered(issues);
-  const rows = all.slice(0, MAX);
+  const rows = all.slice(0, tlPageOf());
   const base = jiraIssueBase();
   const html = rows.map((i) => {
     const f = i.fields || {};
@@ -2505,6 +2515,51 @@ function pubTaskListRows(issues) {
   return html || `<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('tl.empty'))}</td></tr>`;
 }
 
+/* pagination footer: "Showing a–b of n" + a Show-more button when more
+   filtered rows are queued beyond the current page size */
+function pubTaskListFooter(issues) {
+  const all = pubTaskListFiltered(issues);
+  const shown = Math.min(all.length, tlPageOf());
+  if (!all.length) return '';
+  const parts = [`<span class="tl-count muted">${escapeHtml(tReplace('tl.pageOf', { a: 1, b: shown, n: all.length }))}</span>`];
+  if (all.length > shown) {
+    parts.push(`<button type="button" id="tlMoreBtn" class="btn btn-ghost tl-more" title="${escapeHtml(t('tl.moreTitle'))}">${escapeHtml(t('tl.more'))} (${all.length - shown})</button>`);
+  }
+  return `<div class="tl-footer">${parts.join('')}</div>`;
+}
+
+/* Excel export of ONLY the task list: the currently filtered (and
+   board-period-filtered) rows, one workbook column per table column —
+   key, summary, status, updated, type, assignee, created — with readable
+   widths, a frozen header and the same date handling the page shows. */
+function exportTaskListExcel(issues) {
+  if (!window.XLSX) throw new Error('XLSX library not loaded');
+  const rows = pubTaskListFiltered(issues).map((i) => {
+    const f = i.fields || {};
+    const base = jiraIssueBase();
+    return {
+      [t('th.key')]: i.key || '',
+      [t('th.summary')]: f.summary || '',
+      [t('th.status')]: f.status?.name || '',
+      [t('th.updated')]: fmtDateLong(f.updated),
+      [t('th.type')]: f.issuetype?.name || '',
+      [t('th.assignee')]: f.assignee?.displayName || t('ilist.unassigned'),
+      [t('th.created')]: fmtDateLong(f.created),
+      [t('brd.hdrLink')]: base ? `${base}/browse/${i.key}` : '',
+    };
+  });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ [t('th.key')]: t('tl.empty') }]);
+  ws['!cols'] = [{ wch: 16 }, { wch: 60 }, { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 22 }, { wch: 22 }, { wch: 46 }];
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  XLSX.utils.book_append_sheet(wb, ws, safeSheetName(t('tl.title')));
+  const win = boardWindowOf();
+  const isoDate = (ts) => (ts ? new Date(ts).toISOString().slice(0, 10) : '');
+  const rangeTag = win ? `${isoDate(win.from)}_${isoDate(win.to)}` : 'all';
+  const boardName = (pubState.snapshot?.boardName || 'board').replace(/[^\w\-]+/g, '_');
+  XLSX.writeFile(wb, `${boardName}_tasks_${rangeTag}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
 function updatePubTlCount(issues) {
   const el = $('#tlCount');
   if (el) el.textContent = tReplace('tl.count', { n: pubTaskListFiltered(issues).length });
@@ -2514,20 +2569,32 @@ function updatePubTlCount(issues) {
 function renderPubTaskList(issues) {
   const st = pubTaskListState(pubState.snapshot?.boardId);
   const bar = $('#pubTlFilterBar');
-  bar.innerHTML = pubTaskListFilters(issues, st) + `<span class="tl-count muted" id="tlCount"></span>`;
+  bar.innerHTML = pubTaskListFilters(issues, st) + `<span class="tl-count muted" id="tlCount"></span>` +
+    `<button id="tlExportBtn" class="btn btn-ghost btn-excel tl-export" type="button" title="${escapeHtml(t('tl.exportTitle'))}"><svg class="excel-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>${escapeHtml(t('tl.export'))}</span></button>`;
+  const footWrap = $('#pubTlFooter');
   const rerenderRows = () => {
     $('#pubTlBody').innerHTML = pubTaskListRows(issues);
+    footWrap.innerHTML = pubTaskListFooter(issues);
+    $('#tlMoreBtn')?.addEventListener('click', () => {
+      st.page = tlPageOf() + TL_PAGE;
+      rerenderRows();
+      $('#tlMoreBtn')?.scrollIntoView({ block: 'nearest' });
+    });
     updatePubTlCount(issues);
   };
-  $('#tlSort').addEventListener('change', (e) => { st.sort = e.target.value; rerenderRows(); });
+  $('#tlSort').addEventListener('change', (e) => { st.sort = e.target.value; st.page = TL_PAGE; rerenderRows(); });
   [['tlAssignee', 'assignee'], ['tlStatus', 'status'], ['tlType', 'type']].forEach(([id, k]) => {
-    $('#' + id).addEventListener('change', (e) => { st[k] = e.target.value; rerenderRows(); });
+    $('#' + id).addEventListener('change', (e) => { st[k] = e.target.value; st.page = TL_PAGE; rerenderRows(); });
   });
   let deb;
   $('#tlSearch').addEventListener('input', (e) => {
     clearTimeout(deb);
-    deb = setTimeout(() => { st.q = e.target.value; rerenderRows(); }, 250);
+    deb = setTimeout(() => { st.q = e.target.value; st.page = TL_PAGE; rerenderRows(); }, 250);
   });
+  $('#tlExportBtn').addEventListener('click', () => {
+    try { exportTaskListExcel(issues); } catch (e) { toast(t('brd.exportFailed') + ': ' + (e?.message || ''), 'warn'); }
+  });
+  st.page = TL_PAGE;
   rerenderRows();
 }
 
