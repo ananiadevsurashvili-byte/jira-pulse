@@ -2432,7 +2432,7 @@ function syncPubBoardTools() {
 /* live task list state — reset whenever the viewer switches to another board */
 function pubTaskListState(boardId) {
   if (!pubState.tl || pubState.tl.boardId !== boardId) {
-    pubState.tl = { boardId, sort: 'updated-desc', assignee: '', status: '', type: '', q: '' };
+    pubState.tl = { boardId, sort: 'updated-desc', assignee: '', status: '', type: '', q: '', page: TL_PAGE };
   }
   return pubState.tl;
 }
@@ -2515,17 +2515,17 @@ function pubTaskListRows(issues) {
   return html || `<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('tl.empty'))}</td></tr>`;
 }
 
-/* pagination footer: "Showing a–b of n" + a Show-more button when more
-   filtered rows are queued beyond the current page size */
+/* pagination footer: "Showing a–b of n" + a Show-more button only when more
+   filtered rows are queued beyond the current page size (no footer at all
+   when the whole filtered list is already on screen) */
 function pubTaskListFooter(issues) {
   const all = pubTaskListFiltered(issues);
   const shown = Math.min(all.length, tlPageOf());
-  if (!all.length) return '';
-  const parts = [`<span class="tl-count muted">${escapeHtml(tReplace('tl.pageOf', { a: 1, b: shown, n: all.length }))}</span>`];
-  if (all.length > shown) {
-    parts.push(`<button type="button" id="tlMoreBtn" class="btn btn-ghost tl-more" title="${escapeHtml(t('tl.moreTitle'))}">${escapeHtml(t('tl.more'))} (${all.length - shown})</button>`);
-  }
-  return `<div class="tl-footer">${parts.join('')}</div>`;
+  if (!all.length || all.length <= shown) return '';
+  return `<div class="tl-footer">
+    <span class="tl-count muted">${escapeHtml(tReplace('tl.pageOf', { a: 1, b: shown, n: all.length }))}</span>
+    <button type="button" id="tlMoreBtn" class="btn btn-ghost tl-more" title="${escapeHtml(t('tl.moreTitle'))}">${escapeHtml(t('tl.more'))} (${all.length - shown})</button>
+  </div>`;
 }
 
 /* Excel export of ONLY the task list: the currently filtered (and
@@ -2534,6 +2534,13 @@ function pubTaskListFooter(issues) {
    widths, a frozen header and the same date handling the page shows. */
 function exportTaskListExcel(issues) {
   if (!window.XLSX) throw new Error('XLSX library not loaded');
+  /* sheet dates in machine-ISO (YYYY-MM-DD) so Excel sorts/filters them,
+     not the locale strings the page renders */
+  const isoDate = (v) => {
+    if (!v) return '';
+    const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
+    return isNaN(d.getTime()) ? '' : new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  };
   const rows = pubTaskListFiltered(issues).map((i) => {
     const f = i.fields || {};
     const base = jiraIssueBase();
@@ -2541,10 +2548,10 @@ function exportTaskListExcel(issues) {
       [t('th.key')]: i.key || '',
       [t('th.summary')]: f.summary || '',
       [t('th.status')]: f.status?.name || '',
-      [t('th.updated')]: fmtDateLong(f.updated),
+      [t('th.updated')]: isoDate(f.updated),
       [t('th.type')]: f.issuetype?.name || '',
       [t('th.assignee')]: f.assignee?.displayName || t('ilist.unassigned'),
-      [t('th.created')]: fmtDateLong(f.created),
+      [t('th.created')]: isoDate(f.created),
       [t('brd.hdrLink')]: base ? `${base}/browse/${i.key}` : '',
     };
   });
@@ -2554,7 +2561,6 @@ function exportTaskListExcel(issues) {
   ws['!freeze'] = { xSplit: 0, ySplit: 1 };
   XLSX.utils.book_append_sheet(wb, ws, safeSheetName(t('tl.title')));
   const win = boardWindowOf();
-  const isoDate = (ts) => (ts ? new Date(ts).toISOString().slice(0, 10) : '');
   const rangeTag = win ? `${isoDate(win.from)}_${isoDate(win.to)}` : 'all';
   const boardName = (pubState.snapshot?.boardName || 'board').replace(/[^\w\-]+/g, '_');
   XLSX.writeFile(wb, `${boardName}_tasks_${rangeTag}_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -2592,7 +2598,10 @@ function renderPubTaskList(issues) {
     deb = setTimeout(() => { st.q = e.target.value; st.page = TL_PAGE; rerenderRows(); }, 250);
   });
   $('#tlExportBtn').addEventListener('click', () => {
-    try { exportTaskListExcel(issues); } catch (e) { toast(t('brd.exportFailed') + ': ' + (e?.message || ''), 'warn'); }
+    try {
+      exportTaskListExcel(issues);
+      toast(t('brd.exportDone'), 'ok');
+    } catch (e) { toast(t('brd.exportFailed') + ': ' + (e?.message || ''), 'warn'); }
   });
   st.page = TL_PAGE;
   rerenderRows();
