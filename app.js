@@ -403,10 +403,14 @@ const I18N = {
     'brd.default': 'Default view', 'brd.reset': '↺ Back to default',
     'brd.resetTitle': 'Clear the board date filter and go back to the standard 30-days view',
     'brd.custom': 'Custom', 'brd.active': 'Filtered', 'brd.invalid': 'Pick a valid from–to window',
-    'brd.export': '⇩ Excel', 'brd.exportTitle': 'Export all board data (respecting the active date filter) to an Excel workbook',
+    'brd.export': 'Excel', 'brd.exportTitle': 'Export all board data (respecting the active date filter) to an Excel workbook',
     'brd.exportDone': 'Excel exported', 'brd.exportFailed': 'Excel export failed',
     'brd.sheetSummary': 'Summary', 'brd.sheetIssues': 'Issues', 'brd.sheetStatuses': 'Statuses',
     'brd.sheetTimeStatus': 'Time in status', 'brd.sheetCreated': 'Created per day', 'brd.sheetResolved': 'Resolved per day',
+    'brd.sheetDoc': 'About this export', 'brd.docGenerated': 'Generated', 'brd.docTool': 'Generated with',
+    'brd.docGuide': 'What is inside each tab', 'brd.docChartPrefix': 'Chart ·',
+    'brd.docSubtitle': 'Chart context (as shown on the page)', 'brd.docTotal': 'TOTAL',
+    'brd.hdrLabel': 'Label',
     'brd.hdrIssue': 'Issue key', 'brd.hdrSummary': 'Summary', 'brd.hdrType': 'Type',
     'brd.hdrStatus': 'Current status', 'brd.hdrCategory': 'Status category', 'brd.hdrPriority': 'Priority',
     'brd.hdrAssignee': 'Assignee', 'brd.hdrReporter': 'Reporter', 'brd.hdrCreated': 'Created',
@@ -1015,10 +1019,14 @@ const I18N = {
     'brd.default': 'სტანდარტული', 'brd.reset': '↺ სტანდარტულზე დაბრუნება',
     'brd.resetTitle': 'თარიღის ფილტრის გასუფთავება და სტანდარტულ ხედზე დაბრუნება',
     'brd.custom': 'არჩეული', 'brd.active': 'ფილტრი აქტიურია', 'brd.invalid': 'აირჩიეთ სწორი პერიოდი',
-    'brd.export': '⇩ Excel', 'brd.exportTitle': 'დაფის ყველა მონაცემის ექსპორტი Excel-ში (აქტიური თარიღის ფილტრით)',
+    'brd.export': 'Excel', 'brd.exportTitle': 'დაფის ყველა მონაცემის ექსპორტი Excel-ში (აქტიური თარიღის ფილტრით)',
     'brd.exportDone': 'Excel გადმოწერილია', 'brd.exportFailed': 'Excel-ის ექსპორტი ვერ შესრულდა',
     'brd.sheetSummary': 'შეჯამება', 'brd.sheetIssues': 'დავალებები', 'brd.sheetStatuses': 'სტატუსები',
     'brd.sheetTimeStatus': 'დრო სტატუსში', 'brd.sheetCreated': 'შექმნილი დღეებში', 'brd.sheetResolved': 'დახურული დღეებში',
+    'brd.sheetDoc': 'ამ ექსპორტის შესახებ', 'brd.docGenerated': 'გენერირებულია', 'brd.docTool': 'გენერატორი',
+    'brd.docGuide': 'რა შედის თითოეულ ჩანართში', 'brd.docChartPrefix': 'გრაფიკი ·',
+    'brd.docSubtitle': 'გრაფიკის კონტექსტი (გვერდზე როგორც ჩანს)', 'brd.docTotal': 'სულ',
+    'brd.hdrLabel': 'ჭრილი',
     'brd.hdrIssue': 'დავალების კოდი', 'brd.hdrSummary': 'სათაური', 'brd.hdrType': 'ტიპი',
     'brd.hdrStatus': 'მიმდინარე სტატუსი', 'brd.hdrCategory': 'სტატუსის კატეგორია', 'brd.hdrPriority': 'პრიორიტეტი',
     'brd.hdrAssignee': 'აღმასრულებელი', 'brd.hdrReporter': 'ავტორი', 'brd.hdrCreated': 'შექმნის თარიღი',
@@ -4364,16 +4372,64 @@ function syncBoardRangeUI() {
 }
 
 /* ── Excel export (SheetJS) ─────────────────────────────────────────
-   Exports the CURRENTly-open board exactly as it is filtered on screen
-   (default view or the active board date filter): KPI summary, full issue
-   rows, per-status distribution and per-issue time-in-status sheets. */
-function exportBoardExcel(board, issues, m) {
+   Exports the CURRENTly-open board exactly as shown on screen (default
+   view or active board date filter): a doc/index sheet, the KPI summary,
+   EVERY visible chart as its own tab (labels × datasets, mirrors the
+   dashboard), full issue rows, per-status distribution, per-issue
+   time-in-status, and created/resolved-per-day series.
+   `charts` (optional) = [{ def, data }] — the same structure renderCharts
+   and renderPubContent already compute, so the workbook is a 1:1 mirror
+   of the page with zero recompute in the export. */
+function exportBoardExcel(board, issues, m, charts = null) {
   if (!window.XLSX) throw new Error('XLSX library not loaded');
   const wb = XLSX.utils.book_new();
   const win = boardWindowOf();
   const isoDate = (ts) => (ts ? new Date(ts).toISOString().slice(0, 10) : '');
+  const genAt = new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
-  /* ── Sheet 1: Summary (KPI cards + the active date filter) ── */
+  /* helper: basic sheet dressing so every tab opens readable */
+  const dress = (sheet, widths, freezeRow = 1) => {
+    if (widths) sheet['!cols'] = widths;
+    sheet['!freeze'] = { xSplit: 0, ySplit: freezeRow };
+    return sheet;
+  };
+  const wch = (...ns) => ns.map((n) => ({ wch: n }));
+
+  const used = new Set();
+  const uniqueSheet = (name) => {
+    let base = safeSheetName(name), nm = base, i = 2;
+    while (used.has(nm)) { nm = base.slice(0, 26) + ' ' + i++; }
+    used.add(nm);
+    return nm;
+  };
+  const addSheet = (rows, name, widths) => {
+    const ws = dress(XLSX.utils.json_to_sheet(rows), widths);
+    XLSX.utils.book_append_sheet(wb, ws, uniqueSheet(name));
+  };
+
+  /* ── Sheet 1: Documentation — what is inside, when it was generated ── */
+  const docRows = [
+    { [t('brd.hdrMetric')]: t('brd.hdrIssue'), [t('brd.hdrValue')]: board?.name || '' },
+    { [t('brd.hdrMetric')]: t('brd.window'), [t('brd.hdrValue')]: win ? `${isoDate(win.from)} – ${isoDate(win.to)}` : t('brd.windowNone') },
+    { [t('brd.hdrMetric')]: t('brd.docGenerated'), [t('brd.hdrValue')]: genAt },
+    { [t('brd.hdrMetric')]: t('brd.docTool'), [t('brd.hdrValue')]: 'JiraPulse' },
+    { [t('brd.hdrMetric')]: t('brd.docGuide'), [t('brd.hdrValue')]: '' },
+  ];
+  const docGuide = [];
+  docGuide.push({ s: t('brd.docGuide'), v: t('brd.sheetSummary') });
+  if (Array.isArray(charts)) for (const c of charts) {
+    if (!c?.data || c.data.empty) continue;
+    docGuide.push({ s: `${t('brd.docChartPrefix')} ${defTitle(c.def)}`, v: '' });
+  }
+  docGuide.push({ s: t('brd.sheetIssues'), v: '' });
+  docGuide.push({ s: t('brd.sheetStatuses'), v: '' });
+  docGuide.push({ s: t('brd.sheetTimeStatus'), v: '' });
+  if (m.dailyCreated?.length) docGuide.push({ s: t('brd.sheetCreated'), v: '' });
+  if (m.dailyResolved?.length) docGuide.push({ s: t('brd.sheetResolved'), v: '' });
+  docGuide.forEach((g) => docRows.push({ [t('brd.hdrMetric')]: g.s, [t('brd.hdrValue')]: g.v }));
+  addSheet(docRows, t('brd.sheetDoc'), wch(34, 46));
+
+  /* ── Sheet 2: Summary (the same KPI numbers the cards show) ── */
   const sumRows = [
     { [t('brd.hdrMetric')]: t('brd.rowTotal'), [t('brd.hdrValue')]: m.total },
     { [t('brd.hdrMetric')]: t('brd.rowCreated'), [t('brd.hdrValue')]: m.created30 },
@@ -4383,18 +4439,49 @@ function exportBoardExcel(board, issues, m) {
     { [t('brd.hdrMetric')]: t('brd.rowWip'), [t('brd.hdrValue')]: m.wip },
     { [t('brd.hdrMetric')]: t('brd.rowBlocked'), [t('brd.hdrValue')]: m.blockedCount },
     { [t('brd.hdrMetric')]: t('brd.rowCycle'), [t('brd.hdrValue')]: m.cycleAvg != null ? +(m.cycleAvg / DAY).toFixed(2) : '' },
-    { [t('brd.hdrMetric')]: t('brd.window'), [t('brd.hdrValue')]: win ? `${isoDate(win.from)} – ${isoDate(win.to)}` : t('brd.windowNone') },
-    { [t('brd.hdrMetric')]: t('brd.hdrIssue'), [t('brd.hdrValue')]: board?.name || '' },
   ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sumRows), safeSheetName(t('brd.sheetSummary')));
+  addSheet(sumRows, t('brd.sheetSummary'), wch(30, 16));
 
-  /* ── Sheet 2: Issues — one accurate row per task in the filtered pool ── */
+  /* ── Sheet 3: Charts — ONE TAB PER VISIBLE CHART, mirroring the page ──
+     Rows = chart labels; one column per dataset series; Total row at the
+     bottom. This is what makes the export "everything I see on the board
+     page, structured and easy to understand". */
+  if (Array.isArray(charts)) {
+    for (const c of charts) {
+      if (!c?.data || c.data.empty) continue;
+      const d = c.data, def = c.def;
+      const sets = Array.isArray(d.datasets) ? d.datasets : [];
+      const labels = d.labels || [];
+      const rows = labels.map((lb, i) => {
+        const r = { [t('brd.hdrLabel')]: lb };
+        for (const s of sets) {
+          const colTitle = sets.length > 1 ? `${defTitle(def)} · ${s.label || ''}` : (defTitle(def));
+          r[colTitle] = Array.isArray(s.data) ? (s.data[i] ?? '') : (s.data ?? '');
+        }
+        return r;
+      });
+      /* Total row: sums each numeric series so a reader gets the headline number */
+      const totalRow = { [t('brd.hdrLabel')]: t('brd.docTotal') };
+      for (const s of sets) {
+        const colTitle = sets.length > 1 ? `${defTitle(def)} · ${s.label || ''}` : (defTitle(def));
+        const nums = Array.isArray(s.data) ? s.data.filter((v) => typeof v === 'number' && isFinite(v)) : [];
+        totalRow[colTitle] = nums.length ? +nums.reduce((a, b) => a + b, 0).toFixed(2) : '';
+      }
+      rows.push(totalRow);
+      /* subtitle under the data so context (dates/aggregation) is captured */
+      rows.push({ [t('brd.hdrLabel')]: '', [defTitle(def)]: '' });
+      rows.push({ [t('brd.hdrLabel')]: t('brd.docSubtitle'), [defTitle(def)]: d.subtitle || '' });
+      addSheet(rows, `${t('brd.docChartPrefix')} ${defTitle(def)}`, wch(30, ...sets.map(() => 18)));
+    }
+  }
+
+  /* ── Sheet 5: Issues — one accurate row per task in the filtered pool ── */
   const issueRows = issues.map((iss) => {
     const f = iss.fields || {};
     const created = f.created ? Date.parse(f.created) : null;
     const completed = issueCompletedAt(f, iss.changelog);
-    const isDone = statusIsDone(f) || isCompletedStatus(f, false);
     const blocked = isBlockedStatus(f);
+    const base = jiraIssueBase();
     return {
       [t('brd.hdrIssue')]: iss.key,
       [t('brd.hdrSummary')]: f.summary || '',
@@ -4409,20 +4496,18 @@ function exportBoardExcel(board, issues, m) {
       [t('brd.hdrCycle')]: created && completed && !blocked ? +((completed - created) / DAY).toFixed(2) : '',
       [t('brd.hdrAge')]: completed ? '' : created ? Math.max(0, Math.floor((Date.now() - created) / DAY)) : '',
       [t('brd.hdrLabels')]: (f.labels || []).join(', '),
-      [t('brd.hdrLink')]: jiraIssueBase() ? `${jiraIssueBase()}/browse/${iss.key}` : '',
+      [t('brd.hdrLink')]: base ? `${base}/browse/${iss.key}` : '',
     };
   });
-  const issSheet = XLSX.utils.json_to_sheet(issueRows);
-  issSheet['!cols'] = [{ wch: 14 }, { wch: 50 }, { wch: 12 }, { wch: 18 }, { wch: 14 }, { wch: 10 }, { wch: 20 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 24 }, { wch: 40 }];
-  XLSX.utils.book_append_sheet(wb, issSheet, safeSheetName(t('brd.sheetIssues')));
+  addSheet(issueRows, t('brd.sheetIssues'), wch(14, 50, 12, 18, 14, 10, 20, 20, 12, 12, 10, 10, 24, 46));
 
-  /* ── Sheet 3: Statuses — the live per-status distribution ── */
+  /* ── Sheet 6: Statuses — the live per-status distribution ── */
   const stRows = [...(m.statusDist || []).entries()].map(([status, n]) => ({
     [t('brd.hdrStatus')]: status, [t('brd.hdrValue')]: n,
   }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(stRows), safeSheetName(t('brd.sheetStatuses')));
+  addSheet(stRows, t('brd.sheetStatuses'), wch(28, 12));
 
-  /* ── Sheet 4: Time in status — per-issue changelog segment ledger ── */
+  /* ── Sheet 7: Time in status — per-issue changelog segment ledger ── */
   const tisRows = [];
   for (const iss of issues) {
     const f = iss.fields || {};
@@ -4447,20 +4532,20 @@ function exportBoardExcel(board, issues, m) {
       tisRows.push({ [t('brd.hdrIssue')]: iss.key, [t('brd.hdrStatus')]: prevName, [t('brd.hdrValue')]: +((now - prevTs) / DAY).toFixed(2) });
     }
   }
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tisRows), safeSheetName(t('brd.sheetTimeStatus')));
+  addSheet(tisRows, t('brd.sheetTimeStatus'), wch(14, 26, 12));
 
-  /* ── Sheet 5+6: created / resolved per day for the metric anchor window ──
+  /* ── Sheet 8+9: created / resolved per day for the metric anchor window ──
      labels count back from the same anchor the daily buckets used
      (board-window end when a date filter is on, else today) */
   if (m.dailyCreated?.length) {
     const dAnchor = m.dailyAnchor || Date.now();
     const rows = m.dailyCreated.map((n, i) => ({ [t('brd.hdrCreated')]: isoDate(dAnchor - (29 - i) * DAY), [t('brd.hdrValue')]: n }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), safeSheetName(t('brd.sheetCreated')));
+    addSheet(rows, t('brd.sheetCreated'), wch(14, 12));
   }
   if (m.dailyResolved?.length) {
     const dAnchor = m.dailyAnchor || Date.now();
     const rows = m.dailyResolved.map((n, i) => ({ [t('brd.hdrCompleted')]: isoDate(dAnchor - (29 - i) * DAY), [t('brd.hdrValue')]: n }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), safeSheetName(t('brd.sheetResolved')));
+    addSheet(rows, t('brd.sheetResolved'), wch(14, 12));
   }
 
   const fname = `${(board?.name || 'board').replace(/[^\w\-]+/g, '_')}_jirapulse_${isoDate(Date.now())}.xlsx`;
@@ -6744,10 +6829,14 @@ function setChartRange(id, patch) {
   applyChartRangeUpdate(id);
 }
 
-/* close every open range menu (outside-click + re-open hygiene) */
+/* close every open range menu (outside-click + re-open hygiene).
+   Static calendar panels (the from/to pickers inside #boardRangeMenu and
+   #pubBoardRangeMenu) are NOT hidden — they are always part of those menus
+   and hiding them made the "Board period" calendar disappear forever after
+   the first outside click. Per-chart calendars (data-rcal) still toggle. */
 function closeChartRangeMenus(root) {
-  (root || document).querySelectorAll('.chart-range-menu').forEach((m) => m.classList.add('hidden'));
-  (root || document).querySelectorAll('.chart-range-cal').forEach((c) => c.classList.add('hidden'));
+  (root || document).querySelectorAll('.chart-range-menu:not(#boardRangeMenu):not(#pubBoardRangeMenu)').forEach((m) => m.classList.add('hidden'));
+  (root || document).querySelectorAll('.chart-range-cal[data-rcal]').forEach((c) => c.classList.add('hidden'));
 }
 
 /* wire one grid's range dropdowns: button toggle, preset pick, calendar apply */
@@ -7956,7 +8045,12 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#exportExcelBtn').addEventListener('click', () => {
     if (!state.lastBoard) { toast(t('toast.noConn'), 'warn'); return; }
     try {
-      exportBoardExcel(state.lastBoard, state.issues, state.lastMetrics);
+      /* mirror the whole dashboard: build every visible chart's data the same
+         way renderCharts does, so the workbook carries one tab per chart */
+      const defs = effectiveCharts();
+      const m = state.lastMetrics;
+      const charts = defs.map((def) => ({ def, data: buildChartData(def, m) }));
+      exportBoardExcel(state.lastBoard, state.issues, m, charts);
       toast(t('brd.exportDone'), 'ok');
     } catch (e) {
       toast(t('brd.exportFailed') + ': ' + (e?.message || ''), 'warn');
@@ -8007,7 +8101,9 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       toast(t('pub.loadingLive'));
       const rec = await pubLoadBoardLive(snap.boardId);
-      exportBoardExcel({ name: snap.boardName || '' }, rec.issues, rec.metrics);
+      /* mirror the whole pub board page: the live record already carries the
+         per-chart data (def + data) exactly as rendered on screen */
+      exportBoardExcel({ name: snap.boardName || '' }, rec.issues, rec.metrics, rec.charts);
       toast(t('brd.exportDone'), 'ok');
     } catch (e) {
       toast(t('brd.exportFailed') + ': ' + (e?.message || ''), 'warn');

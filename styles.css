@@ -725,15 +725,27 @@ body:not(.light) .chart-range-opt:hover { background: rgba(99, 102, 241, 0.18); 
   border-top: 1px solid var(--border); margin-top: 3px; padding-top: 9px;
 }
 .board-range-reset:hover { background: rgba(251, 146, 60, 0.12); color: #fdba74; }
-/* Excel export button: a subtle green accent so it reads as "download data" */
+/* Excel export button: Excel-brand thematic design — the iconic green Excel
+   identity (download-cloud icon + green gradient surface + Excel-style "X"
+   glyph on hover) so it reads instantly as "download spreadsheet" */
 .btn-excel {
-  background: rgba(52, 211, 153, 0.12) !important;
-  border-color: rgba(52, 211, 153, 0.4) !important;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.20), rgba(16, 185, 129, 0.10)) !important;
+  border-color: rgba(16, 185, 129, 0.5) !important;
   color: #6ee7b7 !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.02em;
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.08);
 }
-.btn-excel:hover { background: rgba(52, 211, 153, 0.22) !important; border-color: rgba(52, 211, 153, 0.6) !important; color: #a7f3d0 !important; }
-body.light .btn-excel { background: rgba(16, 185, 129, 0.08) !important; color: #059669 !important; border-color: rgba(16, 185, 129, 0.35) !important; }
-body.light .btn-excel:hover { background: rgba(16, 185, 129, 0.16) !important; }
+.btn-excel .excel-ico { opacity: 0.95; flex-shrink: 0; }
+.btn-excel:hover {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.32), rgba(16, 185, 129, 0.16)) !important;
+  border-color: rgba(16, 185, 129, 0.75) !important;
+  color: #a7f3d0 !important;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.25);
+  transform: translateY(-1px);
+}
+body.light .btn-excel { background: linear-gradient(135deg, rgba(5, 150, 105, 0.12), rgba(5, 150, 105, 0.06)) !important; color: #059669 !important; border-color: rgba(5, 150, 105, 0.4) !important; }
+body.light .btn-excel:hover { background: linear-gradient(135deg, rgba(5, 150, 105, 0.2), rgba(5, 150, 105, 0.1)) !important; color: #047857 !important; box-shadow: 0 4px 14px rgba(5, 150, 105, 0.18); }
 body.light .board-range .chart-range-btn { background: #ffffff; }
 body.light .board-range .chart-range-btn.active { background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.55); }
 
