@@ -2576,14 +2576,17 @@ function pubTaskListFooter(issues) {
    widths, a frozen header and the same date handling the page shows. */
 /* workbook row for one task — shared by the tasks-only export and the Tasks
    tab of the board-period export so the two never drift apart */
+/* sheet dates in machine-ISO (YYYY-MM-DD) so Excel sorts/filters them, not
+   the locale strings the page renders. Module-level so the tasks-only export
+   can also use it for its filename's period tag (its ReferenceError crashed
+   the download — the helper used to be locked inside taskListSheetRows). */
+function isoDate(v) {
+  if (!v) return '';
+  const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
+  return isNaN(d.getTime()) ? '' : new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
 function taskListSheetRows(issues) {
-  /* sheet dates in machine-ISO (YYYY-MM-DD) so Excel sorts/filters them,
-     not the locale strings the page renders */
-  const isoDate = (v) => {
-    if (!v) return '';
-    const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
-    return isNaN(d.getTime()) ? '' : new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-  };
   const base = jiraIssueBase();
   return issues.map((i) => {
     const f = i.fields || {};
@@ -4522,7 +4525,7 @@ function exportBoardExcel(board, issues, m, charts = null) {
   if (!window.XLSX) throw new Error('XLSX library not loaded');
   const wb = XLSX.utils.book_new();
   const win = boardWindowOf();
-  const isoDate = (ts) => (ts ? new Date(ts).toISOString().slice(0, 10) : '');
+  /* the module-level timezone-safe isoDate is used (no local shadow) */
   const genAt = new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
   /* helper: basic sheet dressing so every tab opens readable */
