@@ -11,7 +11,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-<link rel="stylesheet" href="styles.css?v=8241745" />
+<link rel="stylesheet" href="styles.css?v=8241746" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -231,14 +231,14 @@
         <div class="kpi-sub muted" id="kpiDoneSub" data-i18n="kpi.doneSub">completed issues</div>
       </div>
       <div class="kpi glass">
-        <div class="kpi-top"><span class="kpi-icon ic-violet">◔</span><span class="kpi-label" data-i18n="kpi.completion">Completion rate</span></div>
+        <div class="kpi-top"><span class="kpi-icon ic-violet">◎</span><span class="kpi-label" data-i18n="kpi.completion">Completion rate</span></div>
         <div class="kpi-value accent-violet" id="kpiCompletion">…</div>
         <div class="kpi-sub muted" id="kpiCompletionSub" data-i18n="kpi.completionSub">done vs all issues</div>
       </div>
       <div class="kpi glass">
         <div class="kpi-top"><span class="kpi-icon ic-amber">◔</span><span class="kpi-label" data-i18n="kpi.wip">Work in progress</span></div>
         <div class="kpi-value accent-amber" id="kpiWip">…</div>
-        <div class="kpi-sub muted" data-i18n="kpi.wipSub">not yet done</div>
+        <div class="kpi-sub muted" id="kpiWipSub" data-i18n="kpi.wipSub">not yet done</div>
       </div>
     </div>
 
@@ -687,6 +687,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=8241745"></script>
+<script src="app.js?v=8241746"></script>
 </body>
 </html>

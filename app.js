@@ -220,7 +220,7 @@ const I18N = {
     'kpi.cycle': 'Avg cycle time',
     'kpi.cycleSub': 'create → resolve',
     'kpi.wip': 'Work in progress',
-    'kpi.wipSub': 'not yet done',
+    'kpi.wipSub': '{n} tasks not yet done',
     'cmp.roleA': 'Board A · current',
     'cmp.roleB': 'Board B · compared',
     'cmp.roleC': 'Board C · compared',
@@ -847,7 +847,7 @@ const I18N = {
     'kpi.cycle': 'საშ. ციკლის დრო',
     'kpi.cycleSub': 'შექმნა → დასრულება',
     'kpi.wip': 'მიმდინარე სამუშაო',
-    'kpi.wipSub': 'ჯერ არ არის მზად',
+    'kpi.wipSub': '{n} ამოცანა ჯერ არ არის მზად',
     'cmp.roleA': 'დაფა A · მიმდინარე',
     'cmp.roleB': 'დაფა B · შედარებული',
     'cmp.roleC': 'დაფა C · შედარებული',
@@ -2367,7 +2367,7 @@ function pubBoardKpiHtml() {
     card('＋', 'cyan', 'kpi.created', 'pkpiCreated', 'pkpiCreatedSub', 'pkpiCreatedLabel'),
     card('⛔', 'red', 'kpi.blocked', 'pkpiBlocked', 'pkpiBlockedSub'),
     card('✓', 'green', 'kpi.done', 'pkpiDone', 'pkpiDoneSub'),
-    card('◔', 'violet', 'kpi.completion', 'pkpiCompletion', 'pkpiCompletionSub'),
+    card('◎', 'violet', 'kpi.completion', 'pkpiCompletion', 'pkpiCompletionSub'),
     card('◔', 'amber', 'kpi.wip', 'pkpiWip', 'pkpiWipSub'),
   ].join('');
 }
@@ -2388,9 +2388,10 @@ function fillPubBoardKpis(m) {
   $('#pkpiBlockedSub').textContent = t('kpi.blockedSub');
   animateValue($('#pkpiDone'), m.done);
   $('#pkpiDoneSub').textContent = t('kpi.doneSub');
-  animateValue($('#pkpiCompletion'), m.doneRate);
+  animateValue($('#pkpiCompletion'), m.doneRate, '%');
   $('#pkpiCompletionSub').textContent = t('kpi.completionSub');
   animateValue($('#pkpiWip'), m.wip);
+  $('#pkpiWipSub').textContent = tReplace('kpi.wipSub', { n: m.wip });
 }
 
 /* ── pub-side board date filter (public view's own state) ──────────
@@ -3168,16 +3169,17 @@ function drawCanvasMessage(id, lines) {
 }
 
 /* count-up animation for KPI numbers */
-function animateValue(el, target) {
+function animateValue(el, target, suffix = '') {
   if (!el) return;
-  const from = parseInt(el.textContent, 10) || 0;
-  if (from === target) { el.textContent = target; return; }
+  const parsed = parseInt(el.textContent, 10);
+  const from = isNaN(parsed) ? 0 : parsed;
+  if (from === target) { el.textContent = target + suffix; return; }
   const dur = 650;
   const t0 = performance.now();
   function frame(t) {
     const p = Math.min(1, (t - t0) / dur);
     const eased = 1 - Math.pow(1 - p, 3);
-    el.textContent = Math.round(from + (target - from) * eased);
+    el.textContent = Math.round(from + (target - from) * eased) + suffix;
     if (p < 1) requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -4371,8 +4373,13 @@ function issueInBoardWindow(f, from, to, changelog) {
   const created = f.created ? Date.parse(f.created) : null;
   if (!created || !isFinite(created)) return false;
   const completed = issueCompletedAt(f, changelog);
-  /* the issue is "active" during [created, completed || NOW] */
-  const activeTo = completed || Date.now();
+  /* the issue is "active" during [created, completed || last-touch || created]:
+     for work with no completion event the activity ends at its last update
+     (not "now"), so long-canceled / stale-untouched issues created long before
+     the window no longer leak into it — the master period then really applies
+     to every view: cards, charts, task list and both Excel exports */
+  const lastTouch = f.updated ? Date.parse(f.updated) : null;
+  const activeTo = completed || (isFinite(lastTouch) ? lastTouch : created);
   return created <= to && activeTo >= from;
 }
 
@@ -4890,6 +4897,7 @@ function computeMetrics(issues) {
   m.cycleRecentAvg = m.cycleRecent.length ? m.cycleRecent.reduce((a, b) => a + b, 0) / m.cycleRecent.length : null;
   m.cyclePrevAvg = m.cyclePrev.length ? m.cyclePrev.reduce((a, b) => a + b, 0) / m.cyclePrev.length : null;
   m.doneRate = m.total ? Math.round((m.done / m.total) * 100) : 0;
+  m.wipPct = m.total ? Math.round((m.wip / m.total) * 100) : 0;
   m.slow.sort((a, b) => b.age - a.age);
 
   /* stakeholder-vs-team phase delays (from changelog status times) — only ACTIVE statuses,
@@ -5035,7 +5043,7 @@ const CMP_KPIS = [
   { key: 'created30',label: 'cmp.kpiCreated',  icon: '＋', cls: 'ic-cyan',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiCreatedSub' },
   { key: 'blockedCount', label: 'cmp.kpiBlocked', icon: '⛔', cls: 'ic-red',          fmt: (v) => String(v),                          winner: 'less',  sub: 'cmp.kpiBlockedSub' },
   { key: 'done',     label: 'cmp.kpiDone',     icon: '✓', cls: 'ic-green',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiDoneSub' },
-  { key: 'doneRate', label: 'cmp.kpiCompletion', icon: '◔', cls: 'ic-violet',   fmt: (v) => String(v) + '%',                    winner: 'more',  sub: 'cmp.kpiCompletionSub' },
+  { key: 'doneRate', label: 'cmp.kpiCompletion', icon: '◎', cls: 'ic-violet',   fmt: (v) => String(v) + '%',                    winner: 'more',  sub: 'cmp.kpiCompletionSub' },
   { key: 'wip',      label: 'cmp.kpiWip',      icon: '◔', cls: 'ic-amber',      fmt: (v) => String(v),                          winner: 'less',  sub: 'cmp.kpiWipSub' },
 ];
 
@@ -7806,9 +7814,10 @@ function renderDashboard(board, m) {
   $('#kpiBlockedSub').textContent = t('kpi.blockedSub');
   animateValue($('#kpiDone'), m.done);
   $('#kpiDoneSub').textContent = t('kpi.doneSub');
-  animateValue($('#kpiCompletion'), m.doneRate);
+  animateValue($('#kpiCompletion'), m.doneRate, '%');
   $('#kpiCompletionSub').textContent = t('kpi.completionSub');
   animateValue($('#kpiWip'), m.wip);
+  $('#kpiWipSub').textContent = tReplace('kpi.wipSub', { n: m.wip });
   $('#issueCountBadge').textContent = tReplace('dash.issuesAnalyzed', { n: m.total });
 
   /* auto-insights */
