@@ -373,12 +373,14 @@ body.light .board-pub-status option { background: #ffffff; color: #1e2540; }
 .ic-green { background: rgba(52, 211, 153, 0.12); color: #6ee7b7; }
 .ic-violet { background: rgba(139, 92, 246, 0.14); color: #c4b5fd; }
 .ic-amber { background: rgba(251, 191, 36, 0.12); color: #fcd34d; }
+.ic-red { background: rgba(248, 113, 113, 0.14); color: #fca5a5; }
 .kpi-label { font-size: 0.74rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .kpi-value { font-size: 1.9rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; }
 .accent-cyan { color: #67e8f9; }
 .accent-green { color: #6ee7b7; }
 .accent-violet { color: #c4b5fd; }
 .accent-amber { color: #fcd34d; }
+.accent-red { color: #fca5a5; }
 .kpi-sub { font-size: 0.76rem; }
 
 /* ── charts ── */
@@ -1576,6 +1578,8 @@ body.light .ic-cyan { color: #0e7490; }
 body.light .ic-green { color: #047857; }
 body.light .ic-violet { color: #6d28d9; }
 body.light .ic-amber { color: #a16207; }
+body.light .ic-red { color: #b91c1c; }
+body.light .accent-red { color: #b91c1c; }
 body.light .accent-cyan { color: #0e7490; }
 body.light .accent-green { color: #047857; }
 body.light .accent-violet { color: #6d28d9; }

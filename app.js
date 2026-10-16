@@ -210,6 +210,8 @@ const I18N = {
     'kpi.createdSub': 'new tasks registered',
     'kpi.done': 'Done overall',
     'kpi.doneSub': 'completion rate',
+    'kpi.blocked': 'Blocked & canceled',
+    'kpi.blockedSub': 'parked work (all statuses)',
     'kpi.resolved': 'Resolved · 30 days',
     'kpi.resolvedIn': 'Resolved in period',
     'kpi.resolvedSub': 'shipped recently',
@@ -593,8 +595,8 @@ const I18N = {
     'cmp.kpiTotalSub': 'on the board',
     'cmp.kpiCreated': 'Created · 30 days',
     'cmp.kpiCreatedSub': 'new issues',
-    'cmp.kpiDone': 'Done overall',
-    'cmp.kpiDoneSub': 'completed',
+    'cmp.kpiBlocked': 'Blocked & canceled',
+    'cmp.kpiBlockedSub': 'parked work',
     'cmp.kpiResolved': 'Resolved · 30 days',
     'cmp.kpiResolvedSub': 'shipped recently',
     'cmp.kpiCycle': 'Avg cycle time',
@@ -833,6 +835,8 @@ const I18N = {
     'kpi.createdSub': 'ახალი დავალებები',
     'kpi.done': 'ჯამურად დასრულებული',
     'kpi.doneSub': 'დასრულების მაჩვენებელი',
+    'kpi.blocked': 'დაბლოკილი და გაუქმებული',
+    'kpi.blockedSub': 'გაჩერებული სამუშაო (ყველა სტატუსი)',
     'kpi.resolved': 'დახურული · 30 დღე',
     'kpi.resolvedIn': 'დახურული პერიოდში',
     'kpi.resolvedSub': 'ცოტა ხნის წინ გაიგზავნა',
@@ -1214,8 +1218,8 @@ const I18N = {
     'cmp.kpiTotalSub': 'დაფაზე',
     'cmp.kpiCreated': 'შექმნილი · 30 დღე',
     'cmp.kpiCreatedSub': 'ახალი დავალებები',
-    'cmp.kpiDone': 'ჯამურად დასრულებული',
-    'cmp.kpiDoneSub': 'დასრულებული',
+    'cmp.kpiBlocked': 'დაბლოკილი და გაუქმებული',
+    'cmp.kpiBlockedSub': 'გაჩერებული სამუშაო',
     'cmp.kpiResolved': 'დახურული · 30 დღე',
     'cmp.kpiResolvedSub': 'ცოტა ხნის წინ გაიგზავნა',
     'cmp.kpiCycle': 'საშ. ციკლის დრო',
@@ -2357,7 +2361,7 @@ function pubBoardKpiHtml() {
   return [
     card('▦', 'indigo', 'kpi.total', 'pkpiTotal', 'pkpiTotalSub'),
     card('＋', 'cyan', 'kpi.created', 'pkpiCreated', 'pkpiCreatedSub', 'pkpiCreatedLabel'),
-    card('✓', 'green', 'kpi.done', 'pkpiDone', 'pkpiDoneSub'),
+    card('⛔', 'red', 'kpi.blocked', 'pkpiBlocked', 'pkpiBlockedSub'),
     card('↻', 'green', 'kpi.resolved', 'pkpiResolved', 'pkpiResolvedSub', 'pkpiResolvedLabel'),
     card('⏱', 'violet', 'kpi.cycle', 'pkpiCycle', 'pkpiCycleSub'),
     card('◔', 'amber', 'kpi.wip', 'pkpiWip', 'pkpiWipSub'),
@@ -2377,8 +2381,8 @@ function fillPubBoardKpis(m) {
   $('#pkpiCreatedSub').innerHTML = bwOn
     ? `<span class="muted">${escapeHtml(t('brd.period') + ': ' + fmtBoardWin())}</span>`
     : trendBadge(m.createdPrev30, m.created30, t('dash.vsPrior30d'), 'neutral');
-  animateValue($('#pkpiDone'), m.done);
-  $('#pkpiDoneSub').textContent = tReplace('dash.completionRate', { p: m.doneRate });
+  animateValue($('#pkpiBlocked'), m.blockedCount);
+  $('#pkpiBlockedSub').textContent = t('kpi.blockedSub');
   animateValue($('#pkpiResolved'), m.resolved30);
   $('#pkpiResolvedSub').innerHTML = bwOn
     ? `<span class="muted">${escapeHtml(t('brd.period') + ': ' + fmtBoardWin())}</span>`
@@ -4449,6 +4453,14 @@ function fmtBoardWin() {
     + ' – ' + new Date(win.to).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' });
 }
 
+/* label for a chart's range dropdown: when the board period is the master
+   window (and the chart is not on its own custom calendar), show the actual
+   period dates so the dropdown matches the header button, not a generic word */
+function chartRangeLbl(def) {
+  const bw = boardWindowOf();
+  return bw && def.range !== RANGE_CUSTOM ? fmtBoardWin() : rangeLabel(def.range);
+}
+
 function syncBoardRangeUI() {
   const btn = $('#boardRangeBtn');   /* hidden on small boards page — absent elsewhere */
   if (!btn) return;
@@ -4536,7 +4548,6 @@ function exportBoardExcel(board, issues, m, charts = null) {
     { [t('brd.hdrMetric')]: t('brd.rowTotal'), [t('brd.hdrValue')]: m.total },
     { [t('brd.hdrMetric')]: t('brd.rowCreated'), [t('brd.hdrValue')]: m.created30 },
     { [t('brd.hdrMetric')]: t('brd.rowResolved'), [t('brd.hdrValue')]: m.resolved30 },
-    { [t('brd.hdrMetric')]: t('brd.rowDone'), [t('brd.hdrValue')]: m.done },
     { [t('brd.hdrMetric')]: t('brd.rowDoneRate'), [t('brd.hdrValue')]: m.doneRate },
     { [t('brd.hdrMetric')]: t('brd.rowWip'), [t('brd.hdrValue')]: m.wip },
     { [t('brd.hdrMetric')]: t('brd.rowBlocked'), [t('brd.hdrValue')]: m.blockedCount },
@@ -5029,7 +5040,7 @@ const onCompareBoardChange = (ev) => onCompareSlotChange('b', ev);   /* slot B e
 const CMP_KPIS = [
   { key: 'total',    label: 'cmp.kpiTotal',    icon: '▦', cls: 'ic-indigo',     fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiTotalSub' },
   { key: 'created30',label: 'cmp.kpiCreated',  icon: '＋', cls: 'ic-cyan',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiCreatedSub' },
-  { key: 'done',     label: 'cmp.kpiDone',     icon: '✓', cls: 'ic-green',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiDoneSub' },
+  { key: 'blockedCount', label: 'cmp.kpiBlocked', icon: '⛔', cls: 'ic-red',          fmt: (v) => String(v),                          winner: 'less',  sub: 'cmp.kpiBlockedSub' },
   { key: 'resolved30',label: 'cmp.kpiResolved',icon: '↻', cls: 'ic-green',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiResolvedSub' },
   { key: 'cycleAvg', label: 'cmp.kpiCycle',    icon: '⏱', cls: 'ic-violet',     fmt: (v) => (v != null ? fmtDuration(v) : '—'), winner: 'less',  sub: 'cmp.kpiCycleSub' },
   { key: 'wip',      label: 'cmp.kpiWip',      icon: '◔', cls: 'ic-amber',      fmt: (v) => String(v),                          winner: 'less',  sub: 'cmp.kpiWipSub' },
@@ -6777,7 +6788,7 @@ function chartCardHTML(def, overridden) {
   const rangeCtl = `<div class="chart-range" data-rid="${def.id}">
         <button type="button" class="chart-range-btn" data-act="range" data-id="${def.id}" title="${escapeHtml(t('range.title'))}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          <span class="chart-range-label">${escapeHtml(boardWindowOf() && def.range !== RANGE_CUSTOM ? t('range.board') : rangeLabel(def.range))}</span>
+          <span class="chart-range-label">${escapeHtml(chartRangeLbl(def))}</span>
           <span class="chart-range-caret">▾</span>
         </button>
         <div class="chart-range-menu hidden" data-rmenu="${def.id}">
@@ -6928,7 +6939,7 @@ function applyChartRangeUpdate(id) {
 
   /* range label + menu active states */
   const label = card.querySelector('.chart-range-label');
-  if (label) label.textContent = boardWindowOf() && def.range !== RANGE_CUSTOM ? t('range.board') : rangeLabel(def.range);
+  if (label) label.textContent = chartRangeLbl(def);
   card.querySelectorAll('.chart-range-opt').forEach((opt) => {
     opt.classList.toggle('active', parseInt(opt.dataset.rv, 10) === def.range);
   });
@@ -7772,8 +7783,8 @@ function buildInsights(m) {
    the (sometimes slow) fetch — the user never sees stale data from another board. */
 function showDashLoading(boardName) {
   restoreKpiGrid();   /* compare layout may still own the grid — restore the real KPI cards first */
-  ['kpiTotal', 'kpiCreated', 'kpiDone', 'kpiResolved', 'kpiCycle', 'kpiWip'].forEach((id) => ($('#' + id).textContent = '…'));
-  ['kpiTotalSub', 'kpiCreatedSub', 'kpiDoneSub', 'kpiResolvedSub', 'kpiCycleSub', 'kpiWipSub'].forEach((id) => { const el = $('#' + id); if (el) el.textContent = t('dash.syncing'); });
+  ['kpiTotal', 'kpiCreated', 'kpiBlocked', 'kpiResolved', 'kpiCycle', 'kpiWip'].forEach((id) => ($('#' + id).textContent = '…'));
+  ['kpiTotalSub', 'kpiCreatedSub', 'kpiBlockedSub', 'kpiResolvedSub', 'kpiCycleSub', 'kpiWipSub'].forEach((id) => { const el = $('#' + id); if (el) el.textContent = t('dash.syncing'); });
   $('#issueCountBadge').textContent = isMasterPBoard(state.lastBoard) ? t('master.syncing') : t('dash.syncing');
   $('#slowTableBody').innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:26px"><span class="spinner spinner-sm"></span> ${escapeHtml(tReplace('dash.loadingBoard', { b: boardName || t('dash.thisBoard') }))}…</td></tr>`;
   hide($('#insightsStrip'));
@@ -7799,8 +7810,8 @@ function renderDashboard(board, m) {
   $('#kpiCreatedSub').innerHTML = bwOn
     ? `<span class="muted">${escapeHtml(t('brd.period') + ': ' + fmtBoardWin())}</span>`
     : trendBadge(m.createdPrev30, m.created30, t('dash.vsPrior30d'), 'neutral');
-  animateValue($('#kpiDone'), m.done);
-  $('#kpiDoneSub').textContent = tReplace('dash.completionRate', { p: m.doneRate });
+  animateValue($('#kpiBlocked'), m.blockedCount);
+  $('#kpiBlockedSub').textContent = t('kpi.blockedSub');
   animateValue($('#kpiResolved'), m.resolved30);
   $('#kpiResolvedSub').innerHTML = bwOn
     ? `<span class="muted">${escapeHtml(t('brd.period') + ': ' + fmtBoardWin())}</span>`
