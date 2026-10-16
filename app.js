@@ -423,6 +423,8 @@ const I18N = {
     'brd.rowDone': 'Done overall', 'brd.rowDoneRate': 'Completion rate %', 'brd.rowWip': 'Work in progress',
     'brd.rowCycle': 'Avg cycle time (days)', 'brd.rowBlocked': 'Blocked / canceled',
     'brd.window': 'Date filter', 'brd.windowNone': 'Default (board view)',
+    'brd.grpStatuses': 'Current status breakdown', /* per-status counts of the export pool (Summary sheet) */
+    'brd.sheetTasks': 'Tasks', /* tab mirroring the on-screen task list (same shape as tasks-only export) */
     'age.le2d': '≤ 2d', 'age.3_7d': '3–7d', 'age.1_2w': '1–2w', 'age.2_4w': '2–4w',
     'age.1_3mo': '1–3mo', 'age.3_6mo': '3–6mo', 'age.6moPlus': '6mo+',
     'chart.title.pipeline': 'Incoming vs Completed', 'chart.sub.pipeline': 'Created vs resolved over time',
@@ -1041,6 +1043,8 @@ const I18N = {
     'brd.rowDone': 'დასრულებული სულ', 'brd.rowDoneRate': 'დასრულების %', 'brd.rowWip': 'მიმდინარე სამუშაო',
     'brd.rowCycle': 'საშ. ციკლის დრო (დღე)', 'brd.rowBlocked': 'დაბლოკილი / გაუქმებული',
     'brd.window': 'თარიღის ფილტრი', 'brd.windowNone': 'სტანდარტული (დაფის ხედი)',
+    'brd.grpStatuses': 'მიმდინარე სტატუსების დანაწილება', /* per-status counts of the export pool (Summary sheet) */
+    'brd.sheetTasks': 'დავალებების სია', /* tab mirroring the on-screen task list (same shape as tasks-only export) */
     'age.le2d': '≤ 2 დღე', 'age.3_7d': '3–7 დღე', 'age.1_2w': '1–2 კვირა', 'age.2_4w': '2–4 კვირა',
     'age.1_3mo': '1–3 თვე', 'age.3_6mo': '3–6 თვე', 'age.6moPlus': '6 თვე+',
     'chart.title.pipeline': 'შემოსვლა vs დასრულება', 'chart.sub.pipeline': 'შექმნა vs დახურვა დროში',
@@ -2532,8 +2536,9 @@ function pubTaskListFooter(issues) {
    board-period-filtered) rows, one workbook column per table column —
    key, summary, status, updated, type, assignee, created — with readable
    widths, a frozen header and the same date handling the page shows. */
-function exportTaskListExcel(issues) {
-  if (!window.XLSX) throw new Error('XLSX library not loaded');
+/* workbook row for one task — shared by the tasks-only export and the Tasks
+   tab of the board-period export so the two never drift apart */
+function taskListSheetRows(issues) {
   /* sheet dates in machine-ISO (YYYY-MM-DD) so Excel sorts/filters them,
      not the locale strings the page renders */
   const isoDate = (v) => {
@@ -2541,9 +2546,9 @@ function exportTaskListExcel(issues) {
     const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
     return isNaN(d.getTime()) ? '' : new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   };
-  const rows = pubTaskListFiltered(issues).map((i) => {
+  const base = jiraIssueBase();
+  return issues.map((i) => {
     const f = i.fields || {};
-    const base = jiraIssueBase();
     return {
       [t('th.key')]: i.key || '',
       [t('th.summary')]: f.summary || '',
@@ -2555,6 +2560,11 @@ function exportTaskListExcel(issues) {
       [t('brd.hdrLink')]: base ? `${base}/browse/${i.key}` : '',
     };
   });
+}
+
+function exportTaskListExcel(issues) {
+  if (!window.XLSX) throw new Error('XLSX library not loaded');
+  const rows = taskListSheetRows(pubTaskListFiltered(issues));
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ [t('th.key')]: t('tl.empty') }]);
   ws['!cols'] = [{ wch: 16 }, { wch: 60 }, { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 22 }, { wch: 22 }, { wch: 46 }];
@@ -4493,6 +4503,7 @@ function exportBoardExcel(board, issues, m, charts = null) {
   ];
   const docGuide = [];
   docGuide.push({ s: t('brd.docGuide'), v: t('brd.sheetSummary') });
+  docGuide.push({ s: t('brd.sheetTasks'), v: '' });
   if (Array.isArray(charts)) for (const c of charts) {
     if (!c?.data || c.data.empty) continue;
     docGuide.push({ s: `${t('brd.docChartPrefix')} ${defTitle(c.def)}`, v: '' });
@@ -4515,8 +4526,31 @@ function exportBoardExcel(board, issues, m, charts = null) {
     { [t('brd.hdrMetric')]: t('brd.rowWip'), [t('brd.hdrValue')]: m.wip },
     { [t('brd.hdrMetric')]: t('brd.rowBlocked'), [t('brd.hdrValue')]: m.blockedCount },
     { [t('brd.hdrMetric')]: t('brd.rowCycle'), [t('brd.hdrValue')]: m.cycleAvg != null ? +(m.cycleAvg / DAY).toFixed(2) : '' },
+    /* how many tasks were registered, done, and in every other status across
+       the period — the headline "overall" numbers for the export */
+    { [t('brd.hdrMetric')]: '', [t('brd.hdrValue')]: '' },
+    { [t('brd.hdrMetric')]: t('brd.grpStatuses'), [t('brd.hdrValue')]: '' },
+    ...[...(m.statusDist || []).entries()].map(([status, n]) => ({
+      [t('brd.hdrMetric')]: status, [t('brd.hdrValue')]: n,
+    })),
   ];
   addSheet(sumRows, t('brd.sheetSummary'), wch(30, 16));
+
+  /* ── Tasks tab — the on-screen task list as a sheet: same columns as the
+     tasks-only export (default last-updated sort; the viewer's active task
+     filters apply in the pub view) so one workbook covers charts AND tasks ── */
+  const tlAll = (typeof pubTaskListFiltered === 'function'
+      && pubState?.tl?.boardId != null && pubState.tl.boardId === pubState.snapshot?.boardId)
+    ? pubTaskListFiltered(issues)
+    : issues;
+  const taskRows = taskListSheetRows(tlAll);
+  {
+    const taskWs = dress(
+      XLSX.utils.json_to_sheet(taskRows.length ? taskRows : [{ [t('th.key')]: t('tl.empty') }]),
+      wch(16, 60, 18, 22, 14, 22, 22, 46),
+    );
+    XLSX.utils.book_append_sheet(wb, taskWs, uniqueSheet(t('brd.sheetTasks')));
+  }
 
   /* ── Sheet 3: Charts — ONE TAB PER VISIBLE CHART, mirroring the page ──
      Rows = chart labels; one column per dataset series; Total row at the
