@@ -204,22 +204,31 @@ const I18N = {
     'pick.hintC': 'optional — click a third card as C, or just compare',
     'pick.hintGo': 'ready — open the side-by-side view',
     'kpi.total': 'Issues analyzed',
+    'kpi.totalIn': 'Issues in period',
     'kpi.totalSub': 'on this board',
+    'kpi.totalSubWin': 'in the last 30 days',
     'kpi.created': 'Created · 30 days',
     'kpi.createdIn': 'Created in period',
     'kpi.createdSub': 'new tasks registered',
     'kpi.done': 'Done overall',
+    'kpi.doneIn': 'Done in period',
     'kpi.doneSub': 'completed issues',
+    'kpi.doneSubWin': 'done in the last 30 days',
     'kpi.completion': 'Completion rate',
+    'kpi.completionIn': 'Completion rate · period',
     'kpi.completionSub': 'done vs all issues',
+    'kpi.completionSubWin': 'done vs all, last 30 days',
     'kpi.blocked': 'Blocked & canceled',
+    'kpi.blockedIn': 'Blocked & canceled · period',
     'kpi.blockedSub': 'parked work (all statuses)',
+    'kpi.blockedSubWin': 'parked in the last 30 days',
     'kpi.resolved': 'Resolved · 30 days',
     'kpi.resolvedIn': 'Resolved in period',
     'kpi.resolvedSub': 'shipped recently',
     'kpi.cycle': 'Avg cycle time',
     'kpi.cycleSub': 'create → resolve',
     'kpi.wip': 'Work in progress',
+    'kpi.wipIn': 'Work in progress · period',
     'kpi.wipSub': '{n} tasks not yet done',
     'cmp.roleA': 'Board A · current',
     'cmp.roleB': 'Board B · compared',
@@ -831,22 +840,31 @@ const I18N = {
     'pick.hintC': 'არასავალდებულო — დააჭირეთ მესამე ბარათს დაფა C-სთვის, ან უბრალოდ შეადარეთ',
     'pick.hintGo': 'მზადაა — გახსენით გვერდით-გვერდ ხედი',
     'kpi.total': 'გაანალიზებული დავალებები',
+    'kpi.totalIn': 'დავალებები პერიოდში',
     'kpi.totalSub': 'ამ დაფაზე',
+    'kpi.totalSubWin': 'ბოლო 30 დღეში',
     'kpi.created': 'შექმნილი · 30 დღე',
     'kpi.createdIn': 'შექმნილი პერიოდში',
     'kpi.createdSub': 'ახალი დავალებები',
     'kpi.done': 'ჯამურად დასრულებული',
+    'kpi.doneIn': 'დასრულებული პერიოდში',
     'kpi.doneSub': 'დასრულებული ამოცანები',
+    'kpi.doneSubWin': 'დასრულებული ბოლო 30 დღეში',
     'kpi.completion': 'დასრულების მაჩვენებელი',
+    'kpi.completionIn': 'დასრულების მაჩვენებელი · პერიოდი',
     'kpi.completionSub': 'დასრულებული ყველასთან შედარებით',
+    'kpi.completionSubWin': 'დასრულებული ყველასთან შედარებით · ბოლო 30 დღე',
     'kpi.blocked': 'დაბლოკილი და გაუქმებული',
+    'kpi.blockedIn': 'დაბლოკილი და გაუქმებული · პერიოდი',
     'kpi.blockedSub': 'გაჩერებული სამუშაო (ყველა სტატუსი)',
+    'kpi.blockedSubWin': 'გაჩერებული ბოლო 30 დღეში',
     'kpi.resolved': 'დახურული · 30 დღე',
     'kpi.resolvedIn': 'დახურული პერიოდში',
     'kpi.resolvedSub': 'ცოტა ხნის წინ გაიგზავნა',
     'kpi.cycle': 'საშ. ციკლის დრო',
     'kpi.cycleSub': 'შექმნა → დასრულება',
     'kpi.wip': 'მიმდინარე სამუშაო',
+    'kpi.wipIn': 'მიმდინარე სამუშაო · პერიოდი',
     'kpi.wipSub': '{n} ამოცანა ჯერ არ არის მზად',
     'cmp.roleA': 'დაფა A · მიმდინარე',
     'cmp.roleB': 'დაფა B · შედარებული',
@@ -2363,12 +2381,12 @@ function pubBoardKpiHtml() {
       <div class="kpi-sub muted" id="${subId}"></div>
     </div>`;
   return [
-    card('▦', 'indigo', 'kpi.total', 'pkpiTotal', 'pkpiTotalSub'),
+    card('▦', 'indigo', 'kpi.total', 'pkpiTotal', 'pkpiTotalSub', 'pkpiTotalLabel'),
     card('＋', 'cyan', 'kpi.created', 'pkpiCreated', 'pkpiCreatedSub', 'pkpiCreatedLabel'),
-    card('⛔', 'red', 'kpi.blocked', 'pkpiBlocked', 'pkpiBlockedSub'),
-    card('✓', 'green', 'kpi.done', 'pkpiDone', 'pkpiDoneSub'),
-    card('◎', 'violet', 'kpi.completion', 'pkpiCompletion', 'pkpiCompletionSub'),
-    card('◔', 'amber', 'kpi.wip', 'pkpiWip', 'pkpiWipSub'),
+    card('⛔', 'red', 'kpi.blocked', 'pkpiBlocked', 'pkpiBlockedSub', 'pkpiBlockedLabel'),
+    card('✓', 'green', 'kpi.done', 'pkpiDone', 'pkpiDoneSub', 'pkpiDoneLabel'),
+    card('◎', 'violet', 'kpi.completion', 'pkpiCompletion', 'pkpiCompletionSub', 'pkpiCompletionLabel'),
+    card('◔', 'amber', 'kpi.wip', 'pkpiWip', 'pkpiWipSub', 'pkpiWipLabel'),
   ].join('');
 }
 
@@ -2378,20 +2396,27 @@ function fillPubBoardKpis(m) {
   /* when a board period filter is on, the cards' labels say the period is the
      counting window (not "30 days") */
   $('#pkpiCreatedLabel').textContent = bwOn ? t('kpi.createdIn') : t('kpi.created');
-  animateValue($('#pkpiTotal'), m.total);
-  $('#pkpiTotalSub').textContent = t('dash.issuesOnBoard');
+  $('#pkpiTotalLabel').textContent = bwOn ? t('kpi.totalIn') : t('kpi.total');
+  $('#pkpiBlockedLabel').textContent = bwOn ? t('kpi.blockedIn') : t('kpi.blocked');
+  $('#pkpiDoneLabel').textContent = bwOn ? t('kpi.doneIn') : t('kpi.done');
+  $('#pkpiCompletionLabel').textContent = bwOn ? t('kpi.completionIn') : t('kpi.completion');
+  $('#pkpiWipLabel').textContent = bwOn ? t('kpi.wipIn') : t('kpi.wip');
+  /* all counter cards share ONE counting window (mirrors renderDashboard) */
+  const periodSub = `<span class="muted">${escapeHtml(t('brd.period') + ': ' + fmtBoardWin())}</span>`;
+  animateValue($('#pkpiTotal'), m.totalIn);
+  $('#pkpiTotalSub').innerHTML = bwOn ? periodSub : t('kpi.totalSubWin');
   animateValue($('#pkpiCreated'), m.created30);
   $('#pkpiCreatedSub').innerHTML = bwOn
     ? `<span class="muted">${escapeHtml(t('brd.period') + ': ' + fmtBoardWin())}</span>`
     : trendBadge(m.createdPrev30, m.created30, t('dash.vsPrior30d'), 'neutral');
-  animateValue($('#pkpiBlocked'), m.blockedCount);
-  $('#pkpiBlockedSub').textContent = t('kpi.blockedSub');
-  animateValue($('#pkpiDone'), m.done);
-  $('#pkpiDoneSub').textContent = t('kpi.doneSub');
-  animateValue($('#pkpiCompletion'), m.doneRate, '%');
-  $('#pkpiCompletionSub').textContent = t('kpi.completionSub');
-  animateValue($('#pkpiWip'), m.wip);
-  $('#pkpiWipSub').textContent = tReplace('kpi.wipSub', { n: m.wip });
+  animateValue($('#pkpiBlocked'), m.blockedIn);
+  $('#pkpiBlockedSub').innerHTML = bwOn ? periodSub : t('kpi.blockedSubWin');
+  animateValue($('#pkpiDone'), m.doneIn);
+  $('#pkpiDoneSub').innerHTML = bwOn ? periodSub : t('kpi.doneSubWin');
+  animateValue($('#pkpiCompletion'), m.doneRateIn, '%');
+  $('#pkpiCompletionSub').innerHTML = bwOn ? periodSub : t('kpi.completionSubWin');
+  animateValue($('#pkpiWip'), m.wipIn);
+  $('#pkpiWipSub').textContent = tReplace('kpi.wipSub', { n: m.wipIn });
 }
 
 /* ── pub-side board date filter (public view's own state) ──────────
@@ -4378,7 +4403,7 @@ function issueInBoardWindow(f, from, to, changelog) {
      (not "now"), so long-canceled / stale-untouched issues created long before
      the window no longer leak into it — the master period then really applies
      to every view: cards, charts, task list and both Excel exports */
-  const lastTouch = f.updated ? Date.parse(f.updated) : null;
+  const lastTouch = f.updated ? Date.parse(f.updated) : NaN;
   const activeTo = completed || (isFinite(lastTouch) ? lastTouch : created);
   return created <= to && activeTo >= from;
 }
@@ -4543,14 +4568,16 @@ function exportBoardExcel(board, issues, m, charts = null) {
   docGuide.forEach((g) => docRows.push({ [t('brd.hdrMetric')]: g.s, [t('brd.hdrValue')]: g.v }));
   addSheet(docRows, t('brd.sheetDoc'), wch(34, 46));
 
-  /* ── Sheet 2: Summary (the same KPI numbers the cards show) ── */
+  /* ── Sheet 2: Summary (the same KPI numbers the cards show) ──
+     window-scoped values only: rolling 30 days by default, the exact board
+     period when a filter is on — the export agrees with every counter card */
   const sumRows = [
-    { [t('brd.hdrMetric')]: t('brd.rowTotal'), [t('brd.hdrValue')]: m.total },
+    { [t('brd.hdrMetric')]: t('brd.rowTotal'), [t('brd.hdrValue')]: m.totalIn },
     { [t('brd.hdrMetric')]: t('brd.rowCreated'), [t('brd.hdrValue')]: m.created30 },
     { [t('brd.hdrMetric')]: t('brd.rowResolved'), [t('brd.hdrValue')]: m.resolved30 },
-    { [t('brd.hdrMetric')]: t('brd.rowDoneRate'), [t('brd.hdrValue')]: m.doneRate },
-    { [t('brd.hdrMetric')]: t('brd.rowWip'), [t('brd.hdrValue')]: m.wip },
-    { [t('brd.hdrMetric')]: t('brd.rowBlocked'), [t('brd.hdrValue')]: m.blockedCount },
+    { [t('brd.hdrMetric')]: t('brd.rowDoneRate'), [t('brd.hdrValue')]: m.doneRateIn },
+    { [t('brd.hdrMetric')]: t('brd.rowWip'), [t('brd.hdrValue')]: m.wipIn },
+    { [t('brd.hdrMetric')]: t('brd.rowBlocked'), [t('brd.hdrValue')]: m.blockedIn },
     { [t('brd.hdrMetric')]: t('brd.rowCycle'), [t('brd.hdrValue')]: m.cycleAvg != null ? +(m.cycleAvg / DAY).toFixed(2) : '' },
     /* how many tasks were registered, done, and in every other status across
        the period — the headline "overall" numbers for the export */
@@ -4785,6 +4812,9 @@ function computeMetrics(issues) {
     spanDays: SPAN,
     total: issues.length,
     created30: 0, resolved30: 0, done: 0, wip: 0,
+    /* counter-card mirrors scoped to the counting window [ANCHOR - SPAN, ANCHOR] —
+       rolling 30 days by default, the exact board period when a filter is on */
+    totalIn: 0, doneIn: 0, wipIn: 0, blockedIn: 0,
     createdPrev30: 0, resolvedPrev30: 0,
     cycles: [],
     cycleRecent: [], cyclePrev: [],
@@ -4837,6 +4867,21 @@ function computeMetrics(issues) {
        Blocked/Canceled work is neither done nor active — tracked separately. */
     if (doneCat || isCompletedStatus(f, false)) m.done++;
     else if (!isBlockedStatus(f)) m.wip++;
+    /* scoped-to-card-window mirrors: an issue is "in" the counting window
+       [from, ANCHOR] when its activity interval [created, completed ||
+       lastTouch || created] overlaps it — the SAME last-touch rule the task
+       list uses, so cards, task list and Excel never disagree */
+    {
+      const lastTouch = f.updated ? Date.parse(f.updated) : NaN;
+      const activeTo = resolved || (isFinite(lastTouch) ? lastTouch : created);
+      const winFrom = ANCHOR - SPAN * DAY;
+      if (created != null && isFinite(created) && created <= ANCHOR && activeTo >= winFrom) {
+        m.totalIn++;
+        if (doneCat || isCompletedStatus(f, false)) m.doneIn++;
+        else if (isBlockedStatus(f)) m.blockedIn++;
+        else m.wipIn++;
+      }
+    }
 
     m.statusDist.set(statusName, (m.statusDist.get(statusName) || 0) + 1);
 
@@ -4898,6 +4943,9 @@ function computeMetrics(issues) {
   m.cyclePrevAvg = m.cyclePrev.length ? m.cyclePrev.reduce((a, b) => a + b, 0) / m.cyclePrev.length : null;
   m.doneRate = m.total ? Math.round((m.done / m.total) * 100) : 0;
   m.wipPct = m.total ? Math.round((m.wip / m.total) * 100) : 0;
+  /* completion % over the card window (30 days default / filtered period) —
+     what the Completion rate card shows */
+  m.doneRateIn = m.totalIn ? Math.round((m.doneIn / m.totalIn) * 100) : 0;
   m.slow.sort((a, b) => b.age - a.age);
 
   /* stakeholder-vs-team phase delays (from changelog status times) — only ACTIVE statuses,
@@ -5039,12 +5087,14 @@ const onCompareBoardChange = (ev) => onCompareSlotChange('b', ev);   /* slot B e
 
 /* KPI metric descriptors for compare mode — label/sub resolved via i18n at render time */
 const CMP_KPIS = [
-  { key: 'total',    label: 'cmp.kpiTotal',    icon: '▦', cls: 'ic-indigo',     fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiTotalSub' },
+  /* counter cards use the window-scoped mirrors (30 days default / filtered
+     period) so every compared board answers the same time scope */
+  { key: 'totalIn',  label: 'cmp.kpiTotal',    icon: '▦', cls: 'ic-indigo',     fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiTotalSub' },
   { key: 'created30',label: 'cmp.kpiCreated',  icon: '＋', cls: 'ic-cyan',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiCreatedSub' },
-  { key: 'blockedCount', label: 'cmp.kpiBlocked', icon: '⛔', cls: 'ic-red',          fmt: (v) => String(v),                          winner: 'less',  sub: 'cmp.kpiBlockedSub' },
-  { key: 'done',     label: 'cmp.kpiDone',     icon: '✓', cls: 'ic-green',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiDoneSub' },
-  { key: 'doneRate', label: 'cmp.kpiCompletion', icon: '◎', cls: 'ic-violet',   fmt: (v) => String(v) + '%',                    winner: 'more',  sub: 'cmp.kpiCompletionSub' },
-  { key: 'wip',      label: 'cmp.kpiWip',      icon: '◔', cls: 'ic-amber',      fmt: (v) => String(v),                          winner: 'less',  sub: 'cmp.kpiWipSub' },
+  { key: 'blockedIn', label: 'cmp.kpiBlocked', icon: '⛔', cls: 'ic-red',          fmt: (v) => String(v),                          winner: 'less',  sub: 'cmp.kpiBlockedSub' },
+  { key: 'doneIn',   label: 'cmp.kpiDone',     icon: '✓', cls: 'ic-green',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiDoneSub' },
+  { key: 'doneRateIn', label: 'cmp.kpiCompletion', icon: '◎', cls: 'ic-violet',   fmt: (v) => String(v) + '%',                    winner: 'more',  sub: 'cmp.kpiCompletionSub' },
+  { key: 'wipIn',    label: 'cmp.kpiWip',      icon: '◔', cls: 'ic-amber',      fmt: (v) => String(v),                          winner: 'less',  sub: 'cmp.kpiWipSub' },
 ];
 
 /* ── KPI grid restore ─────────────────────────────────────────────────────
@@ -5252,9 +5302,9 @@ function buildCompareInsights(boards) {
     for (const [key, what, dir] of [
       ['resolved30', 'throughput', 'more'],
       ['cycleAvg', 'speed', 'less'],
-      ['doneRate', 'completion', 'more'],
-      ['wip', 'load', 'less'],
-      ['blockedCount', 'blocked', 'less'],
+      ['doneRateIn', 'completion', 'more'],
+      ['wipIn', 'load', 'less'],
+      ['blockedIn', 'blocked', 'less'],
     ]) {
       const lead = bestBoard(key, dir);
       if (lead) wins.push({ who: lead, what });
@@ -5273,7 +5323,7 @@ function buildCompareInsights(boards) {
         title: lead ? tReplace('cmp.insVerdictTitle', { n: lead.short }) : t('cmp.insVerdictTieTitle'),
         html: verdict + ' ' + wins.slice(0, 3).map((w) => `<span class="cmp-ins-chip chip-${w.who.letter}">${escapeHtml(t('cmp.wins.' + w.what))}</span>`).join(''),
         stats:
-          stat(fmtList((m) => `${m.total}`), '') + t('cmp.insStatsIssues') +
+          stat(fmtList((m) => `${m.totalIn}`), '') + t('cmp.insStatsIssues') +
           stat(fmtList((m) => `${m.resolved30}`)) + t('cmp.insStatsShipped') +
           stat(fmtList((m) => (m.cycleAvg != null ? fmtDuration(m.cycleAvg) : '—'))) + t('cmp.insStatsCycle'),
       });
@@ -5322,7 +5372,7 @@ function buildCompareInsights(boards) {
           bals.map((x) =>
             stat(`${x.bd.m.created30} ▸ ${x.bd.m.resolved30}`, x.bal > 0 ? 'neg' : 'pos') + t('cmp.insStatsInOut')
           ).join('') +
-          stat(fmtList((m) => `${m.wip}`)) + t('cmp.insStatsWip'),
+          stat(fmtList((m) => `${m.wipIn}`)) + t('cmp.insStatsWip'),
       });
     }
   }
@@ -5330,7 +5380,7 @@ function buildCompareInsights(boards) {
   /* ── 4. speed + quality: cycle time vs completion rate combined ── */
   {
     const cycleLead = bestBoard('cycleAvg', 'less');
-    const doneLead = bestBoard('doneRate', 'more');
+    const doneLead = bestBoard('doneRateIn', 'more');
     const hasCycle = loaded.every((bd) => bd.m.cycleAvg != null);
     if (hasCycle && (cycleLead || doneLead)) {
       const lead = cycleLead || doneLead;
@@ -5343,16 +5393,16 @@ function buildCompareInsights(boards) {
           loaded.map((bd) =>
             stat(fmtDuration(bd.m.cycleAvg), cycleLead === bd ? 'pos' : 'neg') + t('cmp.insStatsCycle')
           ).join('') +
-          stat(fmtList((m) => `${m.doneRate}%`)) + t('cmp.insStatsDone') +
-          stat(fmtList((m) => `${m.blockedCount}`)) + t('cmp.insStatsBlocked'),
+          stat(fmtList((m) => `${m.doneRateIn}%`)) + t('cmp.insStatsDone') +
+          stat(fmtList((m) => `${m.blockedIn}`)) + t('cmp.insStatsBlocked'),
       });
     }
   }
 
   /* ── 5. risk radar: blocked work + aging backlog together ── */
   {
-    const blockedLead = bestBoard('blockedCount', 'less');
-    const wipLead = bestBoard('wip', 'less');
+    const blockedLead = bestBoard('blockedIn', 'less');
+    const wipLead = bestBoard('wipIn', 'less');
     if (blockedLead || wipLead) {
       const lead = blockedLead || wipLead;
       const runner = loaded.filter((bd) => bd !== lead)[0];
@@ -5360,14 +5410,14 @@ function buildCompareInsights(boards) {
         icon: '🛡️', kind: 'risk',
         title: t('cmp.lblRisk'),
         html: blockedLead
-          ? tReplace('cmp.insRisk', { n: tag(lead), a: lead.m.blockedCount, b: runner.m.blockedCount })
+          ? tReplace('cmp.insRisk', { n: tag(lead), a: lead.m.blockedIn, b: runner.m.blockedIn })
           : escapeHtml(t('cmp.insRiskEven')),
         stats:
           loaded.map((bd) =>
-            stat(`${bd.m.blockedCount}`, blockedLead ? (blockedLead === bd ? 'pos' : 'neg') : '') + t('cmp.insStatsBlocked')
+            stat(`${bd.m.blockedIn}`, blockedLead ? (blockedLead === bd ? 'pos' : 'neg') : '') + t('cmp.insStatsBlocked')
           ).join('') +
-          stat(fmtList((m) => `${m.wip}`)) + t('cmp.insStatsWip') +
-          stat(fmtList((m) => `${m.doneRate}%`)) + t('cmp.insStatsDone'),
+          stat(fmtList((m) => `${m.wipIn}`)) + t('cmp.insStatsWip') +
+          stat(fmtList((m) => `${m.doneRateIn}%`)) + t('cmp.insStatsDone'),
       });
     }
   }
@@ -7803,21 +7853,30 @@ function renderDashboard(board, m) {
   /* when a board period filter is on, the cards' labels say the period is the
      counting window (not "30 days") */
   $('#kpiCreatedLabel').textContent = bwOn ? t('kpi.createdIn') : t('kpi.created');
-  animateValue($('#kpiTotal'), m.total);
-  $('#kpiTotalSub').textContent = t('dash.issuesOnBoard');
+  $('#kpiTotalLabel').textContent = bwOn ? t('kpi.totalIn') : t('kpi.total');
+  $('#kpiBlockedLabel').textContent = bwOn ? t('kpi.blockedIn') : t('kpi.blocked');
+  $('#kpiDoneLabel').textContent = bwOn ? t('kpi.doneIn') : t('kpi.done');
+  $('#kpiCompletionLabel').textContent = bwOn ? t('kpi.completionIn') : t('kpi.completion');
+  $('#kpiWipLabel').textContent = bwOn ? t('kpi.wipIn') : t('kpi.wip');
+  /* all counter cards share ONE counting window: rolling 30 days by default,
+     the exact board period when a filter is on — so every card answers the
+     same question at the same time scope */
+  const periodSub = `<span class="muted">${escapeHtml(t('brd.period') + ': ' + fmtBoardWin())}</span>`;
+  animateValue($('#kpiTotal'), m.totalIn);
+  $('#kpiTotalSub').innerHTML = bwOn ? periodSub : t('kpi.totalSubWin');
   animateValue($('#kpiCreated'), m.created30);
   /* when a board date filter is active the KPI subtitle shows the exact window */
   $('#kpiCreatedSub').innerHTML = bwOn
     ? `<span class="muted">${escapeHtml(t('brd.period') + ': ' + fmtBoardWin())}</span>`
     : trendBadge(m.createdPrev30, m.created30, t('dash.vsPrior30d'), 'neutral');
-  animateValue($('#kpiBlocked'), m.blockedCount);
-  $('#kpiBlockedSub').textContent = t('kpi.blockedSub');
-  animateValue($('#kpiDone'), m.done);
-  $('#kpiDoneSub').textContent = t('kpi.doneSub');
-  animateValue($('#kpiCompletion'), m.doneRate, '%');
-  $('#kpiCompletionSub').textContent = t('kpi.completionSub');
-  animateValue($('#kpiWip'), m.wip);
-  $('#kpiWipSub').textContent = tReplace('kpi.wipSub', { n: m.wip });
+  animateValue($('#kpiBlocked'), m.blockedIn);
+  $('#kpiBlockedSub').innerHTML = bwOn ? periodSub : t('kpi.blockedSubWin');
+  animateValue($('#kpiDone'), m.doneIn);
+  $('#kpiDoneSub').innerHTML = bwOn ? periodSub : t('kpi.doneSubWin');
+  animateValue($('#kpiCompletion'), m.doneRateIn, '%');
+  $('#kpiCompletionSub').innerHTML = bwOn ? periodSub : t('kpi.completionSubWin');
+  animateValue($('#kpiWip'), m.wipIn);
+  $('#kpiWipSub').textContent = tReplace('kpi.wipSub', { n: m.wipIn });
   $('#issueCountBadge').textContent = tReplace('dash.issuesAnalyzed', { n: m.total });
 
   /* auto-insights */

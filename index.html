@@ -211,7 +211,7 @@
 
     <div class="kpi-grid">
       <div class="kpi glass">
-        <div class="kpi-top"><span class="kpi-icon ic-indigo">▦</span><span class="kpi-label" data-i18n="kpi.total">Issues analyzed</span></div>
+        <div class="kpi-top"><span class="kpi-icon ic-indigo">▦</span><span class="kpi-label" id="kpiTotalLabel" data-i18n="kpi.total">Issues analyzed</span></div>
         <div class="kpi-value" id="kpiTotal">…</div>
         <div class="kpi-sub muted" id="kpiTotalSub" data-i18n="kpi.totalSub">on this board</div>
       </div>
@@ -221,22 +221,22 @@
         <div class="kpi-sub muted" id="kpiCreatedSub" data-i18n="kpi.createdSub">new tasks registered</div>
       </div>
       <div class="kpi glass">
-        <div class="kpi-top"><span class="kpi-icon ic-red">⛔</span><span class="kpi-label" data-i18n="kpi.blocked">Blocked & canceled</span></div>
+        <div class="kpi-top"><span class="kpi-icon ic-red">⛔</span><span class="kpi-label" id="kpiBlockedLabel" data-i18n="kpi.blocked">Blocked & canceled</span></div>
         <div class="kpi-value accent-red" id="kpiBlocked">…</div>
         <div class="kpi-sub muted" id="kpiBlockedSub" data-i18n="kpi.blockedSub">parked work (all statuses)</div>
       </div>
       <div class="kpi glass">
-        <div class="kpi-top"><span class="kpi-icon ic-green">✓</span><span class="kpi-label" data-i18n="kpi.done">Done overall</span></div>
+        <div class="kpi-top"><span class="kpi-icon ic-green">✓</span><span class="kpi-label" id="kpiDoneLabel" data-i18n="kpi.done">Done overall</span></div>
         <div class="kpi-value accent-green" id="kpiDone">…</div>
         <div class="kpi-sub muted" id="kpiDoneSub" data-i18n="kpi.doneSub">completed issues</div>
       </div>
       <div class="kpi glass">
-        <div class="kpi-top"><span class="kpi-icon ic-violet">◎</span><span class="kpi-label" data-i18n="kpi.completion">Completion rate</span></div>
+        <div class="kpi-top"><span class="kpi-icon ic-violet">◎</span><span class="kpi-label" id="kpiCompletionLabel" data-i18n="kpi.completion">Completion rate</span></div>
         <div class="kpi-value accent-violet" id="kpiCompletion">…</div>
         <div class="kpi-sub muted" id="kpiCompletionSub" data-i18n="kpi.completionSub">done vs all issues</div>
       </div>
       <div class="kpi glass">
-        <div class="kpi-top"><span class="kpi-icon ic-amber">◔</span><span class="kpi-label" data-i18n="kpi.wip">Work in progress</span></div>
+        <div class="kpi-top"><span class="kpi-icon ic-amber">◔</span><span class="kpi-label" id="kpiWipLabel" data-i18n="kpi.wip">Work in progress</span></div>
         <div class="kpi-value accent-amber" id="kpiWip">…</div>
         <div class="kpi-sub muted" id="kpiWipSub" data-i18n="kpi.wipSub">not yet done</div>
       </div>
@@ -687,6 +687,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=8241746"></script>
+<script src="app.js?v=8241747"></script>
 </body>
 </html>
