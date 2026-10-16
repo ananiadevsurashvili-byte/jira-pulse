@@ -209,7 +209,9 @@ const I18N = {
     'kpi.createdIn': 'Created in period',
     'kpi.createdSub': 'new tasks registered',
     'kpi.done': 'Done overall',
-    'kpi.doneSub': 'completion rate',
+    'kpi.doneSub': 'completed issues',
+    'kpi.completion': 'Completion rate',
+    'kpi.completionSub': 'done vs all issues',
     'kpi.blocked': 'Blocked & canceled',
     'kpi.blockedSub': 'parked work (all statuses)',
     'kpi.resolved': 'Resolved · 30 days',
@@ -597,10 +599,10 @@ const I18N = {
     'cmp.kpiCreatedSub': 'new issues',
     'cmp.kpiBlocked': 'Blocked & canceled',
     'cmp.kpiBlockedSub': 'parked work',
-    'cmp.kpiResolved': 'Resolved · 30 days',
-    'cmp.kpiResolvedSub': 'shipped recently',
-    'cmp.kpiCycle': 'Avg cycle time',
-    'cmp.kpiCycleSub': 'create → resolve',
+    'cmp.kpiDone': 'Done overall',
+    'cmp.kpiDoneSub': 'completed issues',
+    'cmp.kpiCompletion': 'Completion rate',
+    'cmp.kpiCompletionSub': 'done vs all issues',
     'cmp.kpiWip': 'Work in progress',
     'cmp.kpiWipSub': 'not yet done',
     'cmp.badgeBoth': '{na}: {a} issues · {nb}: {b} issues',
@@ -834,7 +836,9 @@ const I18N = {
     'kpi.createdIn': 'შექმნილი პერიოდში',
     'kpi.createdSub': 'ახალი დავალებები',
     'kpi.done': 'ჯამურად დასრულებული',
-    'kpi.doneSub': 'დასრულების მაჩვენებელი',
+    'kpi.doneSub': 'დასრულებული ამოცანები',
+    'kpi.completion': 'დასრულების მაჩვენებელი',
+    'kpi.completionSub': 'დასრულებული ყველასთან შედარებით',
     'kpi.blocked': 'დაბლოკილი და გაუქმებული',
     'kpi.blockedSub': 'გაჩერებული სამუშაო (ყველა სტატუსი)',
     'kpi.resolved': 'დახურული · 30 დღე',
@@ -1220,10 +1224,10 @@ const I18N = {
     'cmp.kpiCreatedSub': 'ახალი დავალებები',
     'cmp.kpiBlocked': 'დაბლოკილი და გაუქმებული',
     'cmp.kpiBlockedSub': 'გაჩერებული სამუშაო',
-    'cmp.kpiResolved': 'დახურული · 30 დღე',
-    'cmp.kpiResolvedSub': 'ცოტა ხნის წინ გაიგზავნა',
-    'cmp.kpiCycle': 'საშ. ციკლის დრო',
-    'cmp.kpiCycleSub': 'შექმნა → დახურვა',
+    'cmp.kpiDone': 'ჯამურად დასრულებული',
+    'cmp.kpiDoneSub': 'დასრულებული ამოცანები',
+    'cmp.kpiCompletion': 'დასრულების მაჩვენებელი',
+    'cmp.kpiCompletionSub': 'დასრულებული ყველასთან შედარებით',
     'cmp.kpiWip': 'მიმდინარე სამუშაო',
     'cmp.kpiWipSub': 'ჯერ არ დასრულებულა',
     'cmp.badgeBoth': '{na}: {a} დავალება · {nb}: {b} დავალება',
@@ -2362,8 +2366,8 @@ function pubBoardKpiHtml() {
     card('▦', 'indigo', 'kpi.total', 'pkpiTotal', 'pkpiTotalSub'),
     card('＋', 'cyan', 'kpi.created', 'pkpiCreated', 'pkpiCreatedSub', 'pkpiCreatedLabel'),
     card('⛔', 'red', 'kpi.blocked', 'pkpiBlocked', 'pkpiBlockedSub'),
-    card('↻', 'green', 'kpi.resolved', 'pkpiResolved', 'pkpiResolvedSub', 'pkpiResolvedLabel'),
-    card('⏱', 'violet', 'kpi.cycle', 'pkpiCycle', 'pkpiCycleSub'),
+    card('✓', 'green', 'kpi.done', 'pkpiDone', 'pkpiDoneSub'),
+    card('◔', 'violet', 'kpi.completion', 'pkpiCompletion', 'pkpiCompletionSub'),
     card('◔', 'amber', 'kpi.wip', 'pkpiWip', 'pkpiWipSub'),
   ].join('');
 }
@@ -2374,7 +2378,6 @@ function fillPubBoardKpis(m) {
   /* when a board period filter is on, the cards' labels say the period is the
      counting window (not "30 days") */
   $('#pkpiCreatedLabel').textContent = bwOn ? t('kpi.createdIn') : t('kpi.created');
-  $('#pkpiResolvedLabel').textContent = bwOn ? t('kpi.resolvedIn') : t('kpi.resolved');
   animateValue($('#pkpiTotal'), m.total);
   $('#pkpiTotalSub').textContent = t('dash.issuesOnBoard');
   animateValue($('#pkpiCreated'), m.created30);
@@ -2383,20 +2386,10 @@ function fillPubBoardKpis(m) {
     : trendBadge(m.createdPrev30, m.created30, t('dash.vsPrior30d'), 'neutral');
   animateValue($('#pkpiBlocked'), m.blockedCount);
   $('#pkpiBlockedSub').textContent = t('kpi.blockedSub');
-  animateValue($('#pkpiResolved'), m.resolved30);
-  $('#pkpiResolvedSub').innerHTML = bwOn
-    ? `<span class="muted">${escapeHtml(t('brd.period') + ': ' + fmtBoardWin())}</span>`
-    : trendBadge(m.resolvedPrev30, m.resolved30, t('dash.vsPrior30d'), 'up-good');
-  $('#pkpiCycle').textContent = m.cycleAvg != null ? fmtDuration(m.cycleAvg) : '—';
-  $('#pkpiCycle').classList.toggle('muted', m.cycleAvg == null);
-  if (m.cycleRecentAvg != null && m.cyclePrevAvg != null) {
-    const d = pctDelta(m.cyclePrevAvg, m.cycleRecentAvg);
-    $('#pkpiCycleSub').innerHTML = d === null
-      ? `<span class="muted">${escapeHtml(t('dash.createResolve'))}</span>`
-      : `<span class="trend ${d <= 0 ? 'trend-good' : 'trend-bad'}">${d <= 0 ? '▼' : '▲'} ${Math.abs(d)}%</span> <span class="muted">${escapeHtml(d <= 0 ? tReplace('dash.fasterThan', { p: Math.abs(d) }) : tReplace('dash.slowerThan', { p: Math.abs(d) }))}</span>`;
-  } else {
-    $('#pkpiCycleSub').innerHTML = `<span class="muted">${escapeHtml(t('dash.createResolve'))}</span>`;
-  }
+  animateValue($('#pkpiDone'), m.done);
+  $('#pkpiDoneSub').textContent = t('kpi.doneSub');
+  animateValue($('#pkpiCompletion'), m.doneRate);
+  $('#pkpiCompletionSub').textContent = t('kpi.completionSub');
   animateValue($('#pkpiWip'), m.wip);
 }
 
@@ -5041,8 +5034,8 @@ const CMP_KPIS = [
   { key: 'total',    label: 'cmp.kpiTotal',    icon: '▦', cls: 'ic-indigo',     fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiTotalSub' },
   { key: 'created30',label: 'cmp.kpiCreated',  icon: '＋', cls: 'ic-cyan',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiCreatedSub' },
   { key: 'blockedCount', label: 'cmp.kpiBlocked', icon: '⛔', cls: 'ic-red',          fmt: (v) => String(v),                          winner: 'less',  sub: 'cmp.kpiBlockedSub' },
-  { key: 'resolved30',label: 'cmp.kpiResolved',icon: '↻', cls: 'ic-green',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiResolvedSub' },
-  { key: 'cycleAvg', label: 'cmp.kpiCycle',    icon: '⏱', cls: 'ic-violet',     fmt: (v) => (v != null ? fmtDuration(v) : '—'), winner: 'less',  sub: 'cmp.kpiCycleSub' },
+  { key: 'done',     label: 'cmp.kpiDone',     icon: '✓', cls: 'ic-green',      fmt: (v) => String(v),                          winner: 'more',  sub: 'cmp.kpiDoneSub' },
+  { key: 'doneRate', label: 'cmp.kpiCompletion', icon: '◔', cls: 'ic-violet',   fmt: (v) => String(v) + '%',                    winner: 'more',  sub: 'cmp.kpiCompletionSub' },
   { key: 'wip',      label: 'cmp.kpiWip',      icon: '◔', cls: 'ic-amber',      fmt: (v) => String(v),                          winner: 'less',  sub: 'cmp.kpiWipSub' },
 ];
 
@@ -7783,8 +7776,8 @@ function buildInsights(m) {
    the (sometimes slow) fetch — the user never sees stale data from another board. */
 function showDashLoading(boardName) {
   restoreKpiGrid();   /* compare layout may still own the grid — restore the real KPI cards first */
-  ['kpiTotal', 'kpiCreated', 'kpiBlocked', 'kpiResolved', 'kpiCycle', 'kpiWip'].forEach((id) => ($('#' + id).textContent = '…'));
-  ['kpiTotalSub', 'kpiCreatedSub', 'kpiBlockedSub', 'kpiResolvedSub', 'kpiCycleSub', 'kpiWipSub'].forEach((id) => { const el = $('#' + id); if (el) el.textContent = t('dash.syncing'); });
+  ['kpiTotal', 'kpiCreated', 'kpiBlocked', 'kpiDone', 'kpiCompletion', 'kpiWip'].forEach((id) => ($('#' + id).textContent = '…'));
+  ['kpiTotalSub', 'kpiCreatedSub', 'kpiBlockedSub', 'kpiDoneSub', 'kpiCompletionSub', 'kpiWipSub'].forEach((id) => { const el = $('#' + id); if (el) el.textContent = t('dash.syncing'); });
   $('#issueCountBadge').textContent = isMasterPBoard(state.lastBoard) ? t('master.syncing') : t('dash.syncing');
   $('#slowTableBody').innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:26px"><span class="spinner spinner-sm"></span> ${escapeHtml(tReplace('dash.loadingBoard', { b: boardName || t('dash.thisBoard') }))}…</td></tr>`;
   hide($('#insightsStrip'));
@@ -7802,7 +7795,6 @@ function renderDashboard(board, m) {
   /* when a board period filter is on, the cards' labels say the period is the
      counting window (not "30 days") */
   $('#kpiCreatedLabel').textContent = bwOn ? t('kpi.createdIn') : t('kpi.created');
-  $('#kpiResolvedLabel').textContent = bwOn ? t('kpi.resolvedIn') : t('kpi.resolved');
   animateValue($('#kpiTotal'), m.total);
   $('#kpiTotalSub').textContent = t('dash.issuesOnBoard');
   animateValue($('#kpiCreated'), m.created30);
@@ -7812,20 +7804,10 @@ function renderDashboard(board, m) {
     : trendBadge(m.createdPrev30, m.created30, t('dash.vsPrior30d'), 'neutral');
   animateValue($('#kpiBlocked'), m.blockedCount);
   $('#kpiBlockedSub').textContent = t('kpi.blockedSub');
-  animateValue($('#kpiResolved'), m.resolved30);
-  $('#kpiResolvedSub').innerHTML = bwOn
-    ? `<span class="muted">${escapeHtml(t('brd.period') + ': ' + fmtBoardWin())}</span>`
-    : trendBadge(m.resolvedPrev30, m.resolved30, t('dash.vsPrior30d'), 'up-good');
-  $('#kpiCycle').textContent = m.cycleAvg != null ? fmtDuration(m.cycleAvg) : '—';
-  $('#kpiCycle').classList.toggle('muted', m.cycleAvg == null);
-  if (m.cycleRecentAvg != null && m.cyclePrevAvg != null) {
-    const d = pctDelta(m.cyclePrevAvg, m.cycleRecentAvg);
-    $('#kpiCycleSub').innerHTML = d === null
-      ? `<span class="muted">${escapeHtml(t('dash.createResolve'))}</span>`
-      : `<span class="trend ${d <= 0 ? 'trend-good' : 'trend-bad'}">${d <= 0 ? '▼' : '▲'} ${Math.abs(d)}%</span> <span class="muted">${escapeHtml(d <= 0 ? tReplace('dash.fasterThan', { p: Math.abs(d) }) : tReplace('dash.slowerThan', { p: Math.abs(d) }))}</span>`;
-  } else {
-    $('#kpiCycleSub').innerHTML = `<span class="muted">${escapeHtml(t('dash.createResolve'))}</span>`;
-  }
+  animateValue($('#kpiDone'), m.done);
+  $('#kpiDoneSub').textContent = t('kpi.doneSub');
+  animateValue($('#kpiCompletion'), m.doneRate);
+  $('#kpiCompletionSub').textContent = t('kpi.completionSub');
   animateValue($('#kpiWip'), m.wip);
   $('#issueCountBadge').textContent = tReplace('dash.issuesAnalyzed', { n: m.total });
 
