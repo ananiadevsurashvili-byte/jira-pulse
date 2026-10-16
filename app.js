@@ -682,6 +682,7 @@ const I18N = {
     'card.orgBoards': '[P] Org boards',
     'card.otherBoards': 'All other boards',
     'master.pName': 'All [P] boards',
+    'master.allName': 'All boards united',
     'master.cardChip': 'master view',
     'master.cardDesc': 'All [P] boards united',
     'master.syncing': 'Loading all [P] boards…',
@@ -1316,6 +1317,7 @@ const I18N = {
     'card.orgBoards': '[P] ორგანიზაციის დაფები',
     'card.otherBoards': 'დანარჩენი დაფები',
     'master.pName': 'ყველა [P] დაფა',
+    'master.allName': 'ყველა დაფა გაერთიანებული',
     'master.cardChip': 'გაერთიანებული ხედი',
     'master.cardDesc': 'ყველა [P] დაფა ერთად',
     'master.syncing': 'იტვირთება ყველა [P] დაფა…',
@@ -2107,15 +2109,27 @@ function snapScopeIsBoard() {
    least one [P] board is published and visible. Its id is reserved, mirroring
    the admin app. */
 const PUB_MASTER_ID = 900000001;
+const PUB_MASTER_ALL_ID = 900000002;   /* synthetic "All non-P boards" master */
 const MASTER_PUB_TAG = '_srcBoardName';
 function isPubMasterId(id) { return parseInt(id, 10) === PUB_MASTER_ID; }
+function isPubMasterAllId(id) { return parseInt(id, 10) === PUB_MASTER_ALL_ID; }
 function pubMasterEntry() {
   return { boardId: PUB_MASTER_ID, name: t('master.pName'), projectName: '', master: true };
+}
+/* synthetic "All boards united" entry for the non-[P] group (reserved id,
+   mirrors the [P] master: not a real Jira board, its pool is merged per board) */
+function pubMasterAllEntry() {
+  return { boardId: PUB_MASTER_ALL_ID, name: t('master.allName'), projectName: '', masterAll: true };
 }
 /* [P] boards currently visible in the published config (real boards only) */
 function pubPBoards(cfg) {
   const boards = (cfg && Array.isArray(cfg.boards)) ? cfg.boards : [];
   return boards.filter((b) => b.published !== false && (/^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || '')));
+}
+/* non-[P] boards currently visible in the published config */
+function pubOtherBoards(cfg) {
+  const boards = (cfg && Array.isArray(cfg.boards)) ? cfg.boards : [];
+  return boards.filter((b) => b.published !== false && !(/^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || '')));
 }
 
 /* fetch live issues for a board + compute the full chart set.
@@ -2124,6 +2138,8 @@ async function pubLoadBoardLive(boardId, mode = 'full') {
   /* master [P] board: merge the live issue pools of every visible [P] board
      (same per-board project-wide search the admin merge uses) */
   if (isPubMasterId(boardId)) return pubMasterLoad(mode);
+  /* united non-[P] master: merge the live pools of every visible non-[P] board */
+  if (isPubMasterAllId(boardId)) return pubMasterAllLoad(mode);
   const memoKey = boardId + ':' + mode;
   const memo = _pubBoardCache.get(memoKey);
   if (memo && Date.now() - memo.ts < PUB_LIVE_TTL) {
@@ -2171,6 +2187,42 @@ async function pubMasterLoad(mode = 'full') {
   };
   _pubBoardCache.set(memoKey, { rec, ts: Date.now() });
   return _pubBuildBoardRec(rec, PUB_MASTER_ID);
+}
+
+/* the "all non-[P] boards united" master loader — same merge strategy as the
+   [P] master: fetch every visible non-[P] board through the relay, merge the
+   pools (each issue tagged with its source board name) */
+async function pubMasterAllLoad(mode = 'full') {
+  const memoKey = PUB_MASTER_ALL_ID + ':' + mode;
+  const memo = _pubBoardCache.get(memoKey);
+  if (memo && Date.now() - memo.ts < PUB_LIVE_TTL) return _pubBuildBoardRec(memo.rec, PUB_MASTER_ALL_ID);
+  const cfg = await pubConfigGet({ force: true });
+  const oBoards = pubOtherBoards(cfg);
+  if (!oBoards.length) throw new Error('No non-[P] boards published.');
+  logDiag('info', 'Publish view: merging non-[P] boards for united master', { count: oBoards.length });
+  const results = await Promise.all(oBoards.map(async (b) => {
+    try {
+      const rec = await pubFetchBoardLive(b.boardId, mode);
+      return { name: b.name, issues: Array.isArray(rec.issues) ? rec.issues : [], ok: rec };
+    } catch (e) {
+      logDiag('warn', 'Pub united master: board segment failed — skipped', { boardId: b.boardId, message: e?.message });
+      return { name: b.name, issues: [], ok: null };
+    }
+  }));
+  const merged = [];
+  for (const r of results) {
+    for (const iss of r.issues) {
+      try { iss[MASTER_PUB_TAG] = r.name; } catch (_) { /* frozen object — best-effort */ }
+      merged.push(iss);
+    }
+  }
+  const rec = {
+    ok: true, boardId: PUB_MASTER_ALL_ID, source: 'master-all-merged',
+    mode, hasChangelog: results.some((r) => r.ok && r.ok.hasChangelog),
+    count: merged.length, fetchedAt: Date.now(), issues: merged,
+  };
+  _pubBoardCache.set(memoKey, { rec, ts: Date.now() });
+  return _pubBuildBoardRec(rec, PUB_MASTER_ALL_ID);
 }
 
 /* assemble the render record from a raw fetch result: metrics + freshly
@@ -2768,13 +2820,16 @@ async function renderPubContent() {
       $('#pubIssueCount').textContent = t('pub.zeroBoards');
       return;
     }
-    $('#pubIssueCount').textContent = tReplace('pub.nBoards', { n: boards.length });
+    /* count only REAL boards for the badge (synthetic masters are views, not boards) */
+    const realBoardCount = boards.filter((b) => !b.master && !b.masterAll).length;
+    $('#pubIssueCount').textContent = tReplace('pub.nBoards', { n: realBoardCount });
     /* SAME card design as the admin all-boards view: gradient avatar + type chips,
        4-up metric grid, done% bar, health pill — the share view is the admin view
        minus admin-only chrome. Stats arrive live (4 in parallel) and each card
        updates in place, exactly like the admin page. */
     const pubCard = (b, i) => {
-      const initial = b.master ? '∑' : escapeHtml((b.name || '?').trim().charAt(0).toUpperCase());
+      const isMasterAll = !!b.masterAll;
+      const initial = (b.master || isMasterAll) ? '∑' : escapeHtml((b.name || '?').trim().charAt(0).toUpperCase());
       const pBoard = !!b.master || /^\[P\]/i.test(b.projectName || '') || /^\[P\]/i.test(b.name || '');
       /* pick-compare mode: cards become selectable slots (A/B) instead of links */
       const pick = pubState.pickCompare;
@@ -2788,35 +2843,37 @@ async function renderPubContent() {
           : (pick.a == null ? t('cmp.pubClickPickA') : pick.b == null ? t('cmp.pubClickPickB') : t('cmp.pubClickPickC')))
         : t('card.openDash');
       return `
-        <div class="board-card glass${pBoard ? ' p-board' : ''}${b.master ? ' master-p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}${pickedC ? ' pick-c' : ''}" data-bid="${b.boardId}" style="animation-delay:${Math.min(i * 35, 400)}ms">
+        <div class="board-card glass${pBoard || isMasterAll ? ' p-board' : ''}${b.master ? ' master-p-board' : ''}${isMasterAll ? ' master-p-board' : ''}${picked ? ' pick-sel' : ''}${pickedA ? ' pick-a' : ''}${pickedB ? ' pick-b' : ''}${pickedC ? ' pick-c' : ''}" data-bid="${b.boardId}" style="animation-delay:${Math.min(i * 35, 400)}ms">
           <div class="board-card-head">
             <div class="board-avatar" aria-hidden="true">${initial}</div>
             <div class="board-id-block">
               <h3 title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</h3>
               <div class="board-meta">
-                ${b.master ? `<span class="chip chip-master">${escapeHtml(t('master.cardChip'))}</span>` : (!pBoard && b.projectName ? `<span class="chip" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : '')}
+                ${(b.master || isMasterAll) ? `<span class="chip chip-master">${escapeHtml(t('master.cardChip'))}</span>` : (!pBoard && b.projectName ? `<span class="chip" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : '')}
               </div>
             </div>
             ${pBoard ? '<span class="chip chip-p board-p-flag" title="[P]">[P]</span>' : ''}
             <div class="board-head-side">
-              ${admin && !b.master ? `<button class="link-btn board-copy-link" data-copyboard="${b.boardId}" data-i18n-title="pub.copyBoardLink" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>` : ''}
+              ${admin && !b.master && !isMasterAll ? `<button class="link-btn board-copy-link" data-copyboard="${b.boardId}" data-i18n-title="pub.copyBoardLink" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>` : ''}
             </div>
           </div>
           <div class="board-stats" id="pubbstats_${b.boardId}">${boardStatsChipHtml(null)}</div>
           <div class="board-card-foot">
             <span class="board-open">${escapeHtml(openLabel)}</span>
-            ${b.master ? `<span class="board-proj muted" title="${escapeHtml(t('master.cardDesc'))}">${escapeHtml(t('master.cardDesc'))}</span>` : (b.projectName ? `<span class="board-proj muted" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : '')}
+            ${(b.master || isMasterAll) ? `<span class="board-proj muted" title="${escapeHtml(t('master.cardDesc'))}">${escapeHtml(t('master.cardDesc'))}</span>` : (b.projectName ? `<span class="board-proj muted" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : '')}
           </div>
         </div>`;
     };
     /* master card lives at the FRONT of the [P] group, mirroring the admin view */
     const P = boards.filter((b) => b.master || /^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || ''));
-    /* master entry must NOT leak into the other-boards group: its name is
-       "All [P] boards", which does not start with the [P] prefix */
-    const others = boards.filter((b) => !b.master && !(/^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || '')));
+    /* master entries must NOT leak into the other-boards group: the [P] master
+       is caught by its `master` flag, the united master by `masterAll` */
+    const others = boards.filter((b) => !b.master && !b.masterAll && !(/^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || '')));
+    /* the united non-[P] master card is HOISTED to the front of the group */
+    const masterAll = boards.find((b) => b.masterAll);
     let html = '';
     if (P.length) html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.orgBoards'))}</span><div class="boards-grid">${P.map(pubCard).join('')}</div></div>`;
-    if (others.length) html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.otherBoards'))}</span><div class="boards-grid">${others.map(pubCard).join('')}</div></div>`;
+    if (others.length) html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.otherBoards'))}</span><div class="boards-grid">${[masterAll, ...others].filter(Boolean).map(pubCard).join('')}</div></div>`;
     boardsList.className = '';
     boardsList.innerHTML = html;
 
@@ -2971,6 +3028,10 @@ async function showPublicLanding(restore = false) {
      prepended whenever at least one [P] board is published and visible. */
   const boards = ((cfg && Array.isArray(cfg.boards)) ? cfg.boards : []).filter((b) => b.published !== false);
   if (pubPBoards(cfg).length) boards.unshift(pubMasterEntry());
+  /* the united non-[P] master entry is appended AFTER all real non-[P] boards —
+     renderBoardCards finds it by the masterAll flag and hoists it to the front
+     of the "All other boards" group when drawing (mirrors the [P] master) */
+  if (pubOtherBoards(cfg).length) boards.push(pubMasterAllEntry());
   const snapshot = {
     shareSeed: (cfg && cfg.shareSeed) || 'org',
     boardId: null,
@@ -5546,8 +5607,8 @@ function togglePubPickCompareMode() {
 function togglePubPickCompare(board) {
   const pick = pubState.pickCompare;
   if (!pick) return;
-  /* the synthetic master [P] board is not a real board — exclude from compare */
-  if (isPubMasterId(board.boardId)) { toast(t('cmp.pubMasterSkip'), 'warn'); return; }
+  /* the synthetic master boards ([P] + united) are not real boards — exclude */
+  if (isPubMasterId(board.boardId) || isPubMasterAllId(board.boardId)) { toast(t('cmp.pubMasterSkip'), 'warn'); return; }
   if (pick.a === board.boardId) { pick.a = pick.b; pick.b = pick.c; pick.c = null; }
   else if (pick.b === board.boardId) { pick.b = pick.c; pick.c = null; }
   else if (pick.c === board.boardId) { pick.c = null; }
