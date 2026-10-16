@@ -2811,7 +2811,9 @@ async function renderPubContent() {
     };
     /* master card lives at the FRONT of the [P] group, mirroring the admin view */
     const P = boards.filter((b) => b.master || /^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || ''));
-    const others = boards.filter((b) => !(/^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || '')));
+    /* master entry must NOT leak into the other-boards group: its name is
+       "All [P] boards", which does not start with the [P] prefix */
+    const others = boards.filter((b) => !b.master && !(/^\[P\]/i.test(b.name || '') || /^\[P\]/i.test(b.projectName || '')));
     let html = '';
     if (P.length) html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.orgBoards'))}</span><div class="boards-grid">${P.map(pubCard).join('')}</div></div>`;
     if (others.length) html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.otherBoards'))}</span><div class="boards-grid">${others.map(pubCard).join('')}</div></div>`;
