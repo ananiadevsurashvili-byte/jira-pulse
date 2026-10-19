@@ -270,6 +270,8 @@ const I18N = {
     'th.key': 'Key', 'th.summary': 'Summary', 'th.status': 'Status',
     'th.timeInStatus': 'Time in status', 'th.type': 'Type', 'th.assignee': 'Assignee', 'th.created': 'Created',
     'th.updated': 'Updated',
+    'th.repAsg': 'Reporter · Assignee', 'th.regUpd': 'Created · Updated',
+    'tl.mini.created': 'Reg.', 'tl.mini.updated': 'Upd.',
     'tl.title': 'Last updated tasks', 'tl.titleSub': '· live from the board',
     'tl.sortLast': 'Last updated first', 'tl.sortOldest': 'Oldest updated first',
     'tl.sortTitle': 'Sort tasks', 'tl.filterTitle': 'Filter tasks',
@@ -280,7 +282,7 @@ const I18N = {
     'card.descLabel': 'Description', 'card.noDescription': 'No description',
     'card.noComments': 'No comments yet', 'card.comments': 'Comments',
     'card.attachments': 'Attachments', 'card.download': 'Download', 'card.downloadFail': 'Download failed',
-    'card.enhancing': 'Loading description & comments…', 'card.enhanceFail': 'sign in to Jira to see description & comments',
+    'card.enhancing': 'Loading description & comments…', 'card.enhanceFail': 'Description & comments are temporarily unavailable',
     'th.reporter': 'Reporter',
     'ilist.empty': 'No issue data available for this selection.',
     'ilist.count': '{n} issue(s)',
@@ -912,6 +914,8 @@ const I18N = {
     'th.key': 'გასაღები', 'th.summary': 'დავალების სახელი', 'th.status': 'სტატუსი',
     'th.timeInStatus': 'დრო სტატუსში', 'th.type': 'ტიპი', 'th.assignee': 'შემსრულებელი', 'th.created': 'შექმნის თარიღი',
     'th.updated': 'განახლების თარიღი',
+    'th.repAsg': 'მომხსენებელი · შემსრულებელი', 'th.regUpd': 'შექმნა · განახლება',
+    'tl.mini.created': 'რეგ.', 'tl.mini.updated': 'განახ.',
     'tl.title': 'ბოლოს განახლებული დავალებები', 'tl.titleSub': '· პირდაპირ დაფიდან',
     'tl.sortLast': 'ბოლო განახლებული წინ', 'tl.sortOldest': 'უძველესი განახლებული წინ',
     'tl.sortTitle': 'დავალებების დალაგება', 'tl.filterTitle': 'დავალებების ფილტრი',
@@ -922,7 +926,7 @@ const I18N = {
     'card.descLabel': 'აღწერა', 'card.noDescription': 'აღწერა არ არის',
     'card.noComments': 'კომენტარები ჯერ არ არის', 'card.comments': 'კომენტარები',
     'card.attachments': 'ატვირთული ფაილები', 'card.download': 'ჩამოტვირთვა', 'card.downloadFail': 'ჩამოტვირთვა ვერ მოხერხდა',
-    'card.enhancing': 'იტვირთება აღწერა და კომენტარები…', 'card.enhanceFail': 'შეხვდით Jira-ს, რომ ნახოთ აღწერა და კომენტარები',
+    'card.enhancing': 'იტვირთება აღწერა და კომენტარები…', 'card.enhanceFail': 'აღწერა და კომენტარები დროებით მიუწვდომელია',
     'th.reporter': 'მომხსენებელი',
     'ilist.empty': 'ამ შერჩევისთვის დავალების მონაცემები არ არის.',
     'ilist.count': '{n} დავალება',
@@ -2846,27 +2850,10 @@ function jpRenderDeskEnrichments() {
     if (ilBody && ilModal && !ilModal.classList.contains('hidden') && ilBody._jpIssues) {
       openIssueListModal($('#issueListTitle')?.textContent || '', '', ilBody._jpIssues, '');
     }
-    /* open popup: pull fresh overlay data into the card if it renders */
+    /* open popup: single source of truth — delegate to jpDeskToCard */
     if (jpCardKey && !$('#pubCardOverlay').classList.contains('hidden')) {
       const desk = jpDeskRow(jpFindIssue(jpCardKey) || { key: jpCardKey });
-      if (desk) {
-        const descEl = $('#jpCardDesc');
-        if (descEl && desk.descFull && !descEl.textContent) descEl.textContent = desk.descFull;
-        const cmEl = $('#jpCardComments');
-        if (cmEl && desk.comments.length && !cmEl.childElementCount) {
-          cmEl.innerHTML = desk.comments.map((c) =>
-            `<div class="lg-card-comment">
-              <div class="lg-card-comment-head">
-                <span class="lg-comment-author">${escapeHtml(c.author || '—')}</span>
-                <span class="lg-card-comment-date">${jpFmtDateTime(c.created)}</span>
-              </div>
-              <div class="lg-card-comment-body">${escapeHtml(c.body || '')}</div>
-              <div class="lg-card-comment-attach" data-comment-idx="${c.idx ?? ''}"></div>
-            </div>`).join('');
-          placeCommentAttachments($('#pubCardBody'));
-          jpHydrateAttachImages($('#pubCardBody'));
-        }
-      }
+      if (desk) jpDeskToCard(jpCardKey, desk);
     }
   }, 60);
 }
@@ -2882,7 +2869,16 @@ function jpOpenCard(key) {
   jpEnsureDesk();            /* bulk overlay may already be cached — instant */
   show($('#pubCardOverlay'));
   $('#pubCardClose').focus();
-  enRichCard(key);
+  /* sync order: the bulk desk overlay (already per-project, viewer-cred or
+     stored-cred) paints first; per-issue enrich runs ONLY when the desk has
+     no data — a desk failure must never surface as a scary "sign in" hint */
+  const desk = jpDeskRow(iss || { key });
+  if (desk) {
+    jpDeskToCard(key, desk);
+    enRichCard(key);         /* still fine-tunes (fresh comments/attach slots) */
+  } else {
+    enRichCard(key);
+  }
 }
 
 function jpCloseCard() {
@@ -2891,6 +2887,42 @@ function jpCloseCard() {
   jpRevokeBlobCache();       /* free preview blobs — thumbs reload on reopen */
   const lb = document.querySelector('.lg-lightbox');
   if (lb) lb.remove();
+}
+
+/* shared desk→popup paint: fill the open card's description, reporter and
+   comments from the bulk desk row (attachments land via jpLoadCardAttachments
+   + placeCommentAttachments).guarded by keyAtStart so a closed/switched card
+   is never touched. */
+function jpDeskToCard(key, desk) {
+  if (!desk) return;
+  const body = $('#pubCardBody');
+  if (String(jpCardKey) !== String(key)) return;
+  const descEl = body.querySelector('#jpCardDesc');
+  if (descEl && desk.descFull && !(descEl.textContent || '').trim()) {
+    descEl.textContent = desk.descFull;
+  }
+  const repEl = body.querySelectorAll('.jp-card-person .jp-card-person-name')[1];
+  if (repEl && desk.reporter && repEl.classList.contains('jp-unassigned')) {
+    repEl.classList.remove('jp-unassigned');
+    repEl.textContent = desk.reporter;
+  }
+  const cmEl = body.querySelector('#jpCardComments');
+  if (cmEl && desk.comments.length && !cmEl.childElementCount) {
+    cmEl.innerHTML = desk.comments.map((c) =>
+      `<div class="lg-card-comment">
+        <div class="lg-card-comment-head">
+          <span class="lg-comment-author">${escapeHtml(c.author || '—')}</span>
+          <span class="lg-card-comment-date">${jpFmtDateTime(c.created)}</span>
+        </div>
+        <div class="lg-card-comment-body">${escapeHtml(c.body || '')}</div>
+        <div class="lg-card-comment-attach" data-comment-idx="${c.idx ?? ''}"></div>
+      </div>`).join('');
+    placeCommentAttachments(body);
+    jpHydrateAttachImages(body);
+    /* painted from real data — the "enhancing…" hint is now noise */
+    const enh = body.querySelector('#jpEnhancing');
+    if (enh && (desk.descFull || desk.comments.length)) enh.remove();
+  }
 }
 
 /* the live board pool first (freshest fields), then the admin app pool */
@@ -3276,30 +3308,54 @@ function pubTaskListRows(issues) {
   const base = jiraIssueBase();
   const html = rows.map((i) => {
     const f = i.fields || {};
-    const assignee = f.assignee?.displayName || '';
     const desk = jpDeskRow(i) || null;
     const attN = desk?.attFiles.length || 0;
     const link = base
-      ? `<a href="${escapeHtml(base)}/browse/${encodeURIComponent(i.key)}" target="_blank" rel="noopener" title="${t('ilist.openJira')}">${escapeHtml(i.key)}<span class="ilist-ext" aria-hidden="true">↗</span></a>`
+      ? `<a href="${escapeHtml(base)}/browse/${encodeURIComponent(i.key)}" target="_blank" rel="noopener" title="${t('ilist.openJira')}">${escapeHtml(i.key)}</a>`
       : `<span class="muted">${escapeHtml(i.key)}</span>`;
-    /* logistics-style summary cell: clickable title + 2-line description
+    /* logistics-parity title cell: clickable title + 2-line description
        preview + 📎n badge when the desk overlay has attachment metadata */
-    const titleLine = `<div class="jp-title-line">
-      <a class="jp-task-title" href="#" data-jp-open="${escapeHtml(i.key)}" title="${escapeHtml(f.summary || i.key)}">${escapeHtml(f.summary || '—')}</a>
+    const titleLine = `<div class="lg-title-line">
+      <div class="lg-task-title"><a class="lg-title-link" href="#" data-jp-open="${escapeHtml(i.key)}" title="${escapeHtml(f.summary || i.key)}">${escapeHtml(f.summary || '—')}</a></div>
       ${attN ? `<span class="jp-att-badge" data-jp-open="${escapeHtml(i.key)}" title="${escapeHtml(t('card.attachments'))}">📎 ${attN}</span>` : ''}
     </div>
-    ${desk?.descOne ? `<div class="jp-desc">${escapeHtml(desk.descOne)}</div>` : ''}`;
+    ${(desk?.descOne && desk.descOne !== f.summary) ? `<div class="lg-desc">${escapeHtml(desk.descOne)}</div>` : ''}`;
+    /* merged people cell: label chips + value lines (logistics desk parity) */
+    const who = (name) => name
+      ? escapeHtml(name)
+      : `<span class="lg-unassigned">${escapeHtml(t('ilist.unassigned'))}</span>`;
+    const peopleHtml =
+      `<div class="lg-mini-row" title="${escapeHtml(t('th.reporter'))}"><span class="lg-mini-label">${escapeHtml(t('th.reporter'))}</span>` +
+      `<span class="lg-mini-value">${who(desk?.reporter)}</span></div>` +
+      `<div class="lg-mini-row lg-row-asg" title="${escapeHtml(t('th.assignee'))}"><span class="lg-mini-label assignee-chip">${escapeHtml(t('th.assignee'))}</span>` +
+      `<span class="lg-mini-value">${who(f.assignee?.displayName || '')}</span></div>`;
+    /* merged dates cell: Created/Updated stacked on label chips */
+    const datesHtml =
+      `<div class="lg-mini-row" title="${escapeHtml(t('th.created'))}"><span class="lg-mini-label">${escapeHtml(t('tl.mini.created'))}</span>` +
+      `<span class="lg-mini-value lg-date-cell">${fmtDateLong(f.created)}</span></div>` +
+      `<div class="lg-mini-row" title="${escapeHtml(t('th.updated'))}"><span class="lg-mini-label">${escapeHtml(t('tl.mini.updated'))}</span>` +
+      `<span class="lg-mini-value lg-date-cell">${fmtDateLong(f.updated)}</span></div>`;
+    /* comments column: synced from the desk overlay — stacked previews,
+       full text on hover */
+    const comments = desk?.comments || [];
+    const commentsHtml = comments.length
+      ? `<div class="lg-comments" title="${escapeHtml(comments.map((c) => (c.author ? c.author + ': ' : '') + c.body).join('\n———\n'))}">` +
+        comments.map((c) =>
+          `<div class="lg-comment"><span class="lg-comment-author">${escapeHtml(c.author || '—')}</span>` +
+          `<span class="lg-comment-body">${escapeHtml(c.body.length > 90 ? c.body.slice(0, 90) + '…' : c.body)}</span></div>`
+        ).join('') +
+        `</div>`
+      : '<span class="muted">—</span>';
     return `<tr>
-      <td>${link}</td>
-      <td class="jp-title-cell">${titleLine}</td>
+      <td class="lg-nowrap lg-key-cell">${link}</td>
+      <td class="lg-title-cell">${titleLine}</td>
       <td><span class="status-pill ${jpStatusClass(f.status?.name || '')}">${escapeHtml(f.status?.name || '—')}</span></td>
-      <td class="muted">${fmtDateLong(f.updated)}</td>
-      <td><span class="type-chip">${escapeHtml(f.issuetype?.name || '—')}</span></td>
-      <td class="muted">${assignee ? escapeHtml(assignee) : `<span class="muted">${escapeHtml(t('ilist.unassigned'))}</span>`}</td>
-      <td class="muted">${fmtDateLong(f.created)}</td>
+      <td class="lg-people-cell">${peopleHtml}</td>
+      <td class="lg-dates-cell">${datesHtml}</td>
+      <td class="lg-comments-cell">${commentsHtml}</td>
     </tr>`;
   }).join('');
-  return html || `<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('tl.empty'))}</td></tr>`;
+  return html || `<tr><td colspan="6" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('tl.empty'))}</td></tr>`;
 }
 
 /* pagination footer: "Showing a–b of n" + a Show-more button only when more
@@ -3343,10 +3399,11 @@ function taskListSheetRows(issues) {
       [t('th.key')]: i.key || '',
       [t('th.summary')]: f.summary || '',
       [t('th.status')]: f.status?.name || '',
-      [t('th.updated')]: isoDate(f.updated),
-      [t('th.type')]: f.issuetype?.name || '',
+      [t('th.reporter')]: desk?.reporter || '',
       [t('th.assignee')]: f.assignee?.displayName || t('ilist.unassigned'),
       [t('th.created')]: isoDate(f.created),
+      [t('th.updated')]: isoDate(f.updated),
+      [t('th.type')]: f.issuetype?.name || '',
       [t('card.descLabel')]: desk?.descFull || '',
       [t('card.comments')]: comments.join('\n'),
       [t('card.attachments')]: attNames.join(', '),
@@ -3360,7 +3417,7 @@ function exportTaskListExcel(issues) {
   const rows = taskListSheetRows(pubTaskListFiltered(issues));
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ [t('th.key')]: t('tl.empty') }]);
-  ws['!cols'] = [{ wch: 16 }, { wch: 60 }, { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 22 }, { wch: 22 }, { wch: 50 }, { wch: 50 }, { wch: 32 }, { wch: 46 }];
+  ws['!cols'] = [{ wch: 16 }, { wch: 60 }, { wch: 18 }, { wch: 22 }, { wch: 22 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 50 }, { wch: 50 }, { wch: 32 }, { wch: 46 }];
   ws['!freeze'] = { xSplit: 0, ySplit: 1 };
   XLSX.utils.book_append_sheet(wb, ws, safeSheetName(t('tl.title')));
   const win = boardWindowOf();
@@ -5369,7 +5426,7 @@ function exportBoardExcel(board, issues, m, charts = null) {
   {
     const taskWs = dress(
       XLSX.utils.json_to_sheet(taskRows.length ? taskRows : [{ [t('th.key')]: t('tl.empty') }]),
-      wch(16, 60, 18, 22, 14, 22, 22, 50, 50, 32, 46),
+      wch(16, 60, 18, 22, 22, 14, 14, 14, 50, 50, 32, 46),
     );
     XLSX.utils.book_append_sheet(wb, taskWs, uniqueSheet(t('brd.sheetTasks')));
   }
