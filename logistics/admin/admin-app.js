@@ -71,9 +71,10 @@ const I18N = {
     'adm.kpi.totalSub': 'created in selected period', 'adm.kpi.openSub': 'not resolved yet',
     'adm.kpi.basedOn': 'based on {n} tasks with resolution date',
     /* avg-resolution caption: TRUE description of the count — median over
-       every task RESOLVED in the period with a Jira resolutiondate */
-    'adm.kpi.medianOn': 'median of {n} tasks resolved in period (Jira resolution date)',
-    'adm.kpi.medianNone': 'no tasks with a Jira resolution date resolved in period',
+       every task RESOLVED in the period (creation→resolution; Jira
+       resolution date when present, last-activity otherwise) */
+    'adm.kpi.medianOn': 'median of {n} tasks resolved in period (created → resolved)',
+    'adm.kpi.medianNone': 'no tasks resolved in period',
     'adm.dl.title': 'Task list', 'adm.dl.tip': 'Show these tasks in list',
     'adm.dl.resMarker': 'resolved', 'adm.dl.openCard': 'Open task details',
     /* detail-popup strings — mirror the desk's keys so admRenderCard can
@@ -137,8 +138,8 @@ const I18N = {
     'adm.kpi.avgRes': 'საშ. გადაწყვეტის დრო', 'adm.kpi.inwork': 'მიმდ. პროცესში',
     'adm.kpi.totalSub': 'შექმნილი არჩეულ პერიოდში', 'adm.kpi.openSub': 'ჯერ გადაუწყვეტელი',
     'adm.kpi.basedOn': 'ეყრდნობა {n} დავალებას გადაწყვეტის თარიღით',
-    'adm.kpi.medianOn': 'მედიანა {n} პერიოდში გადაწყვეტილ დავალებაზე (ჯირას გადაწყვეტის თარიღი)',
-    'adm.kpi.medianNone': 'პერიოდში გადაწყვეტილი დავალება გადაწყვეტის თარიღით არ არის',
+    'adm.kpi.medianOn': 'მედიანა {n} პერიოდში გადაწყვეტილ დავალებაზე (შექმნიდან გადაწყვეტამდე)',
+    'adm.kpi.medianNone': 'პერიოდში გადაწყვეტილი დავალება არ არის',
     'adm.dl.title': 'დავალებების სია', 'adm.dl.tip': 'ამ დავალებების სიაში ნახვა',
     'adm.dl.resMarker': 'გადაწყვეტილი', 'adm.dl.openCard': 'დავალების დეტალების გახსნა',
     'lg.th.reporter': 'მომხსენებელი', 'lg.th.assignee': 'ასიგნებული',
@@ -612,6 +613,7 @@ function admNormalize(data) {
       assignName: (f.assignee && f.assignee.displayName) || '',
       labels,
       descFull: descLines.join('\n'),
+      descOne: descLines[0] || '',
       comments,
       attFiles,
       createdMs: Date.parse(f.created) || 0,
@@ -710,12 +712,13 @@ function admAggregate(rows, range) {
        period-created tasks). */
     const resInPeriod = r.resolved && r.resolvedAt >= from && r.resolvedAt <= to;
     // resolution time (days) — MEDIAN over EVERY task resolved inside the
-    // selected period (real Jira resolutiondate), regardless of when the
-    // task was created. Mean-of-period-created-tasks undercounted (only the
-    // small rdReal subset qualified) and let one huge outlier skew the value;
-    // median fixes both. No updated-fallback: `updated` drifts on edits
-    // (probe: 2193/2217 resolved LOG issues lack rd).
-    if (resInPeriod && r.rdReal && r.createdMs && r.resolvedAt > r.createdMs) {
+    // selected period, regardless of creation date. Jira only writes a real
+    // resolutiondate on a small subset (probe: 2193/2217 resolved LOG issues
+    // lack rd); for the rest fall back to `updated` (admNormalize already
+    // resolves resolvedAt to realRd || updated || created), so the sample
+    // covers ALL resolved-in-period tasks — with the previously rdReal-only
+    // gate the KPI said "1.1d / median of 13" while 1630 tasks resolved.
+    if (resInPeriod && r.resolvedAt > r.createdMs) {
       aggr.resDaysList.push((r.resolvedAt - r.createdMs) / 864e5);
     }
     if (!inPeriod) {
@@ -1118,7 +1121,7 @@ function admDrillRows(key) {
     case 'month': return rows.filter((r) => r.createdMs >= m0);
     case 'resolved': return rows.filter(resInPeriod);
     case 'resall': return rows.filter((r) => r.resolved);
-    case 'avgres': return rows.filter((r) => resInPeriod(r) && r.rdReal && r.resolvedAt > r.createdMs && r.createdMs);
+    case 'avgres': return rows.filter((r) => resInPeriod(r) && r.resolvedAt > r.createdMs && r.createdMs);
     case 'open': return rows.filter((r) => createdInPeriod(r) && !r.resolved);
     case 'inprog': return rows.filter((r) => createdInPeriod(r) && !r.resolved && lgStatusClass(r.status) === 'lg-st-progress');
     default: return [];
@@ -1149,22 +1152,47 @@ function admRenderDrilldown() {
     k.classList.toggle('dl-open', !!(b && b.dataset.dl === adm.dl));
   });
   if (!rows.length) {
-    tb.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="6" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`;
     show(sec); return;
   }
-  tb.innerHTML = rows.map((r) =>
-    `<tr>` +
-    `<td><a class="tl-key lg-key-link" href="${escapeHtml(r.href)}" target="_blank" rel="noopener">${escapeHtml(r.key)}</a></td>` +
-    `<td class="tl-sum"><button type="button" class="lg-sum-link" data-key="${escapeHtml(r.key)}" title="${escapeHtml(t('adm.dl.openCard'))}">${escapeHtml(r.summary || '—')}</button>${r.attFiles && r.attFiles.length ? `<span class="lg-att-badge" title="${escapeHtml(t('lg.row.hasFiles'))}">📎 ${r.attFiles.length}</span>` : ''}</td>` +
-    `<td><span class="lg-status-chip ${r.statusCls || 'lg-st-other'}">${escapeHtml(r.status || '—')}</span></td>` +
-    `<td class="muted lg-dir-cell" title="${escapeHtml(r.direction || '')}">${escapeHtml(r.direction || '—')}</td>` +
-    `<td>${escapeHtml(r.assignName || '—')}</td>` +
-    `<td>${escapeHtml(r.reportName || '—')}</td>` +
+  tb.innerHTML = rows.map((r) => {
+    /* title cell mirrors lgRowHtmlUncached exactly: clickable title +
+       description preview + 📎 badge pinned top-right of the title line.
+       Old plain <button class="lg-sum-link"> had no stylesheet rule and the
+       browser default white button background was bleeding through. */
+    const attN = (r.attFiles || []).length;
+    const attBadge = attN
+      ? `<a href="#" class="lg-open-card lg-att-badge" data-key="${escapeHtml(r.key)}" title="${escapeHtml(t('lg.row.hasFiles') + ' (' + attN + ')')}">📎${attN}</a>`
+      : '';
+    const descPreview = (r.descOne && r.descOne !== r.summary) ? r.descOne : '';
+    const who = (name) => name
+      ? escapeHtml(name)
+      : `<span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`;
+    const peopleHtml =
+      `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.reporter'))}"><span class="lg-mini-label">${escapeHtml(t('lg.th.reporter'))}</span>` +
+      `<span class="lg-mini-value">${who(r.reportName)}</span></div>` +
+      `<div class="lg-mini-row lg-row-asg" title="${escapeHtml(t('lg.th.assignee'))}"><span class="lg-mini-label assignee-chip">${escapeHtml(t('lg.th.assignee'))}</span>` +
+      `<span class="lg-mini-value">${who(r.assignName)}</span></div>`;
+    return `<tr>` +
+    `<td class="lg-nowrap lg-key-cell"><a class="lg-key-link" href="${escapeHtml(r.href)}" target="_blank" rel="noopener">${escapeHtml(r.key)}</a></td>` +
+    `<td class="lg-title-cell">
+      <div class="lg-title-line">
+        <div class="lg-task-title"><a href="#" class="lg-open-card lg-title-link" data-key="${escapeHtml(r.key)}">${escapeHtml(r.summary || '—')}</a></div>
+        ${attBadge}
+      </div>${descPreview ? `<div class="lg-desc">${escapeHtml(descPreview)}</div>` : ''}
+    </td>` +
+    `<td><span class="status-pill ${r.statusCls || 'lg-st-other'}">${escapeHtml(r.status || '—')}</span></td>` +
+    `<td class="lg-people-cell">${peopleHtml}</td>` +
+    `<td class="lg-direction-cell">${r.direction ? `<div class="lg-dir-text">${escapeHtml(r.direction)}</div>` : '<span class="muted">—</span>'}</td>` +
     `<td class="muted lg-created-cell">${fmtDate(r.createdMs)}${r.resolved && r.resolvedAt ? `<span class="lg-res-marker">→ ${fmtDate(r.resolvedAt)}</span>` : ''}</td>` +
-    `</tr>`).join('');
+    `</tr>`;
+  }).join('');
   /* title click → in-app detail popup (same view as the logistics desk) */
-  tb.querySelectorAll('.lg-sum-link').forEach((b) => {
-    b.addEventListener('click', () => admOpenCard(b.dataset.key));
+  tb.querySelectorAll('.lg-open-card').forEach((b) => {
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
+      admOpenCard(b.dataset.key);
+    });
   });
   show(sec);
 }

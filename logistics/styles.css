@@ -510,6 +510,40 @@ body.light .lg-dir-opt.active { background: rgba(99, 102, 241, 0.16); }
 .kpi.dl-open { box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35); }
 .lg-res-marker { display: block; color: var(--muted, #8b93ad); font-size: 0.72rem; margin-top: 2px; }
 
+/* ── admin drill-down table looks like the logistics desk table ──────────
+   The drill-down rows reuse the desk's row-scope classes (lg-title-cell,
+   lg-mini-row, lg-desc …) which were previously #lgContent-scoped; give the
+   drill table the same density + column widths so the two lists render
+   identically. */
+#admDrillTable {
+  width: 100%; min-width: 0; table-layout: fixed;
+  border-collapse: separate; border-spacing: 0;
+  font-size: 0.84rem;
+}
+#admDrillTable thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: #10162c;
+  padding: 6px 8px; white-space: nowrap;
+}
+body.light #admDrillTable thead th { background: #eef1fa; }
+#admDrillTable td { padding: 6px 8px; vertical-align: top; }
+#admDrillTable tbody tr { transition: background 0.12s ease; }
+#admDrillTable tbody tr:hover { background: rgba(99, 102, 241, 0.07); }
+#admDrillTable td:first-child { width: 92px; }
+#admDrillTable td:nth-child(3) { width: 104px; }
+#admDrillTable td:nth-child(4) { width: 200px; }
+#admDrillTable td:nth-child(5) { width: 150px; }
+body.light #admDrillTable td { border-bottom-color: rgba(15, 23, 42, 0.07); }
+#admDrillTable .lg-comments-cell { width: 252px; }
+@media (max-width: 1280px) {
+  #admDrillTable td:nth-child(4) { width: 188px; }
+  #admDrillTable td:nth-child(5) { width: 122px; }
+}
+@media (max-width: 1440px) {
+  #admDrillTable td { padding: 4px 8px; }
+  #admDrillTable thead th { padding: 5px 8px; }
+}
+
 /* ── page-size switcher (compact select at the toolbar's right end) ────── */
 .lg-page-select {
   min-width: 0;
