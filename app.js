@@ -277,6 +277,11 @@ const I18N = {
     'tl.count': '{n} tasks', 'tl.empty': 'No tasks match the current filters.',
     'tl.more': 'Show more', 'tl.moreTitle': 'Show the next 50 tasks of the current filtered list',
     'tl.pageOf': 'Showing {a}–{b} of {n}', 'tl.export': 'Tasks Excel', 'tl.exportTitle': 'Download the current task list (with the active filters) as an Excel workbook',
+    'card.descLabel': 'Description', 'card.noDescription': 'No description',
+    'card.noComments': 'No comments yet', 'card.comments': 'Comments',
+    'card.attachments': 'Attachments', 'card.download': 'Download', 'card.downloadFail': 'Download failed',
+    'card.enhancing': 'Loading description & comments…', 'card.enhanceFail': 'sign in to Jira to see description & comments',
+    'th.reporter': 'Reporter',
     'ilist.empty': 'No issue data available for this selection.',
     'ilist.count': '{n} issue(s)',
     'ilist.openJira': 'open in Jira',
@@ -914,6 +919,11 @@ const I18N = {
     'tl.count': '{n} დავალება', 'tl.empty': 'ფილტრებს ვერცერთი დავალება არ ერგება.',
     'tl.more': 'მეტის ჩვენება', 'tl.moreTitle': 'შემდეგი 50 დავალების ჩვენება მიმდინარე შერჩევიდან',
     'tl.pageOf': 'ნაჩვენებია {a}–{b} / {n}', 'tl.export': 'დავალებები Excel', 'tl.exportTitle': 'მიმდინარე დავალებების სიის გადმოწერა Excel-ში (აქტიური ფილტრებით)',
+    'card.descLabel': 'აღწერა', 'card.noDescription': 'აღწერა არ არის',
+    'card.noComments': 'კომენტარები ჯერ არ არის', 'card.comments': 'კომენტარები',
+    'card.attachments': 'ატვირთული ფაილები', 'card.download': 'ჩამოტვირთვა', 'card.downloadFail': 'ჩამოტვირთვა ვერ მოხერხდა',
+    'card.enhancing': 'იტვირთება აღწერა და კომენტარები…', 'card.enhanceFail': 'შეხვდით Jira-ს, რომ ნახოთ აღწერა და კომენტარები',
+    'th.reporter': 'მომხსენებელი',
     'ilist.empty': 'ამ შერჩევისთვის დავალების მონაცემები არ არის.',
     'ilist.count': '{n} დავალება',
     'ilist.openJira': 'Jira-ში გახსნა',
@@ -2392,20 +2402,30 @@ function fmtDateLong(v) {
 function openIssueListModal(chartTitle, pointLabel, keys, seriesLabel) {
   const rows = resolveIssueRows(keys);
   const base = jiraIssueBase();
+  jpEnsureDesk();   /* rich rows in the drill-down list share the bulk overlay */
   $('#issueListTitle').textContent = `${chartTitle}${seriesLabel ? ' — ' + seriesLabel : ''} · ${pointLabel || ''}`;
   $('#issueListSub').textContent = rows.length
     ? `${tReplace('ilist.count', { n: rows.length })}${base ? '' : ' · ' + t('ilist.noLink')}`
     : t('ilist.empty');
   const body = $('#issueListBody');
+  body._jpIssues = keys;   /* remembered for jpRenderDeskEnrichments re-paints */
   body.innerHTML = rows.length
     ? rows.map((r) => {
         const link = base
           ? `<a href="${escapeHtml(base)}/browse/${encodeURIComponent(r.key)}" target="_blank" rel="noopener" title="${t('ilist.openJira')}">${escapeHtml(r.key)}<span class="ilist-ext" aria-hidden="true">↗</span></a>`
           : `<span class="muted">${escapeHtml(r.key)}</span>`;
+        const desk = jpDeskRow({ key: r.key });
+        const attN = desk?.attFiles.length || 0;
         return `<tr>
           <td>${link}</td>
-          <td>${escapeHtml(r.summary || '—')}</td>
-          <td>${escapeHtml(r.status || '—')}</td>
+          <td class="jp-title-cell">
+            <div class="jp-title-line">
+              <a class="jp-task-title" href="#" data-jp-open="${escapeHtml(r.key)}" title="${escapeHtml(r.summary || r.key)}">${escapeHtml(r.summary || '—')}</a>
+              ${attN ? `<span class="jp-att-badge" data-jp-open="${escapeHtml(r.key)}" title="${escapeHtml(t('card.attachments'))}">📎 ${attN}</span>` : ''}
+            </div>
+            ${desk?.descOne ? `<div class="jp-desc">${escapeHtml(desk.descOne)}</div>` : ''}
+          </td>
+          <td><span class="status-pill ${jpStatusClass(r.status)}">${escapeHtml(r.status || '—')}</span></td>
           <td>${r.assignee ? escapeHtml(r.assignee) : `<span class="muted">${escapeHtml(t('ilist.unassigned'))}</span>`}</td>
           <td>${fmtDateLong(r.created)}</td>
           <td>${fmtDateLong(r.updated)}</td>
@@ -2419,6 +2439,670 @@ function openIssueListModal(chartTitle, pointLabel, keys, seriesLabel) {
 function wireIssueListModal() {
   $('#closeIssueListBtn').addEventListener('click', () => hide($('#issueListModal')));
   $('#issueListModal').addEventListener('click', (ev) => { if (ev.target === ev.currentTarget) hide($('#issueListModal')); });
+}
+
+/* ── rich task card popup (logistics-desk parity, in-app) ────────────────
+   Opens from any task-list title / key click. The popup renders instantly
+   from the live board payload (summary/status/people/dates) and then
+   lazily enriches with description + comments via the relay's plain CORS
+   proxy (?url= → Jira's own /rest/api/3/issue endpoint) and attachments
+   (incl. images embedded inside comments) via ?cmd=deskAttach. NO backend
+   changes — every call uses relay endpoints that already exist. */
+
+/* fetch + shape the description + comments of exactly one issue through
+   the generic CORS proxy. Works with the viewer's own Jira creds when
+   present, falls back to the relay's stored creds server-side. */
+async function pubFetchDetail(key) {
+  const domain = String(jiraIssueBase() || PUBLISH_DOMAIN).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  const target = `https://${domain}/rest/api/3/issue/${encodeURIComponent(key)}?fields=description,comment,reporter,assignee,attachment`;
+  const headers = { 'Accept': 'application/json' };
+  if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
+  const res = await fetch(PUB_RELAY + '?url=' + encodeURIComponent(target), { method: 'GET', headers });
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (_) { /* non-json */ }
+  if (!res.ok || data?.error) throw new Error(data?.error?.messages?.[0] || (data && (data.error || data.detail)) || `HTTP ${res.status}`);
+  const f = data?.fields || {};
+  const comments = (Array.isArray(f.comment?.comments) ? f.comment.comments : [])
+    .map((c, idx) => ({
+      author: c.author?.displayName || '',
+      created: c.created || '',
+      body: jpAdfText(c.body),
+      mediaIds: jpCollectMediaIds(c.body),   /* images pasted INTO this comment */
+      _idx: idx,
+    }));
+  /* images pasted inside comments are attachments linked via mediaId — map
+     each media id to the comment that contains it (logistics parity) */
+  const mediaOwner = new Map();
+  for (const c of comments) for (const mid of c.mediaIds) if (!mediaOwner.has(mid)) mediaOwner.set(mid, c._idx);
+  const attachments = (Array.isArray(f.attachment) ? f.attachment : []).map((a) => ({
+    id: String(a.id || ''),
+    filename: String(a.filename || ''),
+    mimeType: String(a.mimeType || ''),
+    size: a.size || 0,
+    created: String(a.created || ''),
+    author: a.author?.displayName || '',
+    contentUrl: String(a.content || ''),
+    commentIndex: a.mediaId && mediaOwner.has(String(a.mediaId)) ? mediaOwner.get(String(a.mediaId)) : null,
+  }));
+  const flat = (u) => u?.displayName || '';
+  return {
+    descFull: jpAdfText(f.description),
+    reporter: flat(f.reporter),
+    assignee: flat(f.assignee),
+    comments,
+    attachments,
+  };
+}
+
+/* collect `media` node ids from an ADF body so pasted-in images can be
+   linked back to the comment that contains them (attachment.mediaId) */
+function jpCollectMediaIds(node) {
+  const ids = new Set();
+  (function walk(n) {
+    if (n == null || typeof n !== 'object') return;
+    if (Array.isArray(n)) { for (const c of n) walk(c); return; }
+    if ((n.type === 'media' || n.type === 'mediaInline') && n.attrs?.id) ids.add(String(n.attrs.id));
+    if (Array.isArray(n.content)) walk(n.content);
+  })(node);
+  return [...ids];
+}
+
+/* minimal ADF → plain text (logistics parity: paragraph breaks preserved,
+   media nodes → 📷 marker so images inside text stay discoverable) */
+function jpAdfText(node) {
+  const NL_AFTER = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'codeBlock', 'blockquote', 'rule', 'mediaSingle']);
+  let out = '';
+  (function walk(n, block) {
+    if (n == null || out.length > 24000) return;
+    if (Array.isArray(n)) { for (const c of n) walk(c, block); return; }
+    if (typeof n !== 'object') { out += String(n); return; }
+    const type = n.type || '';
+    if (type === 'text') {
+      out += n.marks?.some((m) => m.type === 'code') ? '`' + (n.text || '') + '`' : (n.text || '');
+      return;
+    }
+    if (type === 'hardBreak') { out += '\n'; return; }
+    if (type === 'mention') { out += '@' + (n.attrs?.text || ''); return; }
+    if (type === 'emoji') { out += n.attrs?.text || ''; return; }
+    if (type === 'media' || type === 'mediaInline') { out += ' 📷 '; return; }
+    if (Array.isArray(n.content)) walk(n.content, true);
+    if (block && NL_AFTER.has(type)) out += '\n';
+  })(node, false);
+  return out.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/* shared per-issue detail: pubFetchDetail itself caches (10 min), so the
+   popup's description+comments call and the rows' 📎-badge enrichment share
+   one relay round-trip per issue per session */
+const JP_DETAIL_TTL = 10 * 60 * 1000;
+const _jpDetailCache = new Map();       /* key → { ts, detail } */
+function jpDetailOf(key) {
+  const hit = _jpDetailCache.get(key);
+  if (hit && Date.now() - hit.ts < JP_DETAIL_TTL) return Promise.resolve(hit.detail);
+  /* single-flight: A row render + the popup open must not double-fetch */
+  if (hit && hit.p) {
+    return hit.p;
+  }
+  const p = pubFetchDetail(key)
+    .then((detail) => { _jpDetailCache.set(key, { ts: Date.now(), detail }); return detail; })
+    .catch((err) => {
+      /* negative-TTL: a Jira 401/403/404 for this key stays cached briefly so
+         a re-render doesn't hammer the proxy with a known-failing key */
+      const code = Number(/HTTP (\d+)/.exec(err?.message)?.[1] || 0);
+      const ttl = (code === 401 || code === 403 || code === 404) ? 60_000 : 10_000;
+      _jpDetailCache.set(key, { ts: Date.now() - JP_DETAIL_TTL + ttl, detail: null });
+      return null;
+    });
+  _jpDetailCache.set(key, { ts: Date.now(), p });   /* placeholder until settled */
+  return p;
+}
+
+/* ── attachments (metadata + blob previews through the relay) ────────── */
+const _jpBlobCache = new Map();         /* attachId → objectURL */
+
+async function jpFetchAttachments(key) {
+  const detail = await jpDetailOf(key);
+  return detail?.attachments || [];
+}
+
+function jpAttachProxyUrl(contentUrl) {
+  return PUB_RELAY + '?url=' + encodeURIComponent(contentUrl);
+}
+
+function jpIsImageMime(mime, filename) {
+  if (/^image\//i.test(mime || '')) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(filename || '');
+}
+
+function jpFmtBytes(n) {
+  if (!n || n < 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+async function jpAttachBlob(att) {
+  if (_jpBlobCache.has(att.id)) return _jpBlobCache.get(att.id);
+  const conn = loadConn();
+  const res = await fetch(jpAttachProxyUrl(att.contentUrl), {
+    headers: conn ? { 'Authorization': 'Basic ' + btoa(conn.email + ':' + conn.token) } : {},
+  });
+  if (!res.ok) throw new Error('preview HTTP ' + res.status);
+  const blob = await res.blob();
+  if (/json/i.test(blob.type || '')) throw new Error('proxy refused preview');
+  const objUrl = URL.createObjectURL(blob);
+  _jpBlobCache.set(att.id, objUrl);
+  return objUrl;
+}
+
+function jpRevokeBlobCache() {
+  for (const [, u] of _jpBlobCache) {
+    try { URL.revokeObjectURL(u); } catch (_) {}
+  }
+  _jpBlobCache.clear();
+}
+
+async function jpDownloadAttachment(att) {
+  const objUrl = await jpAttachBlob(att);
+  const a = document.createElement('a');
+  a.href = objUrl;
+  a.download = att.filename || 'file';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/* fullscreen image viewer (same UX as the logistics lightbox) */
+function jpOpenLightbox(att, objUrl) {
+  const lb = document.createElement('div');
+  lb.className = 'lg-lightbox';
+  lb.innerHTML = `
+    <button class="lg-lightbox-close" type="button" aria-label="Close">✕</button>
+    <button class="lg-lightbox-dl" type="button">⬇ ${escapeHtml(t('card.download'))}</button>
+    <img alt="${escapeHtml(att.filename)}" src="${objUrl}" />
+    <div class="lg-lightbox-name">${escapeHtml(att.filename)}</div>`;
+  const close = () => { lb.remove(); };
+  lb.addEventListener('click', (e) => {
+    if (e.target === lb || e.target.closest('.lg-lightbox-close')) close();
+  });
+  lb.querySelector('.lg-lightbox-dl').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try { await jpDownloadAttachment(att); }
+    catch (_) { btn.textContent = '⚠ ' + t('card.downloadFail'); setTimeout(() => { btn.disabled = false; btn.textContent = '⬇ ' + t('card.download'); }, 2000); return; }
+    btn.disabled = false;
+    btn.textContent = '⬇ ' + t('card.download');
+  });
+  document.addEventListener('keydown', function onKey(ev) {
+    if (ev.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
+  });
+  document.body.appendChild(lb);
+}
+
+function jpAttachThumbHtml(att) {
+  const isImg = jpIsImageMime(att.mimeType, att.filename);
+  if (isImg) {
+    return `<a class="lg-att-item lg-att-img" data-att-id="${escapeHtml(att.id)}" href="#" title="${escapeHtml(att.filename)}">
+      <img alt="${escapeHtml(att.filename)}" loading="lazy" />
+      <span class="lg-att-name">${escapeHtml(att.filename)}</span>
+    </a>`;
+  }
+  const icon = /\.(pdf)$/i.test(att.filename || '') ? '📄'
+    : /\.(xlsx?|csv)$/i.test(att.filename || '') ? '📊'
+    : /\.(docx?)$/i.test(att.filename || '') ? '📝' : '📎';
+  return `<a class="lg-att-item lg-att-file" data-att-id="${escapeHtml(att.id)}" href="${jpAttachProxyUrl(att.contentUrl)}" target="_blank" rel="noopener" title="${escapeHtml(att.filename)}">
+    <span class="lg-att-icon">${icon}</span>
+    <span class="lg-att-name">${escapeHtml(att.filename)}</span>
+    ${att.size ? `<span class="lg-att-size">${jpFmtBytes(att.size)}</span>` : ''}
+  </a>`;
+}
+
+/* hydrate <img> tags inside rendered thumbs (blob URLs via the CORS proxy) */
+function jpHydrateAttachImages(rootEl) {
+  rootEl.querySelectorAll('.lg-att-img:not([data-hydrated="1"])').forEach((a) => {
+    a.setAttribute('data-hydrated', '1');
+    const attId = a.getAttribute('data-att-id');
+    const meta = rootEl._jpAttMeta?.get(attId);
+    if (!meta) return;
+    const img = a.querySelector('img');
+    if (!img) return;
+    img.alt = meta.filename;
+    jpAttachBlob(meta).then((objUrl) => {
+      if (img.isConnected) img.src = objUrl;
+    }).catch(() => {
+      a.classList.add('lg-att-broken');
+      const n = a.querySelector('.lg-att-name');
+      if (n) n.insertAdjacentHTML('beforebegin', '<span class="lg-att-icon">⚠️</span>');
+    });
+  });
+}
+
+/* status tone for the popup pill (logistics bucketing: done / progress /
+   waiting / other) — kept in sync with the logistics lgStatusClass regexes */
+const JP_ST_RE_DONE = /^(done|closed|resolved|complete|completed|cancelled|canceled)/i;
+const JP_ST_RE_PROGRESS = /^(in progress|in review|review|testing|qa|in development|reopened)/i;
+const JP_ST_RE_WAIT = /^(waiting|pending|blocked|hold|on hold|escalated|open|to do|backlog|new)/i;
+function jpStatusClass(status) {
+  const s = String(status || '').trim().toLowerCase();
+  if (!s) return '';
+  if (JP_ST_RE_DONE.test(s)) return 'lg-st-done';
+  if (JP_ST_RE_PROGRESS.test(s)) return 'lg-st-progress';
+  if (JP_ST_RE_WAIT.test(s)) return 'lg-st-wait';
+  return 'lg-st-other';
+}
+
+/* long date+time for the popup (row lists already use fmtDateLong) */
+function jpFmtDateTime(v) {
+  if (!v) return '—';
+  const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+/* ── bulk description/comments/attachment-meta per PROJECT (?cmd=desk) ──
+   The board payload (?cmd=board) carries only summary/status/people, so
+   task-list rows (title + description preview + 📎 badge) need the richer
+   desk payload. The relay's desk endpoint already works for ANY project
+   key (not just LOG) and is viewer-creds-or-stored-creds — no backend
+   change. One call per project, TTL-cached, failures degrade to plain
+   rows (summary/status/people still render from the board payload). */
+
+/* JQL never sends the label text back — derive a project key from the
+   issue's Jira self URL (…/rest/api/3/issue/PROJ-123), else from the key
+   itself (PROJ-123 → PROJ). */
+function jpProjectOf(issues) {
+  for (const iss of issues || []) {
+    const m = String(iss?.self || iss?.fields?.self || '').match(/\/rest\/api\/3\/issue\/([A-Z][A-Z0-9_]*)-\d+/i);
+    if (m) return m[1].toUpperCase();
+    const km = String(iss?.key || '').match(/^([A-Z][A-Z0-9_]*)-\d+$/i);
+    if (km) return km[1].toUpperCase();
+  }
+  return '';
+}
+
+/* per-project desk cache: { ts, map: key → {descFull, descOne, comments[3]
+   {author,created,body,idx}, attFiles[{filename,mimeType}]} } */
+const JP_DESK_TTL = 3 * 60 * 1000;
+const _jpDeskCache = new Map();          /* project → { ts, promise } */
+const _jpDeskData = new Map();           /* project → shaped map */
+let jpDeskFailedSoFar = new Set();       /* projects whose last fetch failed */
+
+function jpDeskInvalidate() {
+  _jpDeskCache.clear();
+  _jpDeskData.clear();
+  jpDeskFailedSoFar = new Set();
+}
+
+/* shape a desk payload row into the enrich overlay (logistics parity) */
+function jpDeskShape(data) {
+  const map = new Map();
+  for (const iss of data?.issues || []) {
+    const f = iss.fields || {};
+    const comments = Array.isArray(f.comment) ? f.comment.map((c) => ({
+      author: String(c.author || ''),
+      created: String(c.created || ''),
+      body: String(c.body || ''),
+      idx: Number.isFinite(c.idx) ? Number(c.idx) : null,
+    })) : [];
+    /* first non-empty line of the description = the row preview */
+    const descFull = String(f.description || '');
+    const descOne = descFull.split('\n').map((s) => s.trim()).find(Boolean) || '';
+    map.set(String(iss.key || ''), {
+      descFull,
+      descOne,
+      comments,
+      attFiles: Array.isArray(f.attachment) ? f.attachment.map((a) => ({
+        filename: String(a.filename || ''),
+        mimeType: String(a.mimeType || ''),
+      })) : [],
+      reporter: f.reporter?.displayName || '',
+      direction: (() => {
+        /* desk returns the direction under the NUMERIC custom field id
+           (field.fieldIds.direction) — pick the first string field whose
+           value is not one of the reserved names */
+        const reserved = new Set(['summary', 'description', 'status', 'resolution', 'resolutiondate', 'created', 'updated', 'assignee', 'reporter', 'labels', 'comment', 'attachment']);
+        for (const [k, v] of Object.entries(f)) {
+          if (reserved.has(k)) continue;
+          if (typeof v === 'string' && v.trim()) return v.trim();
+        }
+        return '';
+      })(),
+    });
+  }
+  return map;
+}
+
+function jpDeskLoad(project) {
+  if (!project) return Promise.resolve(null);
+  const cached = _jpDeskCache.get(project);
+  if (cached && Date.now() - cached.ts < JP_DESK_TTL) return cached.promise;
+  if (jpDeskFailedSoFar.has(project) && cached) return cached.promise;   /* last failure < TTL */
+  const conn = loadConn();
+  const domain = String(jiraIssueBase() || PUBLISH_DOMAIN).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  const url = PUB_RELAY + '?cmd=desk&project=' + encodeURIComponent(project) +
+    '&domain=' + encodeURIComponent(domain);
+  const headers = { 'Accept': 'application/json' };
+  if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
+  const promise = fetch(url, { method: 'GET', headers })
+    .then((res) => res.text())
+    .then((text) => {
+      let data = null;
+      try { data = JSON.parse(text); } catch (_) { /* non-json */ }
+      if (!res.ok) throw new Error((data && (data.error || data.detail)) || `HTTP ${res.status}`);
+      const shaped = jpDeskShape(data);
+      _jpDeskData.set(project, shaped);
+      jpDeskFailedSoFar.delete(project);
+      jpRenderDeskEnrichments();
+      return shaped;
+    })
+    .catch(() => {
+      jpDeskFailedSoFar.add(project);
+      jpRenderDeskEnrichments();
+      return null;
+    });
+  _jpDeskCache.set(project, { ts: Date.now(), promise });
+  return promise;
+}
+
+/* overlay lookup: a desk row (description/comments/atts/reporter) for one key */
+function jpDeskRow(iss) {
+  const proj = jpProjectOf([iss]);
+  if (!proj) return null;
+  const desk = _jpDeskData.get(proj);
+  return desk ? (desk.get(iss.key) || null) : null;
+}
+
+/* kick off desk loads for every distinct project found in the pools */
+function jpEnsureDesk() {
+  const poolSet = new Set();
+  const pools = [state.issues || []];
+  if (_pubBoardCache) for (const c of _pubBoardCache.values()) if (c?.rec?.issues?.length) pools.push(c.rec.issues);
+  for (const pool of pools) {
+    const p = jpProjectOf(pool);
+    if (p) poolSet.add(p);
+  }
+  for (const p of poolSet) jpDeskLoad(p);
+}
+
+/* once a desk payload lands (or a previous one expires), re-render whichever
+   rich lists are on screen so rows gain their previews/badges in place */
+let jpDeskRerenderTimer = null;
+function jpRenderDeskEnrichments() {
+  if (jpDeskRerenderTimer) clearTimeout(jpDeskRerenderTimer);
+  jpDeskRerenderTimer = setTimeout(() => {
+    jpDeskRerenderTimer = null;
+    /* single-board task list */
+    const tlBody = $('#pubTlBody');
+    const tlCard = $('#pubTaskListCard');
+    if (tlBody && tlCard && !tlCard.classList.contains('hidden') && tlBody._jpIssues) {
+      tlBody.innerHTML = pubTaskListRows(tlBody._jpIssues);
+    }
+    /* chart drill-down list */
+    const ilBody = $('#issueListBody');
+    const ilModal = $('#issueListModal');
+    if (ilBody && ilModal && !ilModal.classList.contains('hidden') && ilBody._jpIssues) {
+      openIssueListModal($('#issueListTitle')?.textContent || '', '', ilBody._jpIssues, '');
+    }
+    /* open popup: pull fresh overlay data into the card if it renders */
+    if (jpCardKey && !$('#pubCardOverlay').classList.contains('hidden')) {
+      const desk = jpDeskRow(jpFindIssue(jpCardKey) || { key: jpCardKey });
+      if (desk) {
+        const descEl = $('#jpCardDesc');
+        if (descEl && desk.descFull && !descEl.textContent) descEl.textContent = desk.descFull;
+        const cmEl = $('#jpCardComments');
+        if (cmEl && desk.comments.length && !cmEl.childElementCount) {
+          cmEl.innerHTML = desk.comments.map((c) =>
+            `<div class="lg-card-comment">
+              <div class="lg-card-comment-head">
+                <span class="lg-comment-author">${escapeHtml(c.author || '—')}</span>
+                <span class="lg-card-comment-date">${jpFmtDateTime(c.created)}</span>
+              </div>
+              <div class="lg-card-comment-body">${escapeHtml(c.body || '')}</div>
+              <div class="lg-card-comment-attach" data-comment-idx="${c.idx ?? ''}"></div>
+            </div>`).join('');
+          placeCommentAttachments($('#pubCardBody'));
+          jpHydrateAttachImages($('#pubCardBody'));
+        }
+      }
+    }
+  }, 60);
+}
+
+/* ── popup open / close / render ─────────────────────────────────────── */
+let jpCardKey = null;   /* the issue the popup currently shows */
+
+function jpOpenCard(key) {
+  if (!key) return;
+  const iss = jpFindIssue(key);
+  jpCardKey = key;
+  jpRenderCard(iss || { key, fields: {} });
+  jpEnsureDesk();            /* bulk overlay may already be cached — instant */
+  show($('#pubCardOverlay'));
+  $('#pubCardClose').focus();
+  enRichCard(key);
+}
+
+function jpCloseCard() {
+  jpCardKey = null;
+  hide($('#pubCardOverlay'));
+  jpRevokeBlobCache();       /* free preview blobs — thumbs reload on reopen */
+  const lb = document.querySelector('.lg-lightbox');
+  if (lb) lb.remove();
+}
+
+/* the live board pool first (freshest fields), then the admin app pool */
+function jpFindIssue(key) {
+  const pools = [];
+  if (_pubBoardCache) {
+    for (const c of _pubBoardCache.values()) if (c?.rec?.issues?.length) pools.push(c.rec.issues);
+  }
+  if (state.issues?.length) pools.push(state.issues);
+  for (const pool of pools) {
+    const iss = pool.find((i) => i?.key === key);
+    if (iss) return iss;
+  }
+  return null;
+}
+
+function jpRenderCard(iss) {
+  const f = iss.fields || {};
+  const statusPill = `<span class="status-pill ${jpStatusClass(f.status?.name || '')}">${escapeHtml(f.status?.name || '—')}</span>`;
+  const base = jiraIssueBase();
+  const keyChip = base
+    ? `<a class="lg-card-key" href="${escapeHtml(base)}/browse/${encodeURIComponent(iss.key)}" target="_blank" rel="noopener" title="${t('ilist.openJira')}">${escapeHtml(iss.key)}</a>`
+    : `<span class="lg-card-key">${escapeHtml(iss.key)}</span>`;
+
+  const personBlock = (roleKey, name, optional) => {
+    const val = name
+      ? escapeHtml(name)
+      : `<span class="jp-unassigned">${escapeHtml(t('ilist.unassigned'))}</span>`;
+    if (optional && !name) return '';
+    return `<div class="jp-card-person">
+      <span class="jp-person-role">${escapeHtml(t(roleKey))}</span>
+      <span class="jp-card-person-name${name ? '' : ' jp-unassigned'}">${val}</span>
+    </div>`;
+  };
+  const metaItem = (labelKey, value) =>
+    `<div class="jp-card-meta-item">
+      <span class="jp-person-role">${escapeHtml(t(labelKey))}</span>
+      <span>${value}</span>
+    </div>`;
+
+  $('#pubCardBody').innerHTML = `
+    <div class="lg-card-top">
+      ${statusPill}
+      ${keyChip}
+      <span class="jp-card-enhancing" id="jpEnhancing"><span class="spinner" style="width:12px;height:12px;border-width:2px"></span>${escapeHtml(t('card.enhancing'))}</span>
+    </div>
+    <h3 class="lg-card-title">${escapeHtml(f.summary || '—')}</h3>
+    <div class="jp-card-people">
+      ${personBlock('th.assignee', f.assignee?.displayName || '', false)}
+      ${personBlock('th.reporter', '', false)}
+    </div>
+    <div class="jp-card-meta">
+      ${metaItem('th.created', jpFmtDateTime(f.created))}
+      ${metaItem('th.updated', jpFmtDateTime(f.updated))}
+    </div>
+    <div class="lg-card-section">
+      <span class="jp-person-role">${escapeHtml(t('card.descLabel'))}</span>
+      <div class="lg-card-desc" id="jpCardDesc"><span class="muted">${escapeHtml(t('card.noDescription'))}</span></div>
+    </div>
+    <div class="lg-card-section lg-card-attach-section" hidden>
+      <span class="jp-person-role">${escapeHtml(t('card.attachments'))}</span>
+      <div class="lg-card-attach-grid" id="jpCardAttachGrid"></div>
+    </div>
+    <div class="lg-card-section">
+      <span class="jp-person-role">${escapeHtml(t('card.comments'))}</span>
+      <div class="lg-card-comments" id="jpCardComments"></div>
+    </div>`;
+  /* attachments load AFTER the card paints (one small relay call for
+     exactly this issue) — comments' inline images land under their own
+     comment; everything else appears in the Attachments section */
+  jpLoadCardAttachments(iss.key);
+  jpHydrateAttachImages($('#pubCardBody'));
+}
+
+/* async: description + comments through the CORS proxy, then paint */
+async function enRichCard(key) {
+  const body = $('#pubCardBody');
+  const keyAtStart = jpCardKey;
+  let detail = null;
+  try {
+    detail = await pubFetchDetail(key);
+  } catch (_) { /* enrich is optional garnish — the seed card stays */ }
+  if (keyAtStart !== jpCardKey) return;   /* closed or switched meanwhile */
+  const enh = body.querySelector('#jpEnhancing');
+  /* the bulk desk overlay may have painted desc/comments while we fetched —
+     never wipe richer content with a "no comments" fallback */
+  const deskAlready = jpDeskRow(jpFindIssue(key) || { key }) || null;
+  if (!detail) {
+    if (enh) enh.innerHTML = `<span>⚠</span> ${escapeHtml(t('card.enhanceFail'))}`;
+    if (!deskAlready?.comments?.length) {
+      body.querySelector('#jpCardComments').innerHTML =
+        `<div class="muted">${escapeHtml(t('card.noComments'))}</div>`;
+    } else if (enh) {
+      enh.remove();
+    }
+    return;
+  }
+  if (enh) enh.remove();
+  const descEl = body.querySelector('#jpCardDesc');
+  if (descEl && detail.descFull) descEl.textContent = detail.descFull;
+  /* reporter isn't in the board payload — fill it in now */
+  if (detail.reporter) {
+    const rep = body.querySelectorAll('.jp-card-person .jp-card-person-name')[1];
+    if (rep && rep.classList.contains('jp-unassigned')) {
+      rep.classList.remove('jp-unassigned');
+      rep.textContent = detail.reporter;
+    }
+  }
+  const cmEl = body.querySelector('#jpCardComments');
+  if (!cmEl) return;
+  cmEl.innerHTML = detail.comments.length
+    ? detail.comments.map((c) =>
+        `<div class="lg-card-comment">
+          <div class="lg-card-comment-head">
+            <span class="lg-comment-author">${escapeHtml(c.author || '—')}</span>
+            <span class="lg-card-comment-date">${jpFmtDateTime(c.created)}</span>
+          </div>
+          <div class="lg-card-comment-body">${escapeHtml(c.body || '')}</div>
+          <div class="lg-card-comment-attach" data-comment-idx="${c._idx ?? ''}"></div>
+        </div>`
+      ).join('')
+    : `<div class="muted">${escapeHtml(t('card.noComments'))}</div>`;
+  /* attachment slots may have landed while the comments were still blank —
+     re-place comment-embedded images now that the slots exist */
+  placeCommentAttachments(body);
+  jpHydrateAttachImages(body);
+}
+
+/* fill the card's attachment sections (async after jpRenderCard) */
+async function jpLoadCardAttachments(key) {
+  const body = $('#pubCardBody');
+  const keyAtStart = jpCardKey;
+  try {
+    const attachments = await jpFetchAttachments(key);
+    if (keyAtStart !== jpCardKey || body.closest('#pubCardOverlay').classList.contains('hidden')) return;
+    if (!attachments.length) return;
+
+    /* issue-level meta for thumbnail hydration */
+    body._jpAttMeta = new Map(attachments.map((a) => [String(a.id), a]));
+
+    /* comment-embedded images go INSIDE their own comment block (if the
+       comments haven't painted yet, placeCommentAttachments comes back
+       for them once enRichCard finishes) */
+    placeCommentAttachments(body, attachments);
+
+    /* everything else (files + comment images already slotted above get
+       skipped) into the Attachments grid */
+    const inComments = new Set(attachments.filter((a) => a.commentIndex != null).map((a) => String(a.id)));
+    const rest = attachments.filter((a) => !inComments.has(String(a.id)));
+    const sec = body.querySelector('.lg-card-attach-section');
+    const grid = body.querySelector('#jpCardAttachGrid');
+    if (rest.length && sec && grid) {
+      sec.hidden = false;
+      grid.insertAdjacentHTML('beforeend', rest.map(jpAttachThumbHtml).join(''));
+    }
+
+    jpHydrateAttachImages(body);
+  } catch (_) {
+    /* attachments are optional garnish — a failed fetch leaves the card clean */
+  }
+}
+
+function placeCommentAttachments(body, attachments) {
+  const meta = body._jpAttMeta;
+  if (!meta) return;
+  const list = Array.isArray(attachments) ? attachments : [...meta.values()];
+  for (const att of list) {
+    if (att.commentIndex == null) continue;
+    const slot = body.querySelector(`#jpCardComments .lg-card-comment-attach[data-comment-idx="${att.commentIndex}"]`);
+    if (!slot || slot.querySelector(`[data-att-id="${att.id}"]`)) continue;
+    slot.insertAdjacentHTML('beforeend', jpAttachThumbHtml(att));
+  }
+}
+
+/* delegated interactions: lightbox on image thumbs, download on retry */
+function wirePubCard() {
+  $('#pubCardClose').addEventListener('click', jpCloseCard);
+  $('#pubCardOverlay').addEventListener('click', (ev) => {
+    if (ev.target === ev.currentTarget) jpCloseCard();
+  });
+  $('#pubCardBody').addEventListener('click', (ev) => {
+    const imgItem = ev.target.closest('.lg-att-img');
+    if (imgItem) {
+      ev.preventDefault();
+      const meta = $('#pubCardBody')._jpAttMeta?.get(imgItem.getAttribute('data-att-id'));
+      if (!meta) return;
+      jpAttachBlob(meta)
+        .then((objUrl) => { if (jpCardKey) jpOpenLightbox(meta, objUrl); })
+        .catch(() => imgItem.classList.add('lg-att-broken'));
+      return;
+    }
+    const fileItem = ev.target.closest('a.lg-att-item[href]');
+    if (fileItem && fileItem.classList.contains('lg-att-file')) return;   /* target=_blank handles it */
+    if (ev.target.closest('.jp-att-badge')) {
+      ev.preventDefault();
+      /* clicking the row's 📎 badge jumps to the popup's attachments grid */
+      const grid = $('#jpCardAttachGrid');
+      if (grid) grid.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return;
+    }
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && !$('#pubCardOverlay').classList.contains('hidden')) jpCloseCard();
+  });
+  /* delegated open: any [data-jp-open] (task-row titles / 📎 badges)
+     anywhere in the app opens the rich card popup for that issue */
+  document.addEventListener('click', (ev) => {
+    const opener = ev.target.closest('[data-jp-open]');
+    if (!opener) return;
+    ev.preventDefault();
+    jpOpenCard(opener.getAttribute('data-jp-open'));
+  });
 }
 
 /* ---------- single-board view: KPI stat boxes + live task list ---------- */
@@ -2593,13 +3277,22 @@ function pubTaskListRows(issues) {
   const html = rows.map((i) => {
     const f = i.fields || {};
     const assignee = f.assignee?.displayName || '';
+    const desk = jpDeskRow(i) || null;
+    const attN = desk?.attFiles.length || 0;
     const link = base
       ? `<a href="${escapeHtml(base)}/browse/${encodeURIComponent(i.key)}" target="_blank" rel="noopener" title="${t('ilist.openJira')}">${escapeHtml(i.key)}<span class="ilist-ext" aria-hidden="true">↗</span></a>`
       : `<span class="muted">${escapeHtml(i.key)}</span>`;
+    /* logistics-style summary cell: clickable title + 2-line description
+       preview + 📎n badge when the desk overlay has attachment metadata */
+    const titleLine = `<div class="jp-title-line">
+      <a class="jp-task-title" href="#" data-jp-open="${escapeHtml(i.key)}" title="${escapeHtml(f.summary || i.key)}">${escapeHtml(f.summary || '—')}</a>
+      ${attN ? `<span class="jp-att-badge" data-jp-open="${escapeHtml(i.key)}" title="${escapeHtml(t('card.attachments'))}">📎 ${attN}</span>` : ''}
+    </div>
+    ${desk?.descOne ? `<div class="jp-desc">${escapeHtml(desk.descOne)}</div>` : ''}`;
     return `<tr>
       <td>${link}</td>
-      <td>${escapeHtml(f.summary || '—')}</td>
-      <td><span class="status-pill">${escapeHtml(f.status?.name || '—')}</span></td>
+      <td class="jp-title-cell">${titleLine}</td>
+      <td><span class="status-pill ${jpStatusClass(f.status?.name || '')}">${escapeHtml(f.status?.name || '—')}</span></td>
       <td class="muted">${fmtDateLong(f.updated)}</td>
       <td><span class="type-chip">${escapeHtml(f.issuetype?.name || '—')}</span></td>
       <td class="muted">${assignee ? escapeHtml(assignee) : `<span class="muted">${escapeHtml(t('ilist.unassigned'))}</span>`}</td>
@@ -2642,6 +3335,10 @@ function taskListSheetRows(issues) {
   const base = jiraIssueBase();
   return issues.map((i) => {
     const f = i.fields || {};
+    const desk = jpDeskRow(i);
+    const comments = (desk?.comments || []).map((c) =>
+      `[${c.author || '—'}${c.created ? ' · ' + isoDate(c.created) : ''}] ${c.body || ''}`.trim());
+    const attNames = (desk?.attFiles || []).map((a) => a.filename).filter(Boolean);
     return {
       [t('th.key')]: i.key || '',
       [t('th.summary')]: f.summary || '',
@@ -2650,6 +3347,9 @@ function taskListSheetRows(issues) {
       [t('th.type')]: f.issuetype?.name || '',
       [t('th.assignee')]: f.assignee?.displayName || t('ilist.unassigned'),
       [t('th.created')]: isoDate(f.created),
+      [t('card.descLabel')]: desk?.descFull || '',
+      [t('card.comments')]: comments.join('\n'),
+      [t('card.attachments')]: attNames.join(', '),
       [t('brd.hdrLink')]: base ? `${base}/browse/${i.key}` : '',
     };
   });
@@ -2660,7 +3360,7 @@ function exportTaskListExcel(issues) {
   const rows = taskListSheetRows(pubTaskListFiltered(issues));
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ [t('th.key')]: t('tl.empty') }]);
-  ws['!cols'] = [{ wch: 16 }, { wch: 60 }, { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 22 }, { wch: 22 }, { wch: 46 }];
+  ws['!cols'] = [{ wch: 16 }, { wch: 60 }, { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 22 }, { wch: 22 }, { wch: 50 }, { wch: 50 }, { wch: 32 }, { wch: 46 }];
   ws['!freeze'] = { xSplit: 0, ySplit: 1 };
   XLSX.utils.book_append_sheet(wb, ws, safeSheetName(t('tl.title')));
   const win = boardWindowOf();
@@ -2682,7 +3382,9 @@ function renderPubTaskList(issues) {
     `<button id="tlExportBtn" class="btn btn-ghost btn-excel tl-export" type="button" title="${escapeHtml(t('tl.exportTitle'))}"><svg class="excel-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>${escapeHtml(t('tl.export'))}</span></button>`;
   const footWrap = $('#pubTlFooter');
   const rerenderRows = () => {
-    $('#pubTlBody').innerHTML = pubTaskListRows(issues);
+    const body = $('#pubTlBody');
+    body._jpIssues = issues;   /* remembered for jpRenderDeskEnrichments re-paints */
+    body.innerHTML = pubTaskListRows(issues);
     footWrap.innerHTML = pubTaskListFooter(issues);
     $('#tlMoreBtn')?.addEventListener('click', () => {
       st.page = tlPageOf() + TL_PAGE;
@@ -2708,6 +3410,7 @@ function renderPubTaskList(issues) {
   });
   st.page = TL_PAGE;
   rerenderRows();
+  jpEnsureDesk();   /* kick the bulk overlay fetch: rows gain previews/badges when it lands */
 }
 
 /* hero title with a gradient-accented trailing word — the last word (or the
@@ -4666,7 +5369,7 @@ function exportBoardExcel(board, issues, m, charts = null) {
   {
     const taskWs = dress(
       XLSX.utils.json_to_sheet(taskRows.length ? taskRows : [{ [t('th.key')]: t('tl.empty') }]),
-      wch(16, 60, 18, 22, 14, 22, 22, 46),
+      wch(16, 60, 18, 22, 14, 22, 22, 50, 50, 32, 46),
     );
     XLSX.utils.book_append_sheet(wb, taskWs, uniqueSheet(t('brd.sheetTasks')));
   }
@@ -8164,6 +8867,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#deleteChartBtn').addEventListener('click', deleteChartFromModal);
   $('#closeChartBtn').addEventListener('click', () => { hide($('#chartModal')); state.chartEditing = null; });
   wireIssueListModal();
+  if ($('#pubCardOverlay')) wirePubCard();
   $('#chartModal').addEventListener('click', (ev) => {
     if (ev.target === $('#chartModal')) { hide($('#chartModal')); state.chartEditing = null; }
   });
