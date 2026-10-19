@@ -32,6 +32,7 @@ const adm = {
   lbSearch: { user: '', dir: '', login: '' },
   /* KPI drill-down: which dashboard number opened the task list (null = none) */
   dl: null,
+  cardKey: null,   /* task detail popup (admOpenCard) */
   /* per-chart period overrides: chId → 'master' | '30d' | 'month' | … ('master' = follow the master period) */
   chPeriod: {},
   lbSort: { user: { col: 'resolved', dir: 'desc' }, dir: { col: 'total', dir: 'desc' }, login: { col: 'lastTs', dir: 'desc' } },
@@ -69,8 +70,22 @@ const I18N = {
     'adm.kpi.avgRes': 'Avg resolution time', 'adm.kpi.inwork': 'In progress now',
     'adm.kpi.totalSub': 'created in selected period', 'adm.kpi.openSub': 'not resolved yet',
     'adm.kpi.basedOn': 'based on {n} tasks with resolution date',
+    /* avg-resolution caption: TRUE description of the count — median over
+       every task RESOLVED in the period with a Jira resolutiondate */
+    'adm.kpi.medianOn': 'median of {n} tasks resolved in period (Jira resolution date)',
+    'adm.kpi.medianNone': 'no tasks with a Jira resolution date resolved in period',
     'adm.dl.title': 'Task list', 'adm.dl.tip': 'Show these tasks in list',
-    'adm.dl.resMarker': 'resolved',
+    'adm.dl.resMarker': 'resolved', 'adm.dl.openCard': 'Open task details',
+    /* detail-popup strings — mirror the desk's keys so admRenderCard can
+       reuse the same labels (the desk's lg.* keys are NOT loaded here) */
+    'lg.th.reporter': 'Reporter', 'lg.th.assignee': 'Assignee',
+    'lg.th.created': 'Created', 'lg.th.updated': 'Updated',
+    'lg.th.direction': 'Direction', 'lg.th.resolved': 'Resolved',
+    'lg.th.comments': 'Comments', 'lg.descLabel': 'Description',
+    'lg.card.noComments': 'No comments', 'lg.card.noDescription': 'No description',
+    'lg.card.attachments': 'Attachments', 'lg.row.hasFiles': 'Has attachments',
+    'lg.card.download': 'Download', 'lg.downloadFail': 'Download failed',
+    'lg.unassigned': 'Unassigned',
     'adm.ch.daily': 'New vs resolved · selected period',
     'adm.ch.monthlyNew': 'New tasks per month · selected period',
     'adm.ch.monthlyDone': 'Resolved per month · selected period',
@@ -122,8 +137,18 @@ const I18N = {
     'adm.kpi.avgRes': 'საშ. გადაწყვეტის დრო', 'adm.kpi.inwork': 'მიმდ. პროცესში',
     'adm.kpi.totalSub': 'შექმნილი არჩეულ პერიოდში', 'adm.kpi.openSub': 'ჯერ გადაუწყვეტელი',
     'adm.kpi.basedOn': 'ეყრდნობა {n} დავალებას გადაწყვეტის თარიღით',
+    'adm.kpi.medianOn': 'მედიანა {n} პერიოდში გადაწყვეტილ დავალებაზე (ჯირას გადაწყვეტის თარიღი)',
+    'adm.kpi.medianNone': 'პერიოდში გადაწყვეტილი დავალება გადაწყვეტის თარიღით არ არის',
     'adm.dl.title': 'დავალებების სია', 'adm.dl.tip': 'ამ დავალებების სიაში ნახვა',
-    'adm.dl.resMarker': 'გადაწყვეტილი',
+    'adm.dl.resMarker': 'გადაწყვეტილი', 'adm.dl.openCard': 'დავალების დეტალების გახსნა',
+    'lg.th.reporter': 'მომხსენებელი', 'lg.th.assignee': 'ასიგნებული',
+    'lg.th.created': 'შექმნის თარიღი', 'lg.th.updated': 'განახლება',
+    'lg.th.direction': 'მიმართულება', 'lg.th.resolved': 'გადაწყვეტის თარიღი',
+    'lg.th.comments': 'კომენტარები', 'lg.descLabel': 'აღწერა',
+    'lg.card.noComments': 'კომენტარები არ არის', 'lg.card.noDescription': 'აღწერა არ არის',
+    'lg.card.attachments': 'ატვირთული ფაილები', 'lg.row.hasFiles': 'აქვს ფაილები',
+    'lg.card.download': 'ჩამოტვირთვა', 'lg.downloadFail': 'ჩამოტვირთვა ვერ მოხდა',
+    'lg.unassigned': 'დაუნიშნავი',
     'adm.ch.daily': 'ახალი vs გადაწყვეტილი · არჩეული პერიოდი',
     'adm.ch.monthlyNew': 'ახალი დავალებები თვეებში · არჩეული პერიოდი',
     'adm.ch.monthlyDone': 'გადაწყვეტილი თვეებში · არჩეული პერიოდი',
@@ -561,6 +586,20 @@ function admNormalize(data) {
     const statusName = (f.status && f.status.name) || '';
     const resolved = admIsResolved(f);
     const realRdMs = Date.parse(f.resolutiondate) || 0;
+    /* detail-popup data — mirrors the desk's lgNormalize so the popup can
+       show the full description, comment thread and the 📎 badge */
+    const descRaw = lgAdfText(f.description).replace(/\r/g, '');
+    const descLines = descRaw.split('\n').map((s) => s.trim()).filter(Boolean);
+    const rawComments = Array.isArray(f.comment) ? f.comment : [];
+    const comments = rawComments.map((c) => ({
+      author: String(c?.author || ''),
+      created: c?.created ? Date.parse(c.created) : 0,
+      body: String(c?.body || '').replace(/\r/g, '').trim(),
+      _idx: typeof c.idx === 'number' ? c.idx : null,
+    })).filter((c) => c.body);
+    const attFiles = (Array.isArray(f.attachment) ? f.attachment : [])
+      .map((a) => ({ filename: String(a?.filename || ''), mimeType: String(a?.mimeType || '') }))
+      .filter((a) => a.filename);
     rows.push({
       key: it.key || '',
       href: JIRA_BASE + (it.key || ''),
@@ -572,6 +611,9 @@ function admNormalize(data) {
       reportName: (f.reporter && f.reporter.displayName) || '',
       assignName: (f.assignee && f.assignee.displayName) || '',
       labels,
+      descFull: descLines.join('\n'),
+      comments,
+      attFiles,
       createdMs: Date.parse(f.created) || 0,
       updatedMs: Date.parse(f.updated) || 0,
       resolvedAt: resolved ? (realRdMs || Date.parse(f.updated) || Date.parse(f.created) || 0) : 0,
@@ -661,15 +703,35 @@ function admAggregate(rows, range) {
     if (r.createdMs >= mStart0()) aggr.createdMonth++;
     if (r.resolved) { aggr.resolvedAll++; if (r.rdReal) aggr.resRealN++; else aggr.resApproxN++; }
     const inPeriod = r.createdMs >= from && r.createdMs <= to;
+    /* resolved-in-period checks run BEFORE the created-in-period early
+       continue, so tasks created earlier but resolved inside the period
+       still count in "resolved · period", the user table and the median
+       resolution-time sample (the caption counts resolutions, not only
+       period-created tasks). */
+    const resInPeriod = r.resolved && r.resolvedAt >= from && r.resolvedAt <= to;
+    // resolution time (days) — MEDIAN over EVERY task resolved inside the
+    // selected period (real Jira resolutiondate), regardless of when the
+    // task was created. Mean-of-period-created-tasks undercounted (only the
+    // small rdReal subset qualified) and let one huge outlier skew the value;
+    // median fixes both. No updated-fallback: `updated` drifts on edits
+    // (probe: 2193/2217 resolved LOG issues lack rd).
+    if (resInPeriod && r.rdReal && r.createdMs && r.resolvedAt > r.createdMs) {
+      aggr.resDaysList.push((r.resolvedAt - r.createdMs) / 864e5);
+    }
     if (!inPeriod) {
       /* still allow resolutions that happened inside the period for tasks
-         created earlier — they count in "resolved · period" */
-      if (r.resolved && r.resolvedAt >= from && r.resolvedAt <= to) aggr.resolvedPeriod++;
+         created earlier — they count in "resolved · period" and perUser */
+      if (resInPeriod) {
+        aggr.resolvedPeriod++;
+        const uo = r.assignName || r.reportName || '—';
+        const rud = aggr.perUser.get(uo);
+        if (rud) rud.resolved++;
+      }
       continue;
     }
     aggr.total++;
-    if (r.resolved) aggr.donut.resolved++; else aggr.donut.open++;
-    if (r.resolved && r.resolvedAt >= from && r.resolvedAt <= to) aggr.resolvedPeriod++;
+    if (r.resolved) { aggr.donut.resolved++; } else { aggr.donut.open++; }
+    if (resInPeriod) aggr.resolvedPeriod++;
     // status breakdown ( period-created work )
     const stn = r.status || '—';
     aggr.perStatus.set(stn, (aggr.perStatus.get(stn) || 0) + 1);
@@ -687,22 +749,12 @@ function admAggregate(rows, range) {
       const rm = ymOf(r.resolvedAt);
       if (monMap.has(rm)) monMap.get(rm).resolved++;
     }
-    // resolution time (days) — MEDIAN over EVERY task resolved inside the
-    // selected period (real Jira resolutiondate), regardless of when the
-    // task was created. Mean-of-period-created-tasks undercounted (only the
-    // small rdReal subset qualified) and let one huge outlier skew the value;
-    // median fixes both. No updated-fallback: `updated` drifts on edits
-    // (probe: 2193/2217 resolved LOG issues lack rd).
-    if (r.resolved && r.rdReal && r.resolvedAt >= from && r.resolvedAt <= to
-      && r.createdMs && r.resolvedAt > r.createdMs) {
-      aggr.resDaysList.push((r.resolvedAt - r.createdMs) / 864e5);
-    }
     // users (period-created)
     const u = r.assignName || r.reportName || '—';
     if (!aggr.perUser.has(u)) aggr.perUser.set(u, { created: 0, resolved: 0, open: 0 });
     const ur = aggr.perUser.get(u);
     ur.created++;
-    if (r.resolved && r.resolvedAt >= from && r.resolvedAt <= to) ur.resolved++;
+    if (resInPeriod) ur.resolved++;
     if (!r.resolved) ur.open++;
     // directions (period-created)
     const dn = r.direction || '—';
@@ -1012,8 +1064,8 @@ function renderKpis(a) {
   const g = $('#admKpiGrid'); if (!g) return;
   if (!a) { g.innerHTML = ''; return; }
   const avgSub = a.avgResDays != null
-    ? tReplace('adm.kpi.basedOn', { n: a.resDaysN })
-    : t('adm.lb.nodata');
+    ? tReplace('adm.kpi.medianOn', { n: a.resDaysN })
+    : t('adm.kpi.medianNone');
   const inProg = Array.from(a.perStatus.entries()).filter(([st]) => lgStatusClass(st) === 'lg-st-progress')
     .reduce((s, [, n]) => s + n, 0);
   const openPeriod = a.donut.open;
@@ -1044,16 +1096,11 @@ function dayLabel(ymd) { return ymd.slice(5).replace('-', '/'); }
    with exactly the tasks behind that number, rendered like the logistics
    desk task list (key link, summary, status chip, direction, assignee,
    reporter, created/resolved dates). ── */
-/* filter per drill key — mirrors each KPI's definition (see admAggregate):
-   total/month     → created inside the period
-   today           → created today
-   resolved        → resolved inside the period (resolutiondate, regardless
-                     of when the task was created)
-   open / inprog   → period-created and not resolved; inprog = status class
-                     is "in progress" (open = every unfinished status)
-   resall          → resolved anytime (all time, real Jira resolution date)
-   avgres          → the resolution-time sample: resolved in the period with
-                     a real resolutiondate and a valid create→resolve pair */
+/* filter per drill key — mirrors each KPI's definition EXACTLY (see
+   admAggregate). The first release wrongly required a Jira resolutiondate
+   (rdReal) for the resolved filters, which is why "Resolved (all time)"
+   showed 2479 but listed only the 31 rdReal tasks — most resolved LOG
+   tasks get Done status without Jira writing a resolutiondate. ── */
 function admDrillRows(key) {
   const rows = adm.rows || [];
   const range = admPeriodRange();
@@ -1061,15 +1108,17 @@ function admDrillRows(key) {
   const day0 = todayStart0();
   const m0 = mStart0();
   const inPeriod = (ms) => ms >= from && ms <= to;
-  const resInPeriod = (r) => r.resolved && r.rdReal && inPeriod(r.resolvedAt);
+  /* KPI definition of "resolved": resolution field present OR a done-class
+     status (identical to admAggregate's resolvedAll/resolvedPeriod counts) */
+  const resInPeriod = (r) => r.resolved && inPeriod(r.resolvedAt);
   const createdInPeriod = (r) => inPeriod(r.createdMs);
   switch (key) {
     case 'total': return rows.filter(createdInPeriod);
     case 'today': return rows.filter((r) => r.createdMs >= day0);
     case 'month': return rows.filter((r) => r.createdMs >= m0);
     case 'resolved': return rows.filter(resInPeriod);
-    case 'resall': return rows.filter((r) => r.resolved && r.rdReal);
-    case 'avgres': return rows.filter((r) => resInPeriod(r) && r.resolvedAt > r.createdMs);
+    case 'resall': return rows.filter((r) => r.resolved);
+    case 'avgres': return rows.filter((r) => resInPeriod(r) && r.rdReal && r.resolvedAt > r.createdMs && r.createdMs);
     case 'open': return rows.filter((r) => createdInPeriod(r) && !r.resolved);
     case 'inprog': return rows.filter((r) => createdInPeriod(r) && !r.resolved && lgStatusClass(r.status) === 'lg-st-progress');
     default: return [];
@@ -1106,14 +1155,236 @@ function admRenderDrilldown() {
   tb.innerHTML = rows.map((r) =>
     `<tr>` +
     `<td><a class="tl-key lg-key-link" href="${escapeHtml(r.href)}" target="_blank" rel="noopener">${escapeHtml(r.key)}</a></td>` +
-    `<td class="tl-sum"><span class="lg-sum-text">${escapeHtml(r.summary || '—')}</span></td>` +
+    `<td class="tl-sum"><button type="button" class="lg-sum-link" data-key="${escapeHtml(r.key)}" title="${escapeHtml(t('adm.dl.openCard'))}">${escapeHtml(r.summary || '—')}</button>${r.attFiles && r.attFiles.length ? `<span class="lg-att-badge" title="${escapeHtml(t('lg.row.hasFiles'))}">📎 ${r.attFiles.length}</span>` : ''}</td>` +
     `<td><span class="lg-status-chip ${r.statusCls || 'lg-st-other'}">${escapeHtml(r.status || '—')}</span></td>` +
     `<td class="muted lg-dir-cell" title="${escapeHtml(r.direction || '')}">${escapeHtml(r.direction || '—')}</td>` +
     `<td>${escapeHtml(r.assignName || '—')}</td>` +
     `<td>${escapeHtml(r.reportName || '—')}</td>` +
     `<td class="muted lg-created-cell">${fmtDate(r.createdMs)}${r.resolved && r.resolvedAt ? `<span class="lg-res-marker">→ ${fmtDate(r.resolvedAt)}</span>` : ''}</td>` +
     `</tr>`).join('');
+  /* title click → in-app detail popup (same view as the logistics desk) */
+  tb.querySelectorAll('.lg-sum-link').forEach((b) => {
+    b.addEventListener('click', () => admOpenCard(b.dataset.key));
+  });
   show(sec);
+}
+
+/* ── 17c. Admin task detail popup ──
+   Same markup/CSS as the desk's card (#lgCardOverlay) — full description,
+   comment thread, attachments with image previews + lightbox. Attachment
+   binaries/metadata come from the relay's ?cmd=deskAttach and ?url=
+   proxy, exactly like the desk (no credentials needed — the relay is
+   public for the published desk). ── */
+const ADM_ATTACH_TTL = 10 * 60 * 1000;
+const _admAttachCache = new Map();      /* key → { ts, attachments } */
+const _admBlobCache = new Map();        /* attachId → objectURL */
+
+function admAttachProxyUrl(contentUrl) { return PUB_RELAY + '?url=' + encodeURIComponent(contentUrl); }
+function admIsImageMime(mime, filename) {
+  if (/^image\//i.test(mime || '')) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(filename || '');
+}
+function admFmtBytes(n) {
+  if (!n || n < 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+async function admFetchAttachments(key) {
+  const hit = _admAttachCache.get(key);
+  if (hit && Date.now() - hit.ts < ADM_ATTACH_TTL) return hit.attachments;
+  const url = PUB_RELAY + '?cmd=deskAttach&key=' + encodeURIComponent(key) +
+    '&domain=' + encodeURIComponent(PUBLISH_DOMAIN);
+  const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (_) { /* non-json */ }
+  if (!res.ok) throw new Error((data && (data.error || data.detail)) || ('HTTP ' + res.status));
+  const attachments = Array.isArray(data && data.attachments) ? data.attachments : [];
+  _admAttachCache.set(key, { ts: Date.now(), attachments });
+  return attachments;
+}
+async function admAttachBlob(att) {
+  if (_admBlobCache.has(att.id)) return _admBlobCache.get(att.id);
+  const res = await fetch(admAttachProxyUrl(att.contentUrl));
+  if (!res.ok) throw new Error('preview HTTP ' + res.status);
+  const blob = await res.blob();
+  if (/json/i.test(blob.type || '')) throw new Error('proxy refused preview');
+  const objUrl = URL.createObjectURL(blob);
+  _admBlobCache.set(att.id, objUrl);
+  return objUrl;
+}
+function admRevokeBlobCache() {
+  for (const [, u] of _admBlobCache) { try { URL.revokeObjectURL(u); } catch (_) {} }
+  _admBlobCache.clear();
+}
+function admAttachThumbHtml(att) {
+  const isImg = admIsImageMime(att.mimeType, att.filename);
+  if (isImg) {
+    return `<a class="lg-att-item lg-att-img" data-att-id="${escapeHtml(att.id)}" href="#" title="${escapeHtml(att.filename)}">
+      <img alt="${escapeHtml(att.filename)}" loading="lazy" />
+      <span class="lg-att-name">${escapeHtml(att.filename)}</span>
+    </a>`;
+  }
+  const icon = /\.(pdf)$/i.test(att.filename || '') ? '📄'
+    : /\.(xlsx?|csv)$/i.test(att.filename || '') ? '📊'
+    : /\.(docx?)$/i.test(att.filename || '') ? '📝' : '📎';
+  return `<a class="lg-att-item lg-att-file" data-att-id="${escapeHtml(att.id)}" href="${admAttachProxyUrl(att.contentUrl)}" target="_blank" rel="noopener" title="${escapeHtml(att.filename)}">
+    <span class="lg-att-icon">${icon}</span>
+    <span class="lg-att-name">${escapeHtml(att.filename)}</span>
+    ${att.size ? `<span class="lg-att-size">${admFmtBytes(att.size)}</span>` : ''}
+  </a>`;
+}
+function admHydrateAttachImages(rootEl) {
+  rootEl.querySelectorAll('.lg-att-img:not([data-hydrated="1"])').forEach((a) => {
+    a.setAttribute('data-hydrated', '1');
+    const attId = a.getAttribute('data-att-id');
+    const meta = rootEl._admAttMeta && rootEl._admAttMeta.get(attId);
+    if (!meta) return;
+    a.querySelector('img') && (a.querySelector('img').alt = meta.filename);
+    admAttachBlob(meta).then((objUrl) => {
+      const img = a.querySelector('img');
+      if (img) img.src = objUrl;
+    }).catch(() => {
+      a.classList.add('lg-att-broken');
+      const n = a.querySelector('.lg-att-name');
+      if (n) n.insertAdjacentHTML('beforebegin', '<span class="lg-att-icon">⚠️</span>');
+    });
+  });
+}
+function admFindTask(key) { return (adm.rows || []).find((r) => r.key === key) || null; }
+
+function admOpenCard(key) {
+  const task = admFindTask(key);
+  if (!task) return;
+  adm.cardKey = key;
+  admRenderCard();
+  show($('#admCardOverlay'));
+  const cb = $('#admCardClose'); if (cb) cb.focus();
+}
+function admCloseCard() {
+  adm.cardKey = null;
+  hide($('#admCardOverlay'));
+  admRevokeBlobCache();
+  const lb = document.querySelector('.lg-lightbox');
+  if (lb) lb.remove();
+}
+async function admDownloadAttachment(att) {
+  const objUrl = await admAttachBlob(att);
+  const a = document.createElement('a');
+  a.href = objUrl;
+  a.download = att.filename || 'file';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+function admOpenLightbox(att, objUrl) {
+  const lb = document.createElement('div');
+  lb.className = 'lg-lightbox';
+  lb.innerHTML = `
+    <button class="lg-lightbox-close" type="button" aria-label="Close">✕</button>
+    <button class="lg-lightbox-dl" type="button">⬇ ${escapeHtml(t('lg.card.download'))}</button>
+    <img alt="${escapeHtml(att.filename)}" src="${objUrl}" />
+    <div class="lg-lightbox-name">${escapeHtml(att.filename)}</div>`;
+  const close = () => { lb.remove(); };
+  lb.addEventListener('click', (e) => { if (e.target === lb || e.target.closest('.lg-lightbox-close')) close(); });
+  lb.querySelector('.lg-lightbox-dl').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const btn = e.currentTarget;
+    btn.disabled = true; btn.textContent = '…';
+    try { await admDownloadAttachment(att); }
+    catch (_) { btn.textContent = '⚠ ' + t('lg.downloadFail'); setTimeout(() => { btn.disabled = false; btn.textContent = '⬇ ' + t('lg.card.download'); }, 2000); return; }
+    btn.disabled = false; btn.textContent = '⬇ ' + t('lg.card.download');
+  });
+  document.addEventListener('keydown', function onKey(ev) {
+    if (ev.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
+  });
+  document.body.appendChild(lb);
+}
+function admRenderCard() {
+  const r = admFindTask(adm.cardKey);
+  if (!r) return;
+  const body = $('#admCardBody');
+  const statusPill = `<span class="lg-status-chip ${r.statusCls || 'lg-st-other'}">${escapeHtml(r.status || '—')}</span>`;
+  const personBlock = (roleKey, name) =>
+    `<div class="lg-card-person"><span class="lg-person-role">${escapeHtml(t(roleKey))}</span>` +
+    `<span class="lg-card-person-name${name ? '' : ' lg-unassigned'}">${name ? escapeHtml(name) : escapeHtml(t('lg.unassigned'))}</span></div>`;
+  const metaItem = (label, value) =>
+    `<div class="lg-card-meta-item"><span class="lg-person-role">${escapeHtml(label)}</span><span>${value}</span></div>`;
+  const commentsHtml = r.comments && r.comments.length
+    ? r.comments.map((c) =>
+        `<div class="lg-card-comment">
+          <div class="lg-card-comment-head">
+            <span class="lg-comment-author">${escapeHtml(c.author || '—')}</span>
+            <span class="lg-card-comment-date">${fmtDateTime(c.created)}</span>
+          </div>
+          <div class="lg-card-comment-body">${escapeHtml(c.body)}</div>
+          <div class="lg-card-comment-attach" data-comment-idx="${c._idx != null ? c._idx : ''}"></div>
+        </div>`).join('')
+    : `<div class="muted">${escapeHtml(t('lg.card.noComments'))}</div>`;
+  body.innerHTML = `
+    <div class="lg-card-top">${statusPill}<span class="lg-card-key">${escapeHtml(r.key)}</span></div>
+    <h3 class="lg-card-title">${escapeHtml(r.summary || '—')}</h3>
+    <div class="lg-card-people">
+      ${personBlock('lg.th.reporter', r.reportName)}
+      ${personBlock('lg.th.assignee', r.assignName)}
+    </div>
+    <div class="lg-card-meta">
+      ${metaItem(t('lg.th.created'), fmtDateTime(r.createdMs))}
+      ${metaItem(t('lg.th.updated'), fmtDateTime(r.updatedMs))}
+      ${r.direction ? metaItem(t('lg.th.direction'), escapeHtml(r.direction)) : ''}
+      ${r.resolved && r.resolvedAt ? metaItem(t('lg.th.resolved'), fmtDateTime(r.resolvedAt)) : ''}
+    </div>
+    <div class="lg-card-section">
+      <span class="lg-person-role">${escapeHtml(t('lg.descLabel') || 'Description')}</span>
+      <div class="lg-card-desc">${r.descFull
+        ? escapeHtml(r.descFull)
+        : `<span class="muted">${escapeHtml(t('lg.card.noDescription'))}</span>`}</div>
+    </div>
+    <div class="lg-card-section lg-card-attach-section" hidden>
+      <span class="lg-person-role">${escapeHtml(t('lg.card.attachments') || 'Attachments')}</span>
+      <div class="lg-card-attach-grid" id="admCardAttachGrid"></div>
+    </div>
+    <div class="lg-card-section">
+      <span class="lg-person-role">${escapeHtml(t('lg.th.comments'))}</span>
+      <div class="lg-card-comments">${commentsHtml}</div>
+    </div>`;
+  /* delegated interactions: image thumb → lightbox, Esc/outside → close */
+  body.onclick = (e) => {
+    const img = e.target.closest && e.target.closest('.lg-att-img');
+    if (img && body._admAttMeta) {
+      e.preventDefault();
+      const att = body._admAttMeta.get(img.getAttribute('data-att-id'));
+      admAttachBlob(att).then((u) => admOpenLightbox(att, u)).catch(() => {});
+    }
+  };
+  admLoadCardAttachments(r.key);
+}
+async function admLoadCardAttachments(key) {
+  const body = $('#admCardBody');
+  const keyAtStart = adm.cardKey;
+  try {
+    const attachments = await admFetchAttachments(key);
+    if (adm.cardKey !== keyAtStart || $('#admCardOverlay').classList.contains('hidden')) return;
+    if (!attachments.length) return;
+    body._admAttMeta = new Map(attachments.map((a) => [String(a.id), a]));
+    const inComments = attachments.filter((a) => a.commentIndex != null);
+    for (const att of inComments) {
+      const slot = body.querySelector(`.lg-card-comment-attach[data-comment-idx="${att.commentIndex}"]`);
+      if (!slot) continue;
+      slot.insertAdjacentHTML('beforeend', admAttachThumbHtml(att));
+    }
+    const rest = attachments.filter((a) => a.commentIndex == null);
+    const sec = body.querySelector('.lg-card-attach-section');
+    const grid = body.querySelector('#admCardAttachGrid');
+    if (rest.length && sec && grid) {
+      sec.hidden = false;
+      grid.innerHTML = rest.map(admAttachThumbHtml).join('');
+    }
+    admHydrateAttachImages(body);
+  } catch (_) {
+    /* attachments are optional garnish — a failed fetch leaves the card clean */
+  }
 }
 function renderCharts(a) {
   admChRenderSelects();
@@ -1538,6 +1809,14 @@ async function admRefresh() {
   const ps = $('#admPeriod'); if (ps) ps.addEventListener('change', admOnPeriodChange);
   const dlClose = $('#admDrillClose');
   if (dlClose) dlClose.addEventListener('click', admCloseDrilldown);
+  /* task detail popup wiring: close button, outside click, Esc */
+  const cc = $('#admCardClose');
+  if (cc) cc.addEventListener('click', admCloseCard);
+  const cov = $('#admCardOverlay');
+  if (cov) cov.addEventListener('click', (e) => { if (e.target === cov) admCloseCard(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && adm.cardKey) admCloseCard();
+  });
   admBindLeaderboard();
   const f = $('#admFrom'), tt = $('#admTo');
   if (f) f.addEventListener('change', admOnCustomDates);
