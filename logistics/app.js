@@ -1087,6 +1087,25 @@ function lgBuildFilterBar() {
       `<select id="${id}" class="input tl-select" data-col="${col}" aria-label="${escapeHtml(t(labelKey))}">` +
       `<option value="">${escapeHtml(t('lg.filterAll'))}</option>${opts}</select></div>`;
   };
+  /* DIRECTION uses a CUSTOM dropdown (not a native <select>): direction names
+     are long multi-part strings that a native select clips to one line or
+     pushes off-screen. In the popup each option wraps to 2-3 lines and stays
+     one clearly selectable object (hover + selected state, opaque panel). */
+  const dirAll = lgDistinct('direction');
+  const dirSel = lgState.filters.direction;
+  const dirBtnLabel = dirSel || t('lg.filterAll');
+  const dirItem =
+    `<div class="lg-filter-item lg-dir-item">` +
+    `<span class="lg-filter-label">${escapeHtml(t('lg.fLabel.direction'))}</span>` +
+    `<div class="lg-dir-wrap">` +
+    `<button type="button" id="lgFDirBtn" class="input tl-select lg-dir-btn" data-col="direction" aria-label="${escapeHtml(t('lg.fLabel.direction'))}" aria-haspopup="listbox" aria-expanded="false">` +
+    `<span class="lg-dir-btn-text${dirSel ? '' : ' lg-dir-btn-placeholder'}">${escapeHtml(dirBtnLabel)}</span>` +
+    `</button>` +
+    `<div id="lgDirPop" class="lg-dir-pop hidden" role="listbox">` +
+    `<button type="button" class="lg-dir-opt${dirSel ? '' : ' active'}" role="option" data-val="">${escapeHtml(t('lg.filterAll'))}</button>` +
+    dirAll.map((v) =>
+      `<button type="button" class="lg-dir-opt${dirSel === v ? ' active' : ''}" role="option" data-val="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join('') +
+    `</div></div></div>`;
   /* period control: a BUTTON under the same style of label the other filter
      dropdowns have (label on top, control below — visually parallel).
      Clicking it opens the popup, which holds the quick-range buttons
@@ -1128,11 +1147,35 @@ function lgBuildFilterBar() {
     mk('lgFStatus', 'status', 'lg.fLabel.status') +
     mk('lgFReporter', 'reporter', 'lg.fLabel.reporter') +
     mk('lgFAssignee', 'assignee', 'lg.fLabel.assignee') +
-    mk('lgFDir', 'direction', 'lg.fLabel.direction') +
+    dirItem +
     perItem;
   bar.querySelectorAll('select[data-col]').forEach((sel) => {
     sel.addEventListener('change', () => {
       lgState.filters[sel.dataset.col] = sel.value;
+      lgRenderRows();
+    });
+  });
+
+  /* ── direction dropdown wiring ──
+     Trigger button toggles the popup; clicking an option applies the filter
+     (filters are client-side, so NO relay re-sync — just re-render) and
+     closes it. The trigger caption then shows the pick. */
+  const dirBtn = $('#lgFDirBtn');
+  const dirPop = $('#lgDirPop');
+  const closeDir = () => { dirPop.classList.add('hidden'); dirBtn.setAttribute('aria-expanded', 'false'); };
+  dirBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (dirPop.classList.contains('hidden')) {
+      dirPop.classList.remove('hidden');
+      dirBtn.setAttribute('aria-expanded', 'true');
+    } else closeDir();
+  });
+  dirPop.querySelectorAll('.lg-dir-opt').forEach((b) => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      lgState.filters.direction = b.dataset.val;
+      closeDir();
+      lgBuildFilterBar();   /* refresh the trigger caption + active state */
       lgRenderRows();
     });
   });
@@ -1209,6 +1252,15 @@ function lgBuildFilterBar() {
    lgBuildFilterBar() rebuilds the bar often, and per-rebuild listeners
    would stack up) */
 document.addEventListener('click', (e) => {
+  /* direction popup */
+  const dirPop = $('#lgDirPop');
+  if (dirPop && !dirPop.classList.contains('hidden')) {
+    const dirTrigger = $('#lgFDirBtn');
+    if (!((dirTrigger && dirTrigger.contains(e.target)) || dirPop.contains(e.target))) {
+      dirPop.classList.add('hidden');
+      if (dirTrigger) dirTrigger.setAttribute('aria-expanded', 'false');
+    }
+  }
   const pop = $('#lgPeriodPop');
   if (!pop || pop.classList.contains('hidden')) return;
   const trigger = $('#lgFPeriodBtn');

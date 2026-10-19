@@ -407,6 +407,87 @@ body.light .lg-period-btn.ghost:hover { background: #eef1f8; }
    for the gradient Apply button (a white 1px ring showed in dark mode) */
 .lg-period-btn.primary { border-color: transparent; }
 
+/* ── period popup: input focus polish ─────────────────────────────────
+   Appended after the period popup styles: give the date fields a
+   visible focus ring that matches the rest of the panel controls. */
+.lg-period-pop-row input[type="date"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.22);
+}
+
+/* ── direction filter: CUSTOM dropdown (long multi-line option names) ──
+   The native <select> clipped long direction names to one line and even
+   pushed the list off-screen. This popup mirrors the period popup's
+   opaque-panel style but lets each option wrap to 2-3 lines while staying
+   one clearly selectable object (hover ring + accent selected state). */
+.lg-dir-wrap { position: relative; }
+.lg-dir-btn {
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b93ad' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  padding-right: 30px;
+}
+.lg-dir-btn-text { display: block; overflow: hidden; text-overflow: ellipsis; }
+.lg-dir-btn-placeholder { color: var(--muted, #8b93ad); }
+.lg-dir-pop {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  /* OPAQUE panel — same fix as the period popup: --panel is translucent and
+     the data table bled straight through it */
+  background: #14161d;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  padding: 6px;
+  width: max(100%, 430px);
+  max-height: min(56vh, 480px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+body.light .lg-dir-pop {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.14);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.18);
+}
+.lg-dir-opt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text, #e9edf8);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  white-space: normal;      /* long names wrap to 2-3 lines */
+  overflow-wrap: anywhere;  /* no overflow even with no spaces present */
+  transition: background 0.12s, border-color 0.12s;
+}
+.lg-dir-opt:hover {
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(99, 102, 241, 0.45);
+}
+.lg-dir-opt.active {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+body.light .lg-dir-opt { color: #1e2540; }
+body.light .lg-dir-opt:hover { background: rgba(99, 102, 241, 0.1); }
+body.light .lg-dir-opt.active { background: rgba(99, 102, 241, 0.16); }
+
 /* ── page-size switcher (compact select at the toolbar's right end) ────── */
 .lg-page-select {
   min-width: 0;
