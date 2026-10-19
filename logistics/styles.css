@@ -1128,10 +1128,16 @@ body.light .lg-st-badge.lg-st-admin { color: #4f46e5; background: #e0e7ff; borde
 /* hover tooltip (Jira-Pulse style) */
 .adm-tip {
   display: none; position: absolute; z-index: 30; pointer-events: none;
-  background: var(--panel); border: 1px solid var(--border);
+  /* OPAQUE panel — --panel is translucent, so bars and gridlines bled
+     straight through the tooltip while hovering (visual bug) */
+  background: #14161d; border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
   border-radius: 10px; padding: 8px 11px; min-width: 120px;
-  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
   font-size: 0.74rem; line-height: 1.45;
+}
+body.light .adm-tip {
+  background: #ffffff; border-color: rgba(15, 23, 42, 0.14);
+  box-shadow: 0 8px 26px rgba(15, 23, 42, 0.18);
 }
 .adm-tip-title { font-weight: 700; margin-bottom: 4px; color: var(--text); }
 .adm-tip-row { display: flex; align-items: center; gap: 6px; color: var(--muted); }

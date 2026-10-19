@@ -750,6 +750,22 @@ function admNoData(g, w, h, c) {
   g.fillText(t('adm.lb.nodata'), w / 2, h / 2);
   g.globalAlpha = 1;
 }
+/* x-axis label skipping by MEASURED width (the old fixed "every n-th label"
+   rule ignored actual label size, so 30 daily MM/DD labels piled up on top
+   of each other at the axis). step = smallest k such that k * labelW fits
+   in the available slots; a previously-drawn label's x can veto a later
+   one when the "always show last" rule would overlap it. */
+function admLabelStep(g, labels, slotW) {
+  let max = 0;
+  for (const lb of labels) max = Math.max(max, g.measureText(lb).width);
+  if (!max || !slotW) return 1;
+  return Math.max(1, Math.ceil(max / slotW));
+}
+/* centered labels → half-width clearance from the previous drawn label */
+function admLabelFits(g, lb, x, lastX) {
+  if (lastX == null) return true;
+  return (x - lastX) >= g.measureText(lb).width / 2 + 4;
+}
 function admChartBar(id, labels, series) {
   const cv = document.getElementById(id); if (!cv) return;
   const { g, w, h, c } = admChartSetup(cv);
@@ -774,9 +790,14 @@ function admChartBar(id, labels, series) {
   });
   g.fillStyle = c.text; g.textAlign = 'center'; g.font = '10px Inter, sans-serif';
   labels.forEach((lb, i) => {
-    if (labels.length > 16 && i % Math.ceil(labels.length / 16) !== 0) return;
-    g.fillText(lb, pad.l + i * bw + bw / 2, h - 8);
+    const step = admLabelStep(g, labels, bw * 0.94);
+    if (i % step !== 0 && i !== labels.length - 1) return;
+    const x = pad.l + i * bw + bw / 2;
+    if (!admLabelFits(g, lb, x, cv._lastLblX)) return;
+    cv._lastLblX = x;
+    g.fillText(lb, x, h - 8);
   });
+  cv._lastLblX = null;
 }
 function admChartLine(id, labels, series) {
   const cv = document.getElementById(id); if (!cv) return;
@@ -799,10 +820,16 @@ function admChartLine(id, labels, series) {
     g.globalAlpha = 0.10; g.fillStyle = s.color; g.lineTo(xOf(n - 1), h - pad.b); g.lineTo(xOf(0), h - pad.b); g.closePath(); g.fill(); g.globalAlpha = 1;
   });
   g.fillStyle = c.text; g.textAlign = 'center'; g.font = '10px Inter, sans-serif';
+  const slotW = (w - pad.l - pad.r) / Math.max(n, 1);
   labels.forEach((lb, i) => {
-    if (labels.length > 10 && i % Math.ceil(labels.length / 10) !== 0 && i !== labels.length - 1) return;
-    g.fillText(lb, xOf(i), h - 8);
+    const step = admLabelStep(g, labels, slotW * 0.94);
+    if (i % step !== 0 && i !== labels.length - 1) return;
+    const x = xOf(i);
+    if (!admLabelFits(g, lb, x, cv._lastLblX)) return;
+    cv._lastLblX = x;
+    g.fillText(lb, x, h - 8);
   });
+  cv._lastLblX = null;
 }
 function admChartDonut(id, segments) {
   const cv = document.getElementById(id); if (!cv) return;
@@ -859,8 +886,12 @@ function admChartStacked(id, items, colors) {
   const { g, w, h, c } = admChartSetup(cv);
   g.clearRect(0, 0, w, h);
   if (!items.length) { admNoData(g, w, h, c); return; }
+  /* reserve a 16px legend strip at the bottom (legend sits under the rows —
+     it previously overlapped the last bar row because rows divided the
+     whole canvas height) */
+  const LEG_H = 16;
   const maxV = Math.max(1, ...items.map(i => i.parts.reduce((a, b) => a + b, 0)));
-  const rowH = Math.min(30, (h - 8) / Math.max(items.length, 1));
+  const rowH = Math.min(30, (h - 8 - LEG_H) / Math.max(items.length, 1));
   const labelW = Math.min(120, w * 0.26);
   items.forEach((it, i) => {
     const y = 6 + i * rowH;
