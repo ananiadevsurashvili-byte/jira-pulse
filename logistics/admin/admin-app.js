@@ -30,6 +30,8 @@ const adm = {
   period: { kind: '30d', fromMs: null, toMs: null },
   lastAggr: null, lastStats: null, statsTimer: null,
   lbSearch: { user: '', dir: '', login: '' },
+  /* KPI drill-down: which dashboard number opened the task list (null = none) */
+  dl: null,
   /* per-chart period overrides: chId → 'master' | '30d' | 'month' | … ('master' = follow the master period) */
   chPeriod: {},
   lbSort: { user: { col: 'resolved', dir: 'desc' }, dir: { col: 'total', dir: 'desc' }, login: { col: 'lastTs', dir: 'desc' } },
@@ -67,6 +69,8 @@ const I18N = {
     'adm.kpi.avgRes': 'Avg resolution time', 'adm.kpi.inwork': 'In progress now',
     'adm.kpi.totalSub': 'created in selected period', 'adm.kpi.openSub': 'not resolved yet',
     'adm.kpi.basedOn': 'based on {n} tasks with resolution date',
+    'adm.dl.title': 'Task list', 'adm.dl.tip': 'Show these tasks in list',
+    'adm.dl.resMarker': 'resolved',
     'adm.ch.daily': 'New vs resolved · selected period',
     'adm.ch.monthlyNew': 'New tasks per month · selected period',
     'adm.ch.monthlyDone': 'Resolved per month · selected period',
@@ -118,6 +122,8 @@ const I18N = {
     'adm.kpi.avgRes': 'საშ. გადაწყვეტის დრო', 'adm.kpi.inwork': 'მიმდ. პროცესში',
     'adm.kpi.totalSub': 'შექმნილი არჩეულ პერიოდში', 'adm.kpi.openSub': 'ჯერ გადაუწყვეტელი',
     'adm.kpi.basedOn': 'ეყრდნობა {n} დავალებას გადაწყვეტის თარიღით',
+    'adm.dl.title': 'დავალებების სია', 'adm.dl.tip': 'ამ დავალებების სიაში ნახვა',
+    'adm.dl.resMarker': 'გადაწყვეტილი',
     'adm.ch.daily': 'ახალი vs გადაწყვეტილი · არჩეული პერიოდი',
     'adm.ch.monthlyNew': 'ახალი დავალებები თვეებში · არჩეული პერიოდი',
     'adm.ch.monthlyDone': 'გადაწყვეტილი თვეებში · არჩეული პერიოდი',
@@ -406,6 +412,12 @@ function fmtDateTime(v) {
   const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   return fmtDateLong(d) + ' ' + hm;
 }
+/* compact table date: Oct 19, 2026 (locale month names in ka) */
+function fmtDate(v) {
+  const d = lgParseDate(v); if (!d) return '';
+  const mn = (adm.lang === 'ka') ? LG_MONTHS_KA[d.getMonth()] : LG_MONTHS_EN[d.getMonth()].slice(0, 3);
+  return `${mn} ${d.getDate()}, ${d.getFullYear()}`;
+}
 function relTime(ts) {
   const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
   if (s < 60) return s + 's';
@@ -607,7 +619,7 @@ function admAggregate(rows, range) {
     perReporter: new Map(),
     donut: { open: 0, resolved: 0 },
     perStatus: new Map(),
-    resDaysSum: 0, resDaysN: 0,
+    resDaysList: [],
     resRealN: 0, resApproxN: 0, periodDays
   };
   /* bucket granularity for the created-vs-resolved trend:
@@ -675,12 +687,15 @@ function admAggregate(rows, range) {
       const rm = ymOf(r.resolvedAt);
       if (monMap.has(rm)) monMap.get(rm).resolved++;
     }
-    // avg resolution time (days) — only rows with a Jira-issued resolutiondate;
-    // no updated-fallback here: `updated` drifts on edits/comments and is not
-    // the resolve moment (probe: 2193/2217 resolved LOG issues lack rd)
-    if (r.resolved && r.rdReal && r.createdMs && r.resolvedAt > r.createdMs) {
-      aggr.resDaysSum += (r.resolvedAt - r.createdMs) / 864e5;
-      aggr.resDaysN++;
+    // resolution time (days) — MEDIAN over EVERY task resolved inside the
+    // selected period (real Jira resolutiondate), regardless of when the
+    // task was created. Mean-of-period-created-tasks undercounted (only the
+    // small rdReal subset qualified) and let one huge outlier skew the value;
+    // median fixes both. No updated-fallback: `updated` drifts on edits
+    // (probe: 2193/2217 resolved LOG issues lack rd).
+    if (r.resolved && r.rdReal && r.resolvedAt >= from && r.resolvedAt <= to
+      && r.createdMs && r.resolvedAt > r.createdMs) {
+      aggr.resDaysList.push((r.resolvedAt - r.createdMs) / 864e5);
     }
     // users (period-created)
     const u = r.assignName || r.reportName || '—';
@@ -699,7 +714,13 @@ function admAggregate(rows, range) {
     const rp = r.reportName || '—';
     aggr.perReporter.set(rp, (aggr.perReporter.get(rp) || 0) + 1);
   }
-  aggr.avgResDays = aggr.resDaysN ? (aggr.resDaysSum / aggr.resDaysN) : null;
+  /* median resolution time (robust against outliers) */
+  aggr.resDaysN = aggr.resDaysList.length;
+  if (aggr.resDaysN) {
+    const dl = aggr.resDaysList.slice().sort((x, y) => x - y);
+    const mid = Math.floor(dl.length / 2);
+    aggr.avgResDays = dl.length % 2 ? dl[mid] : (dl[mid - 1] + dl[mid]) / 2;
+  } else aggr.avgResDays = null;
   if (useMonths) {
     /* trend buckets are the monthly buckets themselves: rebuild dayMap from monMap */
     dayMap.clear();
@@ -972,10 +993,15 @@ function admTipBind(id, hitTest) {
 }
 
 /* ═══ 17. Render: KPI, charts, leaderboards, login activity ═══ */
-function admKpiCard(icon, label, value, cls, sub) {
+function admKpiCard(icon, label, value, cls, sub, dlKey) {
+  /* dlKey → the number itself is a button: clicking opens the task-list
+     section pre-filtered to exactly the tasks behind this number */
+  const val = (dlKey && value !== '–' && value != null)
+    ? `<button type="button" class="kpi-dl-btn" data-dl="${dlKey}" title="${escapeHtml(t('adm.dl.tip'))}">${escapeHtml(String(value))}</button>`
+    : escapeHtml(value == null ? '' : String(value));
   return `<div class="kpi glass ${cls || ''}"><div class="kpi-top"><span class="kpi-icon">${icon}</span>` +
     `<span class="kpi-label">${escapeHtml(label)}</span></div>` +
-    `<div class="kpi-value">${escapeHtml(String(value))}</div>` +
+    `<div class="kpi-value">${val}</div>` +
     (sub ? `<div class="kpi-foot">${escapeHtml(sub)}</div>` : '') +
     `</div>`;
 }
@@ -992,14 +1018,18 @@ function renderKpis(a) {
     .reduce((s, [, n]) => s + n, 0);
   const openPeriod = a.donut.open;
   g.innerHTML =
-    admKpiCard('📅', t('adm.kpi.total'), a.total, 'accent-blue', t('adm.kpi.totalSub')) +
-    admKpiCard('☀️', t('adm.kpi.today'), a.createdToday, 'accent-green', '') +
-    admKpiCard('✅', t('adm.kpi.resolved'), a.resolvedPeriod, 'accent-cyan', '') +
-    admKpiCard('📂', t('adm.kpi.open'), openPeriod, 'accent-amber', t('adm.kpi.openSub')) +
-    admKpiCard('⏱', t('adm.kpi.avgRes'), a.avgResDays != null ? admFmtResDays(a.avgResDays) : '–', 'accent-violet', avgSub) +
-    admKpiCard('🏁', t('adm.kpi.resAll'), a.resolvedAll, 'accent-green', '') +
-    admKpiCard('🚦', t('adm.kpi.inwork'), inProg, 'accent-blue', '') +
-    admKpiCard('🗓', t('adm.kpi.month'), a.createdMonth, 'accent-cyan', '');
+    admKpiCard('📅', t('adm.kpi.total'), a.total, 'accent-blue', t('adm.kpi.totalSub'), 'total') +
+    admKpiCard('☀️', t('adm.kpi.today'), a.createdToday, 'accent-green', '', 'today') +
+    admKpiCard('✅', t('adm.kpi.resolved'), a.resolvedPeriod, 'accent-cyan', '', 'resolved') +
+    admKpiCard('📂', t('adm.kpi.open'), openPeriod, 'accent-amber', t('adm.kpi.openSub'), 'open') +
+    admKpiCard('⏱', t('adm.kpi.avgRes'), a.avgResDays != null ? admFmtResDays(a.avgResDays) : '–', 'accent-violet', avgSub, 'avgres') +
+    admKpiCard('🏁', t('adm.kpi.resAll'), a.resolvedAll, 'accent-green', '', 'resall') +
+    admKpiCard('🚦', t('adm.kpi.inwork'), inProg, 'accent-blue', '', 'inprog') +
+    admKpiCard('🗓', t('adm.kpi.month'), a.createdMonth, 'accent-cyan', '', 'month');
+  /* bind KPI drill-down buttons */
+  g.querySelectorAll('.kpi-dl-btn').forEach((b) => {
+    b.addEventListener('click', (e) => { e.stopPropagation(); admOpenDrilldown(b.dataset.dl); });
+  });
 }
 function monthLabel(ym) {
   const mi = parseInt(String(ym).slice(5, 7), 10) - 1;
@@ -1008,6 +1038,83 @@ function monthLabel(ym) {
   return yr === String(new Date().getFullYear()) ? mn : `${mn} ${yr}`;
 }
 function dayLabel(ymd) { return ymd.slice(5).replace('-', '/'); }
+
+/* ── 17b. KPI drill-down task list ──
+   Clicking a KPI number opens the section below "Platform usage & logins"
+   with exactly the tasks behind that number, rendered like the logistics
+   desk task list (key link, summary, status chip, direction, assignee,
+   reporter, created/resolved dates). ── */
+/* filter per drill key — mirrors each KPI's definition (see admAggregate):
+   total/month     → created inside the period
+   today           → created today
+   resolved        → resolved inside the period (resolutiondate, regardless
+                     of when the task was created)
+   open / inprog   → period-created and not resolved; inprog = status class
+                     is "in progress" (open = every unfinished status)
+   resall          → resolved anytime (all time, real Jira resolution date)
+   avgres          → the resolution-time sample: resolved in the period with
+                     a real resolutiondate and a valid create→resolve pair */
+function admDrillRows(key) {
+  const rows = adm.rows || [];
+  const range = admPeriodRange();
+  const from = range.from.getTime(), to = range.to.getTime();
+  const day0 = todayStart0();
+  const m0 = mStart0();
+  const inPeriod = (ms) => ms >= from && ms <= to;
+  const resInPeriod = (r) => r.resolved && r.rdReal && inPeriod(r.resolvedAt);
+  const createdInPeriod = (r) => inPeriod(r.createdMs);
+  switch (key) {
+    case 'total': return rows.filter(createdInPeriod);
+    case 'today': return rows.filter((r) => r.createdMs >= day0);
+    case 'month': return rows.filter((r) => r.createdMs >= m0);
+    case 'resolved': return rows.filter(resInPeriod);
+    case 'resall': return rows.filter((r) => r.resolved && r.rdReal);
+    case 'avgres': return rows.filter((r) => resInPeriod(r) && r.resolvedAt > r.createdMs);
+    case 'open': return rows.filter((r) => createdInPeriod(r) && !r.resolved);
+    case 'inprog': return rows.filter((r) => createdInPeriod(r) && !r.resolved && lgStatusClass(r.status) === 'lg-st-progress');
+    default: return [];
+  }
+}
+function admOpenDrilldown(key) {
+  adm.dl = key;
+  admRenderDrilldown();
+  const sec = $('#admDrillSection');
+  if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function admCloseDrilldown() {
+  adm.dl = null;
+  hide($('#admDrillSection'));
+}
+function admRenderDrilldown() {
+  const sec = $('#admDrillSection'); if (!sec) return;
+  if (!adm.dl || !adm.verified) { hide(sec); return; }
+  const rows = admDrillRows(adm.dl);
+  rows.sort((a, b) => b.createdMs - a.createdMs);
+  const title = t('adm.dl.title') + ' · ' + t('adm.kpi.' + (adm.dl === 'resall' ? 'resAll' : adm.dl === 'avgres' ? 'avgRes' : adm.dl === 'inprog' ? 'inwork' : adm.dl));
+  $('#admDrillTitle').textContent = title;
+  $('#admDrillCount').textContent = tReplace('adm.count.n', { n: rows.length });
+  const tb = $('#admDrillTable tbody'); if (!tb) return;
+  /* faint accent ring on the KPI card whose number is currently open */
+  document.querySelectorAll('#admKpiGrid .kpi').forEach((k) => {
+    const b = k.querySelector('.kpi-dl-btn');
+    k.classList.toggle('dl-open', !!(b && b.dataset.dl === adm.dl));
+  });
+  if (!rows.length) {
+    tb.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`;
+    show(sec); return;
+  }
+  tb.innerHTML = rows.map((r) =>
+    `<tr>` +
+    `<td><a class="tl-key lg-key-link" href="${escapeHtml(r.href)}" target="_blank" rel="noopener">${escapeHtml(r.key)}</a></td>` +
+    `<td class="tl-sum"><span class="lg-sum-text">${escapeHtml(r.summary || '—')}</span></td>` +
+    `<td><span class="lg-status-chip ${r.statusCls || 'lg-st-other'}">${escapeHtml(r.status || '—')}</span></td>` +
+    `<td class="muted lg-dir-cell" title="${escapeHtml(r.direction || '')}">${escapeHtml(r.direction || '—')}</td>` +
+    `<td>${escapeHtml(r.assignName || '—')}</td>` +
+    `<td>${escapeHtml(r.reportName || '—')}</td>` +
+    `<td class="muted lg-created-cell">${fmtDate(r.createdMs)}${r.resolved && r.resolvedAt ? `<span class="lg-res-marker">→ ${fmtDate(r.resolvedAt)}</span>` : ''}</td>` +
+    `</tr>`).join('');
+  show(sec);
+}
 function renderCharts(a) {
   admChRenderSelects();
   if (!a) return;
@@ -1343,7 +1450,7 @@ function admOnPeriodChange() {
   const sel = $('#admPeriod'); if (!sel) return;
   adm.period.kind = sel.value;
   if (sel.value !== 'custom') { adm.period.fromMs = null; adm.period.toMs = null; }
-  admSavePeriod(); admRenderCustomWrap(); renderAll();
+  admSavePeriod(); admRenderCustomWrap(); admCloseDrilldown(); renderAll();
 }
 function admOnCustomDates() {
   const f = $('#admFrom'), tt = $('#admTo');
@@ -1366,6 +1473,7 @@ function renderAll() {
   const a = adm.verified && adm.rows.length ? admAggregate(adm.rows, range) : null;
   admSetCount(a ? a.total : (adm.loading ? null : 0));
   renderKpis(a); renderCharts(a); renderLeaderboards(a);
+  admRenderDrilldown();   /* keep an open drill-down in sync with its period */
   admSetFetched(adm.fetchedAt);
 }
 function admError(msg) {
@@ -1428,6 +1536,8 @@ async function admRefresh() {
 
   const rb = $('#admRefreshBtn'); if (rb) rb.addEventListener('click', admRefresh);
   const ps = $('#admPeriod'); if (ps) ps.addEventListener('change', admOnPeriodChange);
+  const dlClose = $('#admDrillClose');
+  if (dlClose) dlClose.addEventListener('click', admCloseDrilldown);
   admBindLeaderboard();
   const f = $('#admFrom'), tt = $('#admTo');
   if (f) f.addEventListener('change', admOnCustomDates);

@@ -488,6 +488,28 @@ body.light .lg-dir-opt { color: #1e2540; }
 body.light .lg-dir-opt:hover { background: rgba(99, 102, 241, 0.1); }
 body.light .lg-dir-opt.active { background: rgba(99, 102, 241, 0.16); }
 
+/* ── admin: KPI drill-down ──────────────────────────────────────────────
+   KPI numbers are buttons that open the drill-down task list; the pressed
+   KPI keeps a subtle accent ring so users see which number is open. */
+.kpi-dl-btn {
+  font: inherit;
+  font-weight: 800;
+  font-size: inherit;
+  line-height: 1.2;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 2px 8px;
+  margin: -2px -8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s, box-shadow 0.12s;
+}
+.kpi-dl-btn:hover { background: rgba(99, 102, 241, 0.16); }
+.kpi-dl-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4); }
+.kpi.dl-open { box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35); }
+.lg-res-marker { display: block; color: var(--muted, #8b93ad); font-size: 0.72rem; margin-top: 2px; }
+
 /* ── page-size switcher (compact select at the toolbar's right end) ────── */
 .lg-page-select {
   min-width: 0;

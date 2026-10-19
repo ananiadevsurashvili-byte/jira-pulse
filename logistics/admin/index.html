@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="../../styles.css?v=8241341" />
-<link rel="stylesheet" href="../styles.css?v=35" />
+<link rel="stylesheet" href="../styles.css?v=37" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
@@ -200,6 +200,21 @@
         <th data-col="email" data-i18n="adm.lb.user">User</th><th data-i18n="adm.act.surface">Surface</th><th data-col="lastTs" data-i18n="adm.act.lastSeen">Last seen</th><th data-col="count" data-i18n="adm.act.sessions">Sessions</th><th data-i18n="adm.act.state">State</th>
       </tr></thead><tbody></tbody></table></div>
     </div>
+
+    <!-- KPI drill-down task list (opened by clicking a dashboard KPI number) -->
+    <div class="card glass" style="padding:16px;margin-top:14px" id="admDrillSection">
+      <div class="screen-head dash-head lg-list-head" style="margin-bottom:10px">
+        <h4 id="admDrillTitle" style="margin:0">Task list</h4>
+        <span class="lg-head-spacer"></span>
+        <span id="admDrillCount" class="pub-count-chip"></span>
+        <button id="admDrillClose" class="btn btn-ghost" type="button">✕</button>
+      </div>
+      <div class="table-scroll" style="max-height:560px">
+        <table class="data-table lg-table" id="admDrillTable"><thead><tr>
+          <th>Key</th><th>Title</th><th>Status</th><th>Direction</th><th>Assignee</th><th>Reporter</th><th>Created → Resolved</th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+    </div>
   </section>
 </main>
 
@@ -209,6 +224,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="admin-app.js?v=10"></script>
+<script src="admin-app.js?v=11"></script>
 </body>
 </html>
