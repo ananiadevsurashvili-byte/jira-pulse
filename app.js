@@ -2406,7 +2406,7 @@ function fmtDateLong(v) {
 function openIssueListModal(chartTitle, pointLabel, keys, seriesLabel) {
   const rows = resolveIssueRows(keys);
   const base = jiraIssueBase();
-  jpEnsureDesk();   /* rich rows in the drill-down list share the bulk overlay */
+  jpEnsureDesk(rows);   /* rich rows in the drill-down list share the bulk overlay */
   $('#issueListTitle').textContent = `${chartTitle}${seriesLabel ? ' — ' + seriesLabel : ''} · ${pointLabel || ''}`;
   $('#issueListSub').textContent = rows.length
     ? `${tReplace('ilist.count', { n: rows.length })}${base ? '' : ' · ' + t('ilist.noLink')}`
@@ -2448,19 +2448,23 @@ function wireIssueListModal() {
 /* ── rich task card popup (logistics-desk parity, in-app) ────────────────
    Opens from any task-list title / key click. The popup renders instantly
    from the live board payload (summary/status/people/dates) and then
-   lazily enriches with description + comments via the relay's plain CORS
-   proxy (?url= → Jira's own /rest/api/3/issue endpoint) and attachments
-   (incl. images embedded inside comments) via ?cmd=deskAttach. NO backend
-   changes — every call uses relay endpoints that already exist. */
+   enriches from the bulk desk overlay (description + comments + reporter)
+   plus ?cmd=deskAttach for attachment metadata (incl. images embedded
+   inside comments). NO backend changes — every call uses relay endpoints
+   that already exist. */
 
 /* fetch + shape the description + comments of exactly one issue through
    the generic CORS proxy. Works with the viewer's own Jira creds when
-   present, falls back to the relay's stored creds server-side. */
+   present, falls back to the relay's stored creds server-side.
+   (Secondary garnish only: the bulk desk overlay already paints desc/
+   comments/reporter first — this refreshes a single issue after its
+   desk row landed or when the desk has no data for the project.) */
 async function pubFetchDetail(key) {
   const domain = String(jiraIssueBase() || PUBLISH_DOMAIN).replace(/^https?:\/\//, '').replace(/\/+$/, '');
   const target = `https://${domain}/rest/api/3/issue/${encodeURIComponent(key)}?fields=description,comment,reporter,assignee,attachment`;
   const headers = { 'Accept': 'application/json' };
-  if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
+  const viewerCreds = loadConn();
+  if (viewerCreds) headers['Authorization'] = 'Basic ' + btoa(viewerCreds.email + ':' + viewerCreds.token);
   const res = await fetch(PUB_RELAY + '?url=' + encodeURIComponent(target), { method: 'GET', headers });
   const text = await res.text();
   let data = null;
@@ -2565,9 +2569,41 @@ function jpDetailOf(key) {
 /* ── attachments (metadata + blob previews through the relay) ────────── */
 const _jpBlobCache = new Map();         /* attachId → objectURL */
 
-async function jpFetchAttachments(key) {
-  const detail = await jpDetailOf(key);
-  return detail?.attachments || [];
+/* attachment METADATA for exactly one issue — logistics parity: asks the
+   relay's ?cmd=deskAttach endpoint (NOT the plain ?url= proxy, which refuses
+   to fall back to stored creds for /rest/api/3/issue/ paths and would leave
+   viewer-only users with zero attachments). 10-min per-key cache; failures
+   are cached briefly so a re-render doesn't hammer the relay. */
+const JP_ATTACH_TTL = 10 * 60 * 1000;
+const _jpAttachCache = new Map();       /* key → { ts, promise } */
+const JP_ATTACH_NEG_TTL = 60 * 1000;
+
+function jpFetchAttachments(key) {
+  const hit = _jpAttachCache.get(key);
+  if (hit && (hit.attachments || Date.now() - hit.ts < JP_ATTACH_NEG_TTL)) return hit.promise;
+  const conn = loadConn();
+  const domain = String(jiraIssueBase() || PUBLISH_DOMAIN).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  const url = PUB_RELAY + '?cmd=deskAttach&key=' + encodeURIComponent(key) +
+    '&domain=' + encodeURIComponent(domain);
+  const headers = { 'Accept': 'application/json' };
+  if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
+  const promise = fetch(url, { method: 'GET', headers })
+    .then((res) => res.text())
+    .then((text) => {
+      let data = null;
+      try { data = JSON.parse(text); } catch (_) { /* non-json */ }
+      if (!res.ok) throw new Error((data && (data.error || data.detail)) || `HTTP ${res.status}`);
+      const list = Array.isArray(data?.attachments) ? data.attachments : [];
+      _jpAttachCache.set(key, { ts: Date.now(), attachments: list, promise: Promise.resolve(list) });
+      return list;
+    })
+    .catch(() => {
+      /* negative-TTL so a known-failing key isn't refetched on every paint */
+      _jpAttachCache.set(key, { ts: Date.now(), attachments: null, promise: Promise.resolve([]) });
+      return [];
+    });
+  _jpAttachCache.set(key, { ts: Date.now(), attachments: null, promise });
+  return promise;
 }
 
 function jpAttachProxyUrl(contentUrl) {
@@ -2819,10 +2855,14 @@ function jpDeskRow(iss) {
   return desk ? (desk.get(iss.key) || null) : null;
 }
 
-/* kick off desk loads for every distinct project found in the pools */
-function jpEnsureDesk() {
+/* kick off desk loads for every distinct project found in the pools.
+   In the public view the rendered issues live in the per-board cache (NOT
+   in state.issues), so both pools — plus any explicitly-passed issues
+   (the task list hands its rendered rows in) — are scanned. */
+function jpEnsureDesk(extra) {
   const poolSet = new Set();
   const pools = [state.issues || []];
+  if (Array.isArray(extra) && extra.length) pools.push(extra);
   if (_pubBoardCache) for (const c of _pubBoardCache.values()) if (c?.rec?.issues?.length) pools.push(c.rec.issues);
   for (const pool of pools) {
     const p = jpProjectOf(pool);
@@ -2866,7 +2906,7 @@ function jpOpenCard(key) {
   const iss = jpFindIssue(key);
   jpCardKey = key;
   jpRenderCard(iss || { key, fields: {} });
-  jpEnsureDesk();            /* bulk overlay may already be cached — instant */
+  jpEnsureDesk(iss ? [iss] : null);   /* bulk overlay may already be cached — instant */
   show($('#pubCardOverlay'));
   $('#pubCardClose').focus();
   /* sync order: the bulk desk overlay (already per-project, viewer-cred or
@@ -2898,7 +2938,9 @@ function jpDeskToCard(key, desk) {
   const body = $('#pubCardBody');
   if (String(jpCardKey) !== String(key)) return;
   const descEl = body.querySelector('#jpCardDesc');
-  if (descEl && desk.descFull && !(descEl.textContent || '').trim()) {
+  /* the placeholder ships as a muted span ("No description") — painting the
+     real description only when that placeholder is still there */
+  if (descEl && desk.descFull && descEl.querySelector('.muted')) {
     descEl.textContent = desk.descFull;
   }
   const repEl = body.querySelectorAll('.jp-card-person .jp-card-person-name')[1];
@@ -3467,7 +3509,7 @@ function renderPubTaskList(issues) {
   });
   st.page = TL_PAGE;
   rerenderRows();
-  jpEnsureDesk();   /* kick the bulk overlay fetch: rows gain previews/badges when it lands */
+  jpEnsureDesk(issues);   /* kick the bulk overlay fetch: rows gain previews/badges when it lands */
 }
 
 /* hero title with a gradient-accented trailing word — the last word (or the
