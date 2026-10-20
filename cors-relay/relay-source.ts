@@ -54,7 +54,11 @@ const DESK_FIELDS_BASE = "summary,description,status,resolution,resolutiondate,c
    revisits and multi-viewer bursts near-instant. Freshness remains
    viewer-controlled: ?fresh=1 bypasses and re-syncs. */
 const DESK_CACHE_KEY = "jirapulse_desk_cache_v2";
-const DESK_CACHE_TTL = 60 * 1000;
+/* 60s made every incognito visit pay the full multi-minute desk sync
+   (viewer almost always arrived after the slot expired) → boards looked
+   permanently empty. 15 min keeps the payload fresh enough for status
+   changes while making real back-to-back visits INSTANT. */
+const DESK_CACHE_TTL = 15 * 60 * 1000;
 
 /* ADF (Atlassian Document Format) body → plain text, one line per block */
 function adfToText(doc: any): string {
@@ -734,23 +738,41 @@ async function handleDeskAttachCmd(u: URL, request: Request): Promise<Response> 
   /* walk FULL ADF comment bodies for media nodes: a media node's attrs.id
      is a media UUID — map it via mediaToAttach (Jira sets mediaId on the
      matching attachment). Anything referenced but missing from the map
-     (e.g. cross-issue media) is skipped. */
-  const mediaIdsInComments: { id: string; commentIndex: number }[] = [];
+     (e.g. cross-issue media) is skipped. attrs.alt (when present) is the
+     FILENAME of the embedded media — this matters because on this Jira
+     instance image attachments often come back with an EMPTY mediaId, so
+     the UUID map alone matches nothing and inline comment images would
+     never slot into their comment. We keep both signals. */
+  const mediaInComments: { id: string; alt: string; commentIndex: number }[] = [];
   (function walk(node: any, ci: number) {
     if (node == null) return;
     if (Array.isArray(node)) { for (const n of node) walk(n, ci); return; }
     if (typeof node !== 'object') return;
     if (node.type === 'media' || node.type === 'mediaInline' || node.type === 'mediaSingle') {
       const mid = node?.attrs?.id != null ? String(node.attrs.id) : '';
-      if (mid) mediaIdsInComments.push({ id: mid, commentIndex: ci });
+      /* ADF alt for media nodes is the original filename, e.g.
+         "image-20260727-094602.png" */
+      const alt = node?.attrs?.alt != null ? String(node.attrs.alt) : '';
+      if (mid || alt) mediaInComments.push({ id: mid, alt, commentIndex: ci });
     }
+    /* ADF containers descend via .content, but a comment object itself
+       (and document bodies returned unfurled) nest content under .body */
     if (Array.isArray(node.content)) walk(node.content, ci);
+    if (node.body && typeof node.body === 'object') walk(node.body, ci);
   })(f.comment?.comments || [], 0);
 
   const commentAttachByIndex = new Map<number, Set<string>>();  /* mediaId → indices */
-  for (const { id, commentIndex } of mediaIdsInComments) {
+  for (const { id, commentIndex } of mediaInComments) {
     if (!commentAttachByIndex.has(commentIndex)) commentAttachByIndex.set(commentIndex, new Set());
     commentAttachByIndex.get(commentIndex)!.add(id);
+  }
+  /* filename(lowercased) → comment index — for empty-mediaId attachments */
+  const commentFileByIndex = new Map<number, Set<string>>();
+  for (const { alt, commentIndex } of mediaInComments) {
+    const fn = (alt || '').trim().toLowerCase();
+    if (!fn) continue;
+    if (!commentFileByIndex.has(commentIndex)) commentFileByIndex.set(commentIndex, new Set());
+    commentFileByIndex.get(commentIndex)!.add(fn);
   }
 
   const attachments = attachList
@@ -762,12 +784,23 @@ async function handleDeskAttachCmd(u: URL, request: Request): Promise<Response> 
       const contentUrl = content.startsWith('https://')
         ? content
         : new URL(`/rest/api/3/attachment/content/${a.id}`, base).toString();
-      /* which comment (if any) embeds this attachment's media inline */
+      /* which comment (if any) embeds this attachment's media inline.
+         Primary: mediaId UUID match. Fallback: attachment filename vs the
+         ADF media attrs.alt (filename) — needed because on this instance
+         image attachments routinely return an EMPTY mediaId. */
       let commentIndex: number | null = null;
       const mid = a.mediaId ? String(a.mediaId) : '';
       if (mid) {
         for (const [ci, set] of commentAttachByIndex) {
           if (set.has(mid)) { commentIndex = ci; break; }
+        }
+      }
+      if (commentIndex === null) {
+        const fn = String(a.filename || '').trim().toLowerCase();
+        if (fn) {
+          for (const [ci, set] of commentFileByIndex) {
+            if (set.has(fn)) { commentIndex = ci; break; }
+          }
         }
       }
       return {
@@ -916,12 +949,14 @@ async function handleProxy(request: Request, u: URL): Promise<Response> {
 
   /* Missing caller auth on attachment-content GETs would go to Jira
      anonymously and get a 403 → broken image previews for viewers who
-     never connected their own Jira account. Fall back to the stored
-     admin read-only creds — but ONLY when the stored domain matches the
-     target host, and only for GET on the attachment content path (other
-     endpoints keep the same-old behavior). */
+     never connected their own Jira account. Same story for single-issue
+     GETs (/rest/api/3/issue/{key}?fields=…) — the card popup's only
+     detail source. Fall back to the stored admin read-only creds — but
+     ONLY when the stored domain matches the target host, and only for
+     safe GET reads (never for writes or other endpoints). */
   if (!headers.get('authorization') && request.method === 'GET' &&
-      /^\/rest\/api\/3\/attachment\/content\//.test(targetUrl.pathname)) {
+      (/^\/rest\/api\/3\/attachment\/content\//.test(targetUrl.pathname) ||
+       /^\/rest\/api\/3\/issue\/[A-Z][A-Z0-9_]*-\d+$/.test(targetUrl.pathname))) {
     try {
       const stored = await blob.getJSON(CREDS_KEY);
       const storedHost = stored?.domain ? String(stored.domain).replace(/^https?:\/\//, '').replace(/\/+$/, '') : '';

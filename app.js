@@ -4372,7 +4372,33 @@ function enterApp() {
    When we're inside the /admin/ panel, the copy-link must still point to the
    *public* app root (e.g. .../jira-pulse/#/board/1), never .../admin/#/board/1. */
 function boardLink(boardId) {
-  return location.origin + publicRootPath() + '#/board/' + boardId;
+  const b = state.boards.find((x) => x.id === boardId) || (boardId === MASTER_P_ID ? masterPBoard() : null);
+  return location.origin + publicRootPath() + boardHash(b || { id: boardId });
+}
+
+/* readable URL fragment: the numeric board id stays FIRST so the router
+   (#/board/<id>) keeps working for old links, with a human slug appended
+   for new ones — #/board/1208-warehouse-management-board. The slug comes
+   from the board name (ASCII words); boards whose names have no ASCII
+   letters (e.g. Georgian-only) fall back to the Jira project key, so the
+   URL always carries thematic words. */
+function boardSlugOf(board) {
+  if (!board || board.id == null) return '';
+  /* the synthetic master [P] board gets a fixed thematic slug — its display
+     name is translated ("ყველა [P] დაფა"), which would slug to just "p" */
+  if (board.id === MASTER_P_ID) return 'all-p-boards';
+  const nameSlug = String(board.name || '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (nameSlug) return nameSlug.slice(0, 48).replace(/-+$/, '');
+  const keySlug = String(board.location?.projectKey || '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return keySlug;
+}
+function boardHash(board) {
+  const slug = boardSlugOf(board);
+  return '#/board/' + board.id + (slug ? '-' + slug : '');
 }
 
 /* are modify/publish operations allowed in this context?
@@ -4414,8 +4440,9 @@ function openBoard(board) {
   if (!board) return;
   $('#boardSelect').value = String(board.id);
   selectBoard(board);
-  if (location.hash !== '#/board/' + board.id) {
-    history.replaceState(null, '', location.pathname + '#/board/' + board.id);
+  const wantHash = boardHash(board);
+  if (location.hash !== wantHash) {
+    history.replaceState(null, '', location.pathname + wantHash);
   }
   syncHeaderState();
 }
@@ -4479,7 +4506,9 @@ function syncHeaderState() {
   syncAdminControls();
 }
 
-/* hash router — #/ = all boards, #/board/<id> = a specific board */
+/* hash router — #/ = all boards, #/board/<id>[-<slug>] = a specific board.
+   The optional slug is cosmetic (document.location readability): only the
+   numeric id is parsed, so plain #/board/1208 links keep working unchanged. */
 function route() {
   const hash = location.hash;
   const boardMatch = hash.match(/^#\/board\/(\d+)/);
