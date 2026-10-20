@@ -2496,11 +2496,33 @@ async function pubFetchDetail(key) {
   const flat = (u) => u?.displayName || '';
   return {
     descFull: jpAdfText(f.description),
+    descMedia: jpCollectMediaNodes(f.description),   /* ordered 📷 markers */
     reporter: flat(f.reporter),
     assignee: flat(f.assignee),
     comments,
     attachments,
   };
+}
+
+/* ordered media entries of an ADF body (media UUID + alt filename) —
+   description images need BOTH signals because on this Jira instance
+   image attachments often come back with an EMPTY mediaId */
+function jpCollectMediaNodes(node) {
+  const list = [];
+  (function walk(n) {
+    if (n == null || typeof n !== 'object') return;
+    if (Array.isArray(n)) { for (const c of n) walk(c); return; }
+    if (n.type === 'media' || n.type === 'mediaInline') {
+      list.push({
+        id: n.attrs?.id != null ? String(n.attrs.id) : '',
+        alt: n.attrs?.alt != null ? String(n.attrs.alt) : '',
+      });
+      return;
+    }
+    if (Array.isArray(n.content)) walk(n.content);
+    if (n.body && typeof n.body === 'object') walk(n.body);
+  })(node);
+  return list;
 }
 
 /* collect `media` node ids from an ADF body so pasted-in images can be
@@ -2895,15 +2917,21 @@ function jpDeskRow(iss) {
 /* kick off desk loads for every distinct project found in the pools.
    In the public view the rendered issues live in the per-board cache (NOT
    in state.issues), so both pools — plus any explicitly-passed issues
-   (the task list hands its rendered rows in) — are scanned. */
+   (the task list hands its rendered rows in) — are scanned.
+   NOTE: master [P]/united boards merge MULTIPLE projects into one pool,
+   so the per-ISSUE project must be collected (jpProjectOf on the whole
+   pool would only ever see the first project and the rest of the rows
+   would render without their comments/descriptions overlay). */
 function jpEnsureDesk(extra) {
   const poolSet = new Set();
   const pools = [state.issues || []];
   if (Array.isArray(extra) && extra.length) pools.push(extra);
   if (_pubBoardCache) for (const c of _pubBoardCache.values()) if (c?.rec?.issues?.length) pools.push(c.rec.issues);
   for (const pool of pools) {
-    const p = jpProjectOf(pool);
-    if (p) poolSet.add(p);
+    for (const iss of pool) {
+      const p = jpProjectOf([iss]);
+      if (p) poolSet.add(p);
+    }
   }
   for (const p of poolSet) jpDeskLoad(p);
 }
@@ -3118,8 +3146,16 @@ async function enRichCard(key) {
     return;
   }
   if (enh) enh.remove();
+  /* remember the detail so jpLoadCardAttachments can slot description
+     images even when attachments land AFTER the detail did */
+  body._jpDetail = detail;
   const descEl = body.querySelector('#jpCardDesc');
-  if (descEl && detail.descFull) descEl.textContent = detail.descFull;
+  if (descEl && detail.descFull) {
+    jpPaintDesc(body, detail.descFull);
+    /* attachment metadata may already be here (deskAttach raced ahead) —
+       slot description-embedded images into their 📷 markers now */
+    jpPlaceDescAttachments(body, detail, body._jpAttMeta ? [...body._jpAttMeta.values()] : detail.attachments);
+  }
   /* reporter isn't in the board payload — fill it in now */
   if (detail.reporter) {
     const rep = body.querySelectorAll('.jp-card-person .jp-card-person-name')[1];
@@ -3165,10 +3201,17 @@ async function jpLoadCardAttachments(key) {
        for them once enRichCard finishes) */
     placeCommentAttachments(body, attachments);
 
+    /* description-embedded images: if the enrich detail (with its ordered
+       📷 markers) already painted, slot matching attachments into the
+       markers now — covers the "attachments land first" race */
+    jpPlaceDescAttachments(body, body._jpDetail, attachments);
+
     /* everything else (files + comment images already slotted above get
        skipped) into the Attachments grid */
     const inComments = new Set(attachments.filter((a) => a.commentIndex != null).map((a) => String(a.id)));
-    const rest = attachments.filter((a) => !inComments.has(String(a.id)));
+    const inDesc = new Set(attachments.filter((a) =>
+      String(a.commentIndex) === 'null' && body.querySelector('.jp-desc-media[data-done="1"] .lg-att-item[data-att-id="' + String(a.id) + '"]')).map((a) => String(a.id)));
+    const rest = attachments.filter((a) => !inComments.has(String(a.id)) && !inDesc.has(String(a.id)));
     const sec = body.querySelector('.lg-card-attach-section');
     const grid = body.querySelector('#jpCardAttachGrid');
     if (rest.length && sec && grid) {
@@ -3192,6 +3235,50 @@ function placeCommentAttachments(body, attachments) {
     if (!slot || slot.querySelector(`[data-att-id="${att.id}"]`)) continue;
     slot.insertAdjacentHTML('beforeend', jpAttachThumbHtml(att));
   }
+}
+
+/* paint the description with 📷 markers converted into inline thumb slots
+   (logistics-parity for description-embedded images: every marker in the
+   jpAdfText output becomes a target the matching attachment sits inside) */
+function jpPaintDesc(body, descFull) {
+  const descEl = body.querySelector('#jpCardDesc');
+  if (!descEl || !descFull) return;
+  let mi = -1;
+  descEl.innerHTML = escapeHtml(descFull).replace(/📷/g, () => {
+    mi += 1;
+    return `<span class="jp-desc-media" data-desc-media="${mi}"></span>`;
+  });
+}
+
+/* slot the attachment whose media/alt matches each description marker into
+   its slot — matches mediaId first (exact) then filename (this instance's
+   image attachments often carry an EMPTY mediaId). Called from BOTH async
+   arrival orders (detail first / attachment meta first). */
+function jpPlaceDescAttachments(body, detail, attachments) {
+  const descEl = body.querySelector('#jpCardDesc');
+  if (!descEl || !detail?.descMedia?.length) return;
+  const slots = descEl.querySelectorAll('.jp-desc-media[data-desc-media]');
+  if (!slots.length) return;
+  const list = Array.isArray(attachments) && attachments.length
+    ? attachments
+    : (body._jpAttMeta ? [...body._jpAttMeta.values()] : (detail.attachments || []));
+  const byMedia = new Map();
+  const byFile = new Map();
+  for (const a of list) {
+    if (a.mediaId) byMedia.set(String(a.mediaId), a);
+    const fn = String(a.filename || '').trim().toLowerCase();
+    if (fn && !byFile.has(fn)) byFile.set(fn, a);
+  }
+  slots.forEach((slot) => {
+    if (slot.getAttribute('data-done') === '1') return;
+    const m = detail.descMedia[Number(slot.getAttribute('data-desc-media'))] || null;
+    if (!m) return;
+    const att = byMedia.get(m.id) || byFile.get(String(m.alt || '').trim().toLowerCase()) || null;
+    if (!att || !jpIsImageMime(att.mimeType, att.filename)) return;
+    slot.setAttribute('data-done', '1');
+    slot.insertAdjacentHTML('beforeend', jpAttachThumbHtml(att));
+  });
+  jpHydrateAttachImages(body);
 }
 
 /* delegated interactions: lightbox on image thumbs, download on retry */
@@ -3856,6 +3943,17 @@ function openBoardSnapshot(boardRec) {
     domain: snap.domain || '',
   };
   pubState.snapshot = sub;
+  /* keep the URL slug in sync on the public share view too — same readable
+     hash the logged-in flow writes (#/board/<id>-<slug>), so refresh,
+     share-copy and deep links all carry the board name */
+  const wantHash = boardHash({
+    id: boardRec.boardId,
+    name: boardRec.name,
+    location: boardRec.location || null
+  });
+  if (location.hash !== wantHash) {
+    history.replaceState(null, '', location.pathname + wantHash);
+  }
   $('#pubBackBtn').dataset.fromAll = '1';   /* set BEFORE render so the label logic sees it */
   pubSaveSession({ boardId: boardRec.boardId });   /* remember the board for refresh */
   renderPubContent();
@@ -9109,6 +9207,9 @@ document.addEventListener('DOMContentLoaded', () => {
       pubState.allSnapshot = null;
       $('#pubBackBtn').dataset.fromAll = '';
       pubSaveSession({ boardId: null });
+      if (location.hash.startsWith('#/board/')) {
+        history.replaceState(null, '', location.pathname + '#/');
+      }
       renderPubContent();
     }
   };
@@ -9141,6 +9242,9 @@ document.addEventListener('DOMContentLoaded', () => {
       $('#pubBackBtn').dataset.fromAll = '';
       $('#pubBackBtn').textContent = t('pub.back');
       pubSaveSession({ boardId: null });   /* back to the all-boards view */
+      if (location.hash.startsWith('#/board/')) {
+        history.replaceState(null, '', location.pathname + '#/');
+      }
       renderPubContent();
       return;
     }
