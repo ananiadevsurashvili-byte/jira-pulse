@@ -2816,7 +2816,17 @@ function jpDeskShape(data) {
   return map;
 }
 
-function jpDeskLoad(project) {
+/* ISO-8601 stamp with offset for the desk relay's from/to validation
+   (yyyy-MM-ddTHH:mm:ss.SSS±ZZZZ) */
+function jpDeskStampIso(d) {
+  const p = (n, w) => String(n).padStart(w || 2, '0');
+  const off = -d.getTimezoneOffset();
+  const sign = off >= 0 ? '+' : '-';
+  const ao = Math.abs(off);
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}${sign}${p(Math.floor(ao / 60))}${p(ao % 60)}`;
+}
+
+function jpDeskLoad(project, unique) {
   if (!project) return Promise.resolve(null);
   const cached = _jpDeskCache.get(project);
   if (cached && Date.now() - cached.ts < JP_DESK_TTL) return cached.promise;
@@ -2828,8 +2838,20 @@ function jpDeskLoad(project) {
   }
   const conn = loadConn();
   const domain = String(jiraIssueBase() || PUBLISH_DOMAIN).replace(/^https?:\/\//, '').replace(/\/+$/, '');
-  const url = PUB_RELAY + '?cmd=desk&project=' + encodeURIComponent(project) +
+  let url = PUB_RELAY + '?cmd=desk&project=' + encodeURIComponent(project) +
     '&domain=' + encodeURIComponent(domain);
+  /* self-heal for pre-fix relay deployments: their desk cache key ignored
+     the project, so the single shared slot was served to EVERY project
+     (logistics traffic constantly overwrote it) and viewers of other boards
+     received the wrong project's issues — rows looked empty. Detect a
+     wrong-project payload below and retry once against a UNIQUE from/to
+     cache slot; an absolute all-time window is semantically identical
+     (the relay stamps carry an exact ISO axis) yet lands in its own slot. */
+  if (unique) {
+    const jitter = new Date(Date.now() - Math.floor(Math.random() * 60000));
+    url += '&from=' + encodeURIComponent('2000-01-01T00:00:00.000+0000') +
+      '&to=' + encodeURIComponent(jpDeskStampIso(jitter));
+  }
   const headers = { 'Accept': 'application/json' };
   if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
   const promise = fetch(url, { method: 'GET', headers })
@@ -2838,6 +2860,15 @@ function jpDeskLoad(project) {
       let data = null;
       try { data = JSON.parse(text); } catch (_) { /* non-json */ }
       if (!res.ok) throw new Error((data && (data.error || data.detail)) || `HTTP ${res.status}`);
+      if (data?.project && String(data.project).toUpperCase() !== project) {
+        /* the (buggy) shared cache slot handed over ANOTHER project's issues */
+        if (!unique) {
+          _jpDeskCache.delete(project);
+          jpDeskFailedSoFar.delete(project);
+          return jpDeskLoad(project, true);   /* self-heal: unique slot next */
+        }
+        throw new Error(`desk payload for wrong project (${data.project})`);
+      }
       const shaped = jpDeskShape(data);
       _jpDeskData.set(project, shaped);
       jpDeskFailedSoFar.delete(project);
@@ -3071,12 +3102,18 @@ async function enRichCard(key) {
      never wipe richer content with a "no comments" fallback */
   const deskAlready = jpDeskRow(jpFindIssue(key) || { key }) || null;
   if (!detail) {
+    /* the bulk desk overlay may already have painted everything the card
+       needs (reporter/description/comments) — enrichment is only "optional
+       garnish" when the desk HAS data, so keep the failure pill strictly
+       for cards the desk could not cover either */
+    if (deskAlready?.comments?.length || deskAlready?.descFull || deskAlready?.reporter) {
+      if (enh) enh.remove();
+      return;
+    }
     if (enh) enh.innerHTML = `<span>⚠</span> ${escapeHtml(t('card.enhanceFail'))}`;
     if (!deskAlready?.comments?.length) {
       body.querySelector('#jpCardComments').innerHTML =
         `<div class="muted">${escapeHtml(t('card.noComments'))}</div>`;
-    } else if (enh) {
-      enh.remove();
     }
     return;
   }

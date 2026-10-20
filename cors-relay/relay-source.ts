@@ -382,11 +382,12 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
   if ((fromQ && !TS_RE.test(fromQ)) || (toQ && !TS_RE.test(toQ))) {
     return json({ error: 'invalid from/to (expected ISO-8601 with UTC offset)' }, 400);
   }
-  /* each window gets its own short-TTL cache slot so "30d" and "all"
-     (and every custom range) don't invalidate each other */
-  const deskKey = (fromQ || toQ)
-    ? DESK_CACHE_KEY + ':' + fromQ + '..' + toQ
-    : DESK_CACHE_KEY;
+  /* each project+window gets its own short-TTL cache slot: the cache key
+     MUST include the project — without it a LOG sync overwrote the single
+     slot and every other project's viewer read the wrong project's issues
+     (boards rendered with an empty description/comments/reporter overlay) */
+  const deskKey = DESK_CACHE_KEY + ':' + project +
+    ((fromQ || toQ) ? ':' + fromQ + '..' + toQ : '');
 
   /* short-lived response cache: another viewer (or a revisit within the
      TTL) gets the last synced payload immediately instead of paying the
