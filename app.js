@@ -2766,6 +2766,7 @@ function jpProjectOf(issues) {
 /* per-project desk cache: { ts, map: key → {descFull, descOne, comments[3]
    {author,created,body,idx}, attFiles[{filename,mimeType}]} } */
 const JP_DESK_TTL = 3 * 60 * 1000;
+const JP_DESK_RETRY_MS = 15 * 1000;      /* min gap between failed re-fetches */
 const _jpDeskCache = new Map();          /* project → { ts, promise } */
 const _jpDeskData = new Map();           /* project → shaped map */
 let jpDeskFailedSoFar = new Set();       /* projects whose last fetch failed */
@@ -2819,7 +2820,12 @@ function jpDeskLoad(project) {
   if (!project) return Promise.resolve(null);
   const cached = _jpDeskCache.get(project);
   if (cached && Date.now() - cached.ts < JP_DESK_TTL) return cached.promise;
-  if (jpDeskFailedSoFar.has(project) && cached) return cached.promise;   /* last failure < TTL */
+  /* a previous FAILURE is never sticky: always allow a re-fetch. A short
+     throttle just stops rapid-fire bursts (popup open + task-list mutual
+     renders within the same second) from spawning duplicate requests. */
+  if (jpDeskFailedSoFar.has(project) && cached && (Date.now() - cached.ts) < JP_DESK_RETRY_MS) {
+    return cached.promise;
+  }
   const conn = loadConn();
   const domain = String(jiraIssueBase() || PUBLISH_DOMAIN).replace(/^https?:\/\//, '').replace(/\/+$/, '');
   const url = PUB_RELAY + '?cmd=desk&project=' + encodeURIComponent(project) +
@@ -2906,6 +2912,18 @@ function jpOpenCard(key) {
   const iss = jpFindIssue(key);
   jpCardKey = key;
   jpRenderCard(iss || { key, fields: {} });
+  /* opening a card is an explicit user action: a previously-failed (or
+     flood-throttled) desk fetch must retry NOW instead of waiting out the
+     throttle — but never re-fetch more than once per 5 s per project */
+  const proj = jpProjectOf([iss || { key }]);
+  if (proj && !jpDeskRow({ key })) {
+    const cached = _jpDeskCache.get(proj);
+    const aged = !cached || (Date.now() - cached.ts) > 5000;
+    if (aged && (jpDeskFailedSoFar.has(proj) || cached)) {
+      _jpDeskCache.delete(proj);
+      jpDeskFailedSoFar.delete(proj);
+    }
+  }
   jpEnsureDesk(iss ? [iss] : null);   /* bulk overlay may already be cached — instant */
   show($('#pubCardOverlay'));
   $('#pubCardClose').focus();
