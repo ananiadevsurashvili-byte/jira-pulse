@@ -2645,8 +2645,8 @@ function jpFetchAttachments(key) {
   const headers = { 'Accept': 'application/json' };
   if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
   const promise = fetch(url, { method: 'GET', headers })
-    .then((res) => res.text())
-    .then((text) => {
+    .then((res) => res.text().then((text) => ({ res, text })))
+    .then(({ res, text }) => {
       let data = null;
       try { data = JSON.parse(text); } catch (_) { /* non-json */ }
       if (!res.ok) throw new Error((data && (data.error || data.detail)) || `HTTP ${res.status}`);
@@ -2972,8 +2972,8 @@ function jpDeskLoad(project, unique) {
   const headers = { 'Accept': 'application/json' };
   if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
   const promise = fetch(url, { method: 'GET', headers })
-    .then((res) => res.text())
-    .then((text) => {
+    .then((res) => res.text().then((text) => ({ res, text })))
+    .then(({ res, text }) => {
       let data = null;
       try { data = JSON.parse(text); } catch (_) { /* non-json */ }
       if (!res.ok) throw new Error((data && (data.error || data.detail)) || `HTTP ${res.status}`);
