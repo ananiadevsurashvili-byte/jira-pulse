@@ -53,25 +53,56 @@ const DESK_FIELDS_BASE = "summary,description,status,resolution,resolutiondate,c
    pages; caching the finished result (even very briefly) makes page
    revisits and multi-viewer bursts near-instant. Freshness remains
    viewer-controlled: ?fresh=1 bypasses and re-syncs. */
-const DESK_CACHE_KEY = "jirapulse_desk_cache_v2";
+const DESK_CACHE_KEY = "jirapulse_desk_cache_v3";
 /* 60s made every incognito visit pay the full multi-minute desk sync
    (viewer almost always arrived after the slot expired) → boards looked
    permanently empty. 15 min keeps the payload fresh enough for status
    changes while making real back-to-back visits INSTANT. */
 const DESK_CACHE_TTL = 15 * 60 * 1000;
 
-/* ADF (Atlassian Document Format) body → plain text, one line per block */
+/* ADF (Atlassian Document Format) body → plain text, one line per block.
+   media/mediaInline/mediaSingle nodes emit the SAME " 📷 " marker the
+   in-app renderer (jpAdfText) emits, so the desk-payload path can paint
+   image placeholders exactly like the per-issue detail path does. */
 function adfToText(doc: any): string {
   if (doc == null) return "";
   if (typeof doc === "string") return doc;
   if (Array.isArray(doc)) return doc.map(adfToText).filter(Boolean).join("\n");
   if (typeof doc !== "object") return "";
+  if (doc.type === "media" || doc.type === "mediaInline") return " 📷 ";
   let text = "";
   if (Array.isArray(doc.content)) text = adfToText(doc.content);
   else if (doc.text != null) text = String(doc.text);
-  const blocks = ["paragraph", "heading", "bulletList", "orderedList", "codeBlock", "blockquote"];
+  const blocks = ["paragraph", "heading", "bulletList", "orderedList", "codeBlock", "blockquote", "mediaSingle"];
   if (blocks.includes(doc.type)) return text ? text + "\n" : "";
   return text;
+}
+
+/* ordered media entries of an ADF body (media UUID + alt filename) —
+   the desk payload attaches these lists so the client can slot the
+   matching attachment (resolved later via ?cmd=deskAttach) into every
+   📷 marker it paints. Same shape the per-issue detail path builds. */
+function adfMediaNodes(doc: any): { id: string; alt: string }[] {
+  const list: { id: string; alt: string }[] = [];
+  const walk = (n: any): void => {
+    if (n == null) return;
+    if (Array.isArray(n)) { for (const c of n) walk(c); return; }
+    if (typeof n !== "object") return;
+    if (n.type === "media" || n.type === "mediaInline") {
+      /* the bare media node carries the real UUID+alt; wrappers like
+         mediaSingle do NOT — descend into them instead of recording
+         an empty entry (desc images all resolved as id:"" before) */
+      list.push({
+        id: n?.attrs?.id != null ? String(n.attrs.id) : "",
+        alt: n?.attrs?.alt != null ? String(n.attrs.alt) : "",
+      });
+      return;
+    }
+    if (Array.isArray(n.content)) walk(n.content);
+    if (n.body && typeof n.body === "object") walk(n.body);
+  };
+  walk(doc);
+  return list;
 }
 
 /* admin token: static shared secret minted at first deploy. It only guards
@@ -559,27 +590,34 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
   issues = issues.filter((i) => !((i.fields?.labels || []) as string[])
     .some((l: unknown) => String(l).toLowerCase() === DESK_EXCLUDE_LABEL.toLowerCase()));
 
-  /* slim comments: keep only the LAST 3 per issue, flattened to plain text —
-     keeps the payload small (description ADF is already dropped by the API
-     when "comment" is requested as a list of bodies). Internal notes
-     (Jira "internal" flag / JSM jsdPublic=false) are dropped server-side:
-     this payload goes to the public logistics page, so those must never
-     leave the relay. */
+  /* slim comments: keep only the LAST 10 public ones per issue, flattened
+     to plain text — keeps the payload small (description ADF is already
+     dropped by the API when "comment" is requested as a list of bodies).
+     Internal notes (Jira "internal" flag / JSM jsdPublic=false) are dropped
+     server-side: this payload goes to the public page, so those must never
+     leave the relay. 10 instead of 3: the task-list comments column reads
+     ONLY this payload, so an earlier comment that carries inline images
+     (e.g. a 6th comment holding screenshots) must still be shipped. */
+  const DESK_COMMENTS_MAX = 10;
   for (const iss of issues) {
     const comments = iss.fields?.comment?.comments;
     if (Array.isArray(comments) && comments.length) {
       /* idx = the comment's position in Jira's FULL comment list —
          deskAttach reports comment attachments against the full list, so
          the client needs this anchor to place images inside the right
-         comment even though only the last 3 are transmitted. */
+         comment even though only the last N are transmitted. */
       const visible = (comments as any[])
         .map((c: any, i: number) => ({ c, i }))
         .filter(({ c }) => !(c?.internal === true || c?.jsdPublic === false));
-      iss.fields.comment = visible.slice(-3).map(({ c, i }) => ({
+      iss.fields.comment = visible.slice(-DESK_COMMENTS_MAX).map(({ c, i }) => ({
         idx: i,
         author: String(c?.author?.displayName || ''),
         created: String(c?.created || ''),
         body: adfToText(c?.body),
+        /* media nodes pasted INTO this comment (UUID + alt filename) —
+           the client maps them against ?cmd=deskAttach results to slot
+           inline images under THIS comment (same as the detail path) */
+        media: adfMediaNodes(c?.body),
       }));
       if (!iss.fields.comment.length) delete iss.fields.comment;
     } else {
@@ -630,6 +668,10 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
     if (f.description != null) {
       out.fields.description = adfToText(f.description);  /* plain text; client renders both */
     }
+    /* ordered description media (media UUID + alt filename) — the client
+       paints one placeholder slot per 📷 marker in the description text
+       and slots the matching ?cmd=deskAttach attachment into each */
+    out.fields.descMedia = adfMediaNodes(f.description);
     return out;
   });
   issues = null as any;   /* let the raw ADF copy be GC-able before stringifying */

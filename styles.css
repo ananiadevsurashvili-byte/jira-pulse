@@ -1874,6 +1874,11 @@ body.light .lg-att-name { color: #1e2540; }
 }
 .lg-card-comment-attach:empty { display: none; }
 .lg-card-comment-attach .lg-att-item { width: 104px; }
+
+/* description-embedded image slots: one invisible marker per 📷 in the
+   description text; the matching attachment thumb renders INSIDE it */
+.jp-desc-media { display: contents; }
+.jp-desc-media .lg-att-item { max-width: 220px; margin: 6px 0; }
 .lg-lightbox {
   position: fixed; inset: 0; z-index: 10100;
   background: rgba(0, 0, 0, 0.82);

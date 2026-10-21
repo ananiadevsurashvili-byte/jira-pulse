@@ -2856,6 +2856,12 @@ function jpDeskShape(data) {
       created: String(c.created || ''),
       body: String(c.body || ''),
       idx: Number.isFinite(c.idx) ? Number(c.idx) : null,
+      /* media nodes pasted INTO this comment (UUID + alt filename) —
+         relay now ships them so inline images slot under THIS comment
+         even before the per-issue detail lands */
+      media: Array.isArray(c.media)
+        ? c.media.map((m) => ({ id: String(m?.id || ''), alt: String(m?.alt || '') }))
+        : [],
     })) : [];
     /* first non-empty line of the description = the row preview */
     const descFull = String(f.description || '');
@@ -2864,6 +2870,12 @@ function jpDeskShape(data) {
       descFull,
       descOne,
       comments,
+      /* ordered description media (UUID + alt filename), aligned 1:1 with
+         the 📷 markers the desk text now carries — slots the matching
+         ?cmd=deskAttach attachment into each marker position */
+      descMedia: Array.isArray(f.descMedia)
+        ? f.descMedia.map((m) => ({ id: String(m?.id || ''), alt: String(m?.alt || '') }))
+        : [],
       attFiles: Array.isArray(f.attachment) ? f.attachment.map((a) => ({
         filename: String(a.filename || ''),
         mimeType: String(a.mimeType || ''),
@@ -3099,9 +3111,29 @@ function jpDeskToCard(key, desk) {
   if (String(jpCardKey) !== String(key)) return;
   const descEl = body.querySelector('#jpCardDesc');
   /* the placeholder ships as a muted span ("No description") — painting the
-     real description only when that placeholder is still there */
+     real description only when that placeholder is still there. The desk
+     text now carries the same 📷 markers the detail path emits, so the
+     description's image slots exist BEFORE attachments resolve. */
   if (descEl && desk.descFull && descEl.querySelector('.muted')) {
-    descEl.textContent = desk.descFull;
+    jpPaintDesc(body, desk.descFull);
+  }
+  /* remember the desk media layout so jpPlaceDescAttachments can slot
+     images even if the per-issue detail never lands (marker N ↔ desk
+     descMedia[N], same contract as the detail's descMedia). A REAL
+     detail (fetched by enRichCard) always wins — the desk layout is
+     only a fallback and is refreshed each desk repaint. */
+  if (!body._jpDetail || body._jpDetailFromDesk) {
+    body._jpDetail = {
+      descFull: desk.descFull || '',
+      descMedia: desk.descMedia || [],
+      attachments: [],
+      comments: [],
+    };
+    body._jpDetailFromDesk = true;
+    /* attachment metadata may have won the race (landed before the desk
+       did) — slot whatever it holds into the markers we just painted */
+    jpPlaceDescAttachments(body, body._jpDetail,
+      body._jpAttMeta ? [...body._jpAttMeta.values()] : null);
   }
   const repEl = body.querySelectorAll('.jp-card-person .jp-card-person-name')[1];
   if (repEl && desk.reporter && repEl.classList.contains('jp-unassigned')) {
@@ -3142,6 +3174,12 @@ function jpFindIssue(key) {
 }
 
 function jpRenderCard(iss) {
+  const body0 = $('#pubCardBody');
+  /* a fresh paint resets the popup's async state — stale meta/layout from
+     the PREVIOUS issue must never leak into this one */
+  body0._jpAttMeta = null;
+  body0._jpDetail = null;
+  body0._jpDetailFromDesk = false;
   const f = iss.fields || {};
   const statusPill = `<span class="status-pill ${jpStatusClass(f.status?.name || '')}">${escapeHtml(f.status?.name || '—')}</span>`;
   const base = jiraIssueBase();
@@ -3230,10 +3268,15 @@ async function enRichCard(key) {
   }
   if (enh) enh.remove();
   /* remember the detail so jpLoadCardAttachments can slot description
-     images even when attachments land AFTER the detail did */
+     images even when attachments land AFTER the detail did. This REAL
+     detail replaces any desk-fallback layout the desk paint stashed. */
   body._jpDetail = detail;
+  body._jpDetailFromDesk = false;
   const descEl = body.querySelector('#jpCardDesc');
   if (descEl && detail.descFull) {
+    /* the real detail is RICHER than the desk paint (emoji glyphs, true
+       marker alignment) — the markers rebuild the slots anew here, so
+       slots painted by the desk path are re-created and re-slotted */
     jpPaintDesc(body, detail.descFull);
     /* attachment metadata may already be here (deskAttach raced ahead) —
        slot description-embedded images into their 📷 markers now */
