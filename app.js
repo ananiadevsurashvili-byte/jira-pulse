@@ -2477,12 +2477,23 @@ async function pubFetchDetail(key) {
       created: c.created || '',
       body: jpAdfText(c.body),
       mediaIds: jpCollectMediaIds(c.body),   /* images pasted INTO this comment */
+      mediaNodes: jpCollectMediaNodes(c.body),  /* id + alt (filename) pairs */
       _idx: idx,
     }));
   /* images pasted inside comments are attachments linked via mediaId — map
-     each media id to the comment that contains it (logistics parity) */
+     each media id / alt-filename to the comment that contains it (logistics
+     parity). BOTH signals matter: on this Jira instance image attachments
+     often come back with an EMPTY mediaId, so the filename (ADF media
+     attrs.alt) is the only usable key to slot them into their comment. */
   const mediaOwner = new Map();
-  for (const c of comments) for (const mid of c.mediaIds) if (!mediaOwner.has(mid)) mediaOwner.set(mid, c._idx);
+  const fileOwner = new Map();
+  for (const c of comments) {
+    for (const mid of c.mediaIds) if (!mediaOwner.has(mid)) mediaOwner.set(mid, c._idx);
+    for (const m of c.mediaNodes || []) {
+      const fn = String(m.alt || '').trim().toLowerCase();
+      if (fn && !fileOwner.has(fn)) fileOwner.set(fn, c._idx);
+    }
+  }
   const attachments = (Array.isArray(f.attachment) ? f.attachment : []).map((a) => ({
     id: String(a.id || ''),
     filename: String(a.filename || ''),
@@ -2491,7 +2502,13 @@ async function pubFetchDetail(key) {
     created: String(a.created || ''),
     author: a.author?.displayName || '',
     contentUrl: String(a.content || ''),
-    commentIndex: a.mediaId && mediaOwner.has(String(a.mediaId)) ? mediaOwner.get(String(a.mediaId)) : null,
+    commentIndex: (() => {
+      const mid = a.mediaId ? String(a.mediaId) : '';
+      if (mid && mediaOwner.has(mid)) return mediaOwner.get(mid);
+      const fn = String(a.filename || '').trim().toLowerCase();
+      if (fn && fileOwner.has(fn)) return fileOwner.get(fn);
+      return null;
+    })(),
   }));
   const flat = (u) => u?.displayName || '';
   return {
@@ -2538,6 +2555,24 @@ function jpCollectMediaIds(node) {
   return [...ids];
 }
 
+/* ADF emoji nodes arrive as ":shortname:" text (e.g. ":sweat_smile:") —
+   show the real glyph when known, else strip the colons so comment text
+   never reads raw markup */
+function jpEmojiGlyph(text) {
+  const s = String(text || '').trim();
+  if (!s || !/^:\w+:$/.test(s)) return s;
+  const g = JP_EMOJI_MAP[s.slice(1, -1)];
+  return g || s.replace(/:/g, '');
+}
+const JP_EMOJI_MAP = {
+  sweat_smile: '😅', smile: '😄', slight_smile: '🙂', grin: '😁', laughing: '😆',
+  joy: '😂', wink: '😉', blush: '😊', heart: '❤', check: '✅', heavy_check_mark: '✔',
+  grey_exclamation: '❗', grey_question: '❓', x: '❌', fire: '🔥', rocket: '🚀',
+  star: '⭐', thumbsup: '👍', '+1': '👍', thumbsdown: '👎', '-1': '👎',
+  eyes: '👀', clap: '👏', wave: '👋', ok_hand: '👌', pray: '🙏', muscle: '💪',
+  thinking: '🤔', cry: '😢', sob: '😭', angry: '😠', tada: '🎉', warning: '⚠',
+};
+
 /* minimal ADF → plain text (logistics parity: paragraph breaks preserved,
    media nodes → 📷 marker so images inside text stay discoverable) */
 function jpAdfText(node) {
@@ -2554,7 +2589,7 @@ function jpAdfText(node) {
     }
     if (type === 'hardBreak') { out += '\n'; return; }
     if (type === 'mention') { out += '@' + (n.attrs?.text || ''); return; }
-    if (type === 'emoji') { out += n.attrs?.text || ''; return; }
+    if (type === 'emoji') { out += jpEmojiGlyph(n.attrs?.text || n.attrs?.shortName || ''); return; }
     if (type === 'media' || type === 'mediaInline') { out += ' 📷 '; return; }
     if (Array.isArray(n.content)) walk(n.content, true);
     if (block && NL_AFTER.has(type)) out += '\n';
@@ -2722,13 +2757,17 @@ function jpAttachThumbHtml(att) {
   </a>`;
 }
 
-/* hydrate <img> tags inside rendered thumbs (blob URLs via the CORS proxy) */
+/* hydrate <img> tags inside rendered thumbs (blob URLs via the CORS proxy).
+   The "hydrated" mark is ONLY set once hydration actually starts: the slot
+   markup can be painted BEFORE the attachment metadata lands (deskAttach
+   races the detail/desk paints), and a slot marked too early would keep its
+   empty <img> forever — the broken-image icon in the description. */
 function jpHydrateAttachImages(rootEl) {
   rootEl.querySelectorAll('.lg-att-img:not([data-hydrated="1"])').forEach((a) => {
-    a.setAttribute('data-hydrated', '1');
     const attId = a.getAttribute('data-att-id');
     const meta = rootEl._jpAttMeta?.get(attId);
-    if (!meta) return;
+    if (!meta) return;              /* meta not ready — leave unmarked, retry later */
+    a.setAttribute('data-hydrated', '1');
     const img = a.querySelector('img');
     if (!img) return;
     img.alt = meta.filename;
@@ -2781,6 +2820,14 @@ function jpProjectOf(issues) {
     if (m) return m[1].toUpperCase();
     const km = String(iss?.key || '').match(/^([A-Z][A-Z0-9_]*)-\d+$/i);
     if (km) return km[1].toUpperCase();
+    /* LAST resort: merged/united master pools may feed foreign board rows
+       that only carry their source-board tag (no resolvable self URL /
+       issue key alone ambiguous) — read the project key back out of that
+       board name ("WP / Logistics Desk" → WP). A single-board name that
+       doesn't start with its project key will at worst miss here, never
+       shadow the direct signals above. */
+    const tm = String(iss?.[MASTER_PUB_TAG] || '').match(/\b([A-Z][A-Z0-9_]*)\b\s*(?:\/|\||-|—|$)/i);
+    if (tm) return tm[1].toUpperCase();
   }
   return '';
 }
@@ -3528,6 +3575,13 @@ function pubTaskListRows(issues) {
   const base = jiraIssueBase();
   const html = rows.map((i) => {
     const f = i.fields || {};
+    /* unified master pools merge several boards' issue objects — remember
+       per-issue which board it came from. When the SAME key renders twice,
+       the last write wins; any existing tag is left untouched (a reused
+       live object that already carries its tag keeps it). */
+    if (!i[MASTER_PUB_TAG] && pubState.currentBoard?.name) {
+      try { i[MASTER_PUB_TAG] = pubState.currentBoard.name; } catch (_) { /* frozen */ }
+    }
     const desk = jpDeskRow(i) || null;
     const attN = desk?.attFiles.length || 0;
     const link = base

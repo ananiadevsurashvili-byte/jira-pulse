@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 const TOKEN = process.env.VALTOWN_TOKEN || '';      // set VALTOWN_TOKEN in env — never commit secrets
 const API = 'https://api.val.town';
 const VAL_ID = '9891c927-1c5d-4b37-8396-a0cac13233d8';
-const SRC = 'C:\\Users\\ANANIA\\AppData\\Roaming\\TRAE SOLO\\ModularData\\ai-agent\\work-mode-projects\\6a8c2c06f104de8ab9161b14\\cors-relay\\relay-source.ts';
+const SRC = 'C:\\Users\\ANANIA\\AppData\\Roaming\\Trae\\ModularData\\ai-agent\\work-mode-projects\\6a8c2c06f104de8ab9161b14\\cors-relay\\relay-source.ts';
 const ENDPOINT = 'https://gensweaty--65df49bca6d911f19f231607ee4eb77e.web.val.run';
 const ADMIN_TOKEN = process.env.JP_ADMIN_TOKEN || '';   // set JP_ADMIN_TOKEN in env — never commit secrets
 

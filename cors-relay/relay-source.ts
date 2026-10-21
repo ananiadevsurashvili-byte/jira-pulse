@@ -744,9 +744,9 @@ async function handleDeskAttachCmd(u: URL, request: Request): Promise<Response> 
      the UUID map alone matches nothing and inline comment images would
      never slot into their comment. We keep both signals. */
   const mediaInComments: { id: string; alt: string; commentIndex: number }[] = [];
-  (function walk(node: any, ci: number) {
+  const walkAdf = (node: any, ci: number) => {
     if (node == null) return;
-    if (Array.isArray(node)) { for (const n of node) walk(n, ci); return; }
+    if (Array.isArray(node)) { for (const n of node) walkAdf(n, ci); return; }
     if (typeof node !== 'object') return;
     if (node.type === 'media' || node.type === 'mediaInline' || node.type === 'mediaSingle') {
       const mid = node?.attrs?.id != null ? String(node.attrs.id) : '';
@@ -755,11 +755,16 @@ async function handleDeskAttachCmd(u: URL, request: Request): Promise<Response> 
       const alt = node?.attrs?.alt != null ? String(node.attrs.alt) : '';
       if (mid || alt) mediaInComments.push({ id: mid, alt, commentIndex: ci });
     }
-    /* ADF containers descend via .content, but a comment object itself
-       (and document bodies returned unfurled) nest content under .body */
-    if (Array.isArray(node.content)) walk(node.content, ci);
-    if (node.body && typeof node.body === 'object') walk(node.body, ci);
-  })(f.comment?.comments || [], 0);
+    /* ADF containers descend via .content (document bodies nest under .body) */
+    if (Array.isArray(node.content)) walkAdf(node.content, ci);
+    if (node.body && typeof node.body === 'object') walkAdf(node.body, ci);
+  };
+  /* EVERY top-level comment is walked with its OWN index — the old single
+     walk over the whole `comments` array kept ci=0 for every comment, so
+     every inline image mapped to comment 0 and images inside later
+     comments never slotted into their own comment bubble. */
+  const commentList: any[] = Array.isArray(f.comment?.comments) ? f.comment.comments : [];
+  commentList.forEach((c: any, ci: number) => walkAdf(c?.body, ci));
 
   const commentAttachByIndex = new Map<number, Set<string>>();  /* mediaId → indices */
   for (const { id, commentIndex } of mediaInComments) {
