@@ -2848,6 +2848,34 @@ function jpDeskStampIso(d) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}${sign}${p(Math.floor(ao / 60))}${p(ao % 60)}`;
 }
 
+/* bounded self-heal for a failed bulk-desk fetch: schedule 30 s re-fetches
+   (max 3 per project, counters reset on ANY success) so a task list that
+   rendered "—" after a transient failure heals on its own — the popup's
+   manual retry used to be the only path out. */
+const JP_DESK_RETRY_DELAY_MS = 30 * 1000;
+const JP_DESK_MAX_AUTO_RETRIES = 3;
+const _jpDeskAutoRetries = new Map();   /* project → attempts so far */
+let jpDeskRetryTimer = null;
+function jpScheduleDeskRetry(project) {
+  const tries = _jpDeskAutoRetries.get(project) || 0;
+  if (tries >= JP_DESK_MAX_AUTO_RETRIES) return;
+  _jpDeskAutoRetries.set(project, tries + 1);
+  if (jpDeskRetryTimer) return;   /* one shared timer drives all queued retries */
+  jpDeskRetryTimer = setTimeout(() => {
+    jpDeskRetryTimer = null;
+    for (const p of [...jpDeskFailedSoFar]) {
+      /* the retry call itself only runs when the throttle window has aged */
+      if (_jpDeskCache.get(p) && (Date.now() - _jpDeskCache.get(p).ts) < JP_DESK_RETRY_MS) continue;
+      _jpDeskCache.delete(p);
+      jpDeskFailedSoFar.delete(p);
+      jpDeskLoad(p).then((shaped) => {
+        if (!shaped) return;   /* still failing — jpScheduleDeskRetry runs again on next failure */
+        _jpDeskAutoRetries.delete(p);   /* success: counter back to 0 */
+      });
+    }
+  }, JP_DESK_RETRY_DELAY_MS);
+}
+
 function jpDeskLoad(project, unique) {
   if (!project) return Promise.resolve(null);
   const cached = _jpDeskCache.get(project);
@@ -2857,6 +2885,14 @@ function jpDeskLoad(project, unique) {
      renders within the same second) from spawning duplicate requests. */
   if (jpDeskFailedSoFar.has(project) && cached && (Date.now() - cached.ts) < JP_DESK_RETRY_MS) {
     return cached.promise;
+  }
+  /* a failed desk fetch used to leave the TASK LIST on "—" until the viewer
+     happened to open a popup (the popup code path clears jpDeskFailedSoFar
+     and retries). A transient relay/auth hiccup must self-heal itself: a
+     bounded background retry (30 s, max 3 tries per project) re-fetches the
+     desk and re-paints the rows on its own — no popup needed. */
+  if (!unique && jpDeskFailedSoFar.has(project)) {
+    jpScheduleDeskRetry(project);
   }
   const conn = loadConn();
   const domain = String(jiraIssueBase() || PUBLISH_DOMAIN).replace(/^https?:\/\//, '').replace(/\/+$/, '');
