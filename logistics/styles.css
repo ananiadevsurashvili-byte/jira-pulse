@@ -1147,12 +1147,18 @@ body.light #admContent .lg-list-sub { color: #6b7394; }
 .lg-st-badge.lg-st-done { color: #4ade80; background: rgba(74, 222, 128, 0.12); border-color: rgba(74, 222, 128, 0.35); }
 .lg-st-badge.lg-st-other { color: var(--muted); background: rgba(255, 255, 255, 0.06); border-color: var(--border); }
 .lg-st-badge.lg-st-admin { color: #818cf8; background: rgba(129, 140, 248, 0.12); border-color: rgba(129, 140, 248, 0.35); }
+/* SLA breach chip (red) — used by the admin drill table + the public SLA column */
+.lg-st-badge.lg-st-breach { color: #f87171; background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.4); }
 body.light .lg-st-badge.lg-st-done { color: #15803d; background: #dcfce7; border-color: #86efac; }
 body.light .lg-st-badge.lg-st-other { color: #55607f; background: #eef1f8; border-color: #d4daea; }
 body.light .lg-st-badge.lg-st-admin { color: #4f46e5; background: #e0e7ff; border-color: #a5b4fc; }
+body.light .lg-st-badge.lg-st-breach { color: #b91c1c; background: #fee2e2; border-color: #fca5a5; }
 
 /* ── period filter bar (select variant) ── */
 #admPeriodBar { align-items: flex-end; gap: 10px; display: flex; flex-wrap: wrap; }
+#lgTbody .lg-sla-cell { white-space: nowrap; }
+.lg-col-sla { min-width: 120px; }
+.lg-col-sla .lg-th-split { display: block; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 #admPeriodBar .lg-filter-item { flex: 0 1 auto; min-width: 170px; }
 #admPeriodBar .tl-select { min-width: 0; width: 100%; }
 #admPeriodBar .lg-toolbar-right { margin-left: auto; }

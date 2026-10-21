@@ -44,6 +44,12 @@ const ALLOWED_HOST = /(^|\.)atlassian\.net$/i;
 const PUB_KEY = "jirapulse_publish_v1";
 const ADMIN_KEY = "jirapulse_publish_admin_v1";
 const CREDS_KEY = "jirapulse_creds_v1";
+/* SLA goals shared by the logistics admin dashboard + public desk task list.
+   Admin sets them once (?cmd=sla:set, x-jp-admin guarded); both surfaces read
+   ?cmd=sla:get so the computed in/out-of-SLA numbers always match. No blobs →
+   these defaults (the goals the user set in JSM: 2h response · 30h resolution). */
+const SLA_KEY = "jirapulse_sla_goals_v1";
+const DEFAULT_SLA_GOALS = { respHours: 2, resHours: 30 };
 
 /* ── Logistics viewer page (?cmd=desk) ── */
 const DESK_EXCLUDE_LABEL = "Internal";
@@ -195,6 +201,27 @@ async function handler(request: Request): Promise<Response> {
       }
       if (cmd === 'lgStats') {
         return await handleLgStats();
+      }
+
+      /* ── SLA goals (logistics desk) ──
+         GET  ?cmd=sla:get          → { goals: { respHours, resHours } }
+         POST ?cmd=sla:set          body { respHours, resHours } (hours, admin token) */
+      if (cmd === 'sla:get') {
+        const goals = await blob.getJSON(SLA_KEY);
+        return json({ ok: true, goals: goals ?? DEFAULT_SLA_GOALS });
+      }
+      if (cmd === 'sla:set') {
+        const stored = (await blob.getJSON(ADMIN_KEY)) || DEFAULT_ADMIN_TOKEN;
+        const token = request.headers.get('x-jp-admin') || '';
+        if (!token || token !== stored) return json({ error: 'admin auth required' }, 401);
+        const body = await request.json().catch(() => null);
+        const rh = Number(body?.respHours), sh = Number(body?.resHours);
+        if (!isFinite(rh) || rh <= 0 || rh > 24 * 30 || !isFinite(sh) || sh <= 0 || sh > 24 * 180) {
+          return json({ error: 'respHours/resHours must be positive hours' }, 400);
+        }
+        const goals = { respHours: rh, resHours: sh, savedAt: Date.now() };
+        await blob.setJSON(SLA_KEY, goals);
+        return json({ ok: true, goals });
       }
 
       return json({ error: 'unknown cmd: ' + cmd }, 400);

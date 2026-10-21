@@ -58,7 +58,11 @@ let lgState = {
   fieldIds: { direction: null, title: null },
   truncated: false,
   q: '',               /* global search text */
-  filters: { status: '', reporter: '', assignee: '', direction: '' },
+  filters: { status: '', reporter: '', assignee: '', direction: '', sla: '' },
+  /* SLA goals mirror the admin panel (relay ?cmd=sla:get, cached in LS).
+     Every row's SLA state is computed client-side in lgNormalize against
+     these goals (first response / resolution) */
+  slaGoals: { respHours: 2, resHours: 30 },
   /* time-period filter: drives the SERVER-side JQL window, so "last 30
      days" really downloads ~a month of tasks instead of all ~4k.
      kind: '30d' | 'all' | 'month' | 'quarter' | 'year' | 'custom'
@@ -82,6 +86,9 @@ let _lgCache = null;   /* { data, ts } */
 /* last good desk payload persisted per-connection — on revisit the table
    paints from this INSTANTLY and the live refresh continues in background */
 const LS_LG_SNAPSHOT = 'lg_desk_snapshot_v1';
+/* SLA goals mirror the admin panel — fetched once from the relay, cached
+   in LS so a relay hiccup never blanks the SLA column */
+const LS_LG_SLA_GOALS = 'lg_sla_goals_v1';
 /* relay-observed custom field ids — sent with desk requests so the relay
    skips its own field-catalog round-trip entirely */
 const LS_LG_FIELDIDS = 'lg_desk_fieldids_v1';
@@ -149,6 +156,16 @@ const I18N = {
     'lg.fLabel.assignee': 'Assignee',
     'lg.fLabel.direction': 'Direction',
     'lg.fLabel.period': 'Period',
+    'lg.fLabel.sla': 'SLA',
+    'lg.th.sla': 'SLA',
+    'lg.sla.in': 'In SLA',
+    'lg.sla.late': 'Late (breached)',
+    'lg.sla.out': 'Out of SLA',
+    'lg.sla.pending': 'Pending',
+    'lg.sla.overdue': 'Overdue',
+    'lg.sla.nodata': 'No data',
+    'lg.sla.respTitle': 'First response',
+    'lg.sla.resRunning': 'Resolution running',
     'lg.period.30d': 'Last 30 days',
     'lg.period.all': 'All time',
     'lg.period.custom': 'Custom range…',
@@ -247,6 +264,16 @@ const I18N = {
     'lg.fLabel.assignee': 'აღმასრულებელი',
     'lg.fLabel.direction': 'მიმართულება',
     'lg.fLabel.period': 'პერიოდი',
+    'lg.fLabel.sla': 'SLA',
+    'lg.th.sla': 'SLA',
+    'lg.sla.in': 'SLA-ში',
+    'lg.sla.late': 'დაგვიანებული',
+    'lg.sla.out': 'SLA-გარე',
+    'lg.sla.pending': 'მიმდინარე',
+    'lg.sla.overdue': 'ვადაგადაცილებული',
+    'lg.sla.nodata': 'მონაცემი არაა',
+    'lg.sla.respTitle': 'პირველი პასუხი',
+    'lg.sla.resRunning': 'გადაწყვეტა მიმდინარეობს',
     'lg.period.30d': 'ბოლო 30 დღე',
     'lg.period.all': 'მთელი პერიოდი',
     'lg.period.custom': 'არჩეული პერიოდი…',
@@ -558,9 +585,13 @@ function lgEnterVerified() {
   document.body.classList.add('lg-list-active');
   updateLgUserChip();
   lgSendPing(lgState.email);
-  lgLoadPeriod();   /* restore the remembered time period (default: last 30 days) */
-  _lgPainted.n = 0;
-  lgLoad(false);
+  /* SLA goals must land BEFORE the first lgApplyData so rows are computed
+     against the real goals, not the in-code defaults */
+  lgFetchSlaGoals().finally(() => {
+    lgLoadPeriod();   /* restore the remembered time period (default: last 30 days) */
+    _lgPainted.n = 0;
+    lgLoad(false);
+  });
 }
 
 /* ── Google sign-in (copied pattern from app.js) ───────────────────── */
@@ -764,7 +795,7 @@ function lgSignOut() {
   lgBumpRows();   /* invalidate cached row HTML + filter memo */
   _lgPainted.n = 0;
   lgState.q = '';
-  lgState.filters = { status: '', assignee: '', direction: '' };
+  lgState.filters = { status: '', reporter: '', assignee: '', direction: '', sla: '' };
   lgState.period = { kind: '30d', from: null, to: null };   /* back to the default window */
   lgState.sort = { col: 'created', dir: 'desc' };
   _lgCache = null;
@@ -1005,6 +1036,94 @@ function lgDescPreview(raw) {
   return { one: lines[0] || '', full: lines.join('\n') };
 }
 
+/* ── SLA goals + per-row SLA state (mirrors the admin panel) ──────────
+   Goals come from the relay (?cmd=sla:set in the admin panel) and are
+   cached in LS so the column renders even when the relay hiccups. */
+let _lgSlaGoalsFetch = null;
+async function lgFetchSlaGoals() {
+  if (_lgSlaGoalsFetch) return _lgSlaGoalsFetch;
+  _lgSlaGoalsFetch = (async () => {
+    try {
+      const r = await fetch(PUB_RELAY + '?cmd=sla:get');
+      if (r.ok) {
+        const j = await r.json();
+        if (j && j.ok && j.goals && isFinite(j.goals.respHours) && isFinite(j.goals.resHours)) {
+          lgState.slaGoals = { respHours: Number(j.goals.respHours), resHours: Number(j.goals.resHours) };
+          try { localStorage.setItem(LS_LG_SLA_GOALS, JSON.stringify(lgState.slaGoals)); } catch (_) {}
+          return;
+        }
+      }
+    } catch (_) {}
+    try {
+      const saved = JSON.parse(localStorage.getItem(LS_LG_SLA_GOALS) || 'null');
+      if (saved && isFinite(saved.respHours) && isFinite(saved.resHours)) lgState.slaGoals = saved;
+    } catch (_) {}
+  })();
+  return _lgSlaGoalsFetch;
+}
+
+/* format an SLA duration compactly for the badge: 45m · 1h 24m · 6h · 3d */
+function lgFmtSla(ms) {
+  if (!(ms > 0)) return '—';
+  const h = ms / 3600e3;
+  if (h >= 48) return Math.round(ms / 864e5) + 'd';
+  const hi = Math.floor(h), mi = Math.round((h - hi) * 60);
+  return mi && hi < 8 ? `${hi}h ${mi}m` : `${hi}h`;
+}
+
+/* badge chip html for one SLA aspect */
+function lgSlaChip(state, val, title) {
+  const cls = { in: 'lg-st-done', out: 'lg-st-breach', overdue: 'lg-st-breach', pending: 'lg-st-wait', nodata: 'lg-st-other' }[state] || 'lg-st-other';
+  return `<span class="lg-st-badge ${cls}" title="${escapeHtml(title)}">${escapeHtml(val)}</span>`;
+}
+
+/* SLA state per row — called from lgNormalize AFTER each row is built.
+   First response = earliest REAL comment we hold by someone other than the
+   reporter (the relay keeps only the last 10 comments, so a long silent
+   thread can be missing its first reply — we use what we have; if nothing
+   qualifies the aspect is 'nodata'). Resolution = created → resolved.
+   Open tasks get a live elapsed clock: 'pending' while inside the goal,
+   'overdue' once past it. */
+function lgSlaRow(r) {
+  const g = lgState.slaGoals || { respHours: 2, resHours: 30 };
+  const respGoal = (g.respHours || 2) * 3600e3;
+  const resGoal = (g.resHours || 30) * 3600e3;
+  const now = Date.now();
+  const rep = (r.reporter || '').toLowerCase().trim();
+  let respAt = 0;
+  for (const c of r.comments || []) {
+    const au = (c.author || '').toLowerCase().trim();
+    if (c.created && (rep ? (au && au !== rep) : !!au)) { respAt = c.created; break; }
+  }
+  r.respAtMs = respAt || 0;
+  r.respMs = respAt ? respAt - r.created : 0;
+  r.elapsedMs = Math.max(0, now - r.created);
+  if (r.resolvedAt) {
+    r.resMs = r.resolvedAt - r.created;
+    r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : 'nodata';
+    r.resState = r.resMs ? (r.resMs <= resGoal ? 'in' : 'out') : 'nodata';
+  } else {
+    r.resMs = 0;
+    r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : (r.elapsedMs > respGoal ? 'overdue' : 'pending');
+    r.resState = r.elapsedMs > resGoal ? 'overdue' : 'pending';
+  }
+  return r;
+}
+
+/* compact SLA cell: response chip + resolution chip on one mini-row */
+function lgSlaCellHtml(r) {
+  const g = lgState.slaGoals || { respHours: 2, resHours: 30 };
+  const resp = r.respState === 'nodata' || !r.respAtMs
+    ? lgSlaChip('nodata', '–', t('lg.sla.nodata'))
+    : lgSlaChip(r.respState, lgFmtSla(r.respMs), t('lg.sla.respTitle') + ': ' + lgFmtSla(r.respMs) + ' / ' + (g.respHours || 2) + 'h');
+  const res = r.resState === 'pending' || r.resState === 'overdue'
+    ? lgSlaChip(r.resState, lgFmtSla(r.elapsedMs) + ' /', t('lg.sla.resRunning') + ' ' + lgFmtSla(r.elapsedMs))
+    : r.resMs > 0
+      ? lgSlaChip(r.resState, lgFmtSla(r.resMs), t('lg.sla.resTitle') + ': ' + lgFmtSla(r.resMs) + ' / ' + (g.resHours || 30) + 'h')
+      : lgSlaChip('nodata', '–', t('lg.sla.nodata'));
+  return `<div class="lg-mini-row">${resp} ${res}</div>`;
+}
+
 /* relay issues → flat display rows (with defense-in-depth Internal filter) */
 function lgNormalize(data) {
   const dirId = data.fieldIds?.direction || null;
@@ -1054,11 +1173,13 @@ function lgNormalize(data) {
       assignee: f.assignee?.displayName || '',
       created: f.created ? Date.parse(f.created) : 0,
       updated: f.updated ? Date.parse(f.updated) : 0,
+      resolvedAt: f.resolutiondate ? Date.parse(f.resolutiondate) : 0,
       direction,
       comments,
       attFiles,
       hay,
     });
+    lgSlaRow(rows[rows.length - 1]);   /* SLA compute needs the final row shape */
   }
   return rows;
 }
@@ -1143,11 +1264,24 @@ function lgBuildFilterBar() {
     `</div>` +
     `</div>` +
     `</div></div>`;
+  /* SLA filter: fixed states (not per-value distinct like the other selects) —
+     'late' groups measured breaches (out) with still-open overdue tasks,
+     matching how managers actually ask: "show me what's late". */
+  const SLA_FILTER_OPTS = [['', 'lg.filterAll'], ['in', 'lg.sla.in'], ['late', 'lg.sla.late'], ['out', 'lg.sla.out'], ['pending', 'lg.sla.pending'], ['overdue', 'lg.sla.overdue'], ['nodata', 'lg.sla.nodata']];
+  const slaSel = lgState.filters.sla || '';
+  const slaItem =
+    `<div class="lg-filter-item">` +
+    `<span class="lg-filter-label">${escapeHtml(t('lg.fLabel.sla'))}</span>` +
+    `<select id="lgFSla" class="input tl-select" data-col="sla" aria-label="${escapeHtml(t('lg.fLabel.sla'))}">` +
+    SLA_FILTER_OPTS.map(([v, key]) =>
+      `<option value="${v}"${slaSel === v ? ' selected' : ''}>${escapeHtml(t(key))}</option>`).join('') +
+    `</select></div>`;
   bar.innerHTML =
     mk('lgFStatus', 'status', 'lg.fLabel.status') +
     mk('lgFReporter', 'reporter', 'lg.fLabel.reporter') +
     mk('lgFAssignee', 'assignee', 'lg.fLabel.assignee') +
     dirItem +
+    slaItem +
     perItem;
   bar.querySelectorAll('select[data-col]').forEach((sel) => {
     sel.addEventListener('change', () => {
@@ -1279,7 +1413,7 @@ let _lgFiltMemo = { key: '', rows: null };
 function lgFilteredKey() {
   return lgState.q + '\u0001' + lgState.filters.status + '\u0001' +
     lgState.filters.reporter + '\u0001' + lgState.filters.assignee + '\u0001' +
-    lgState.filters.direction + '\u0001' +
+    lgState.filters.direction + '\u0001' + lgState.filters.sla + '\u0001' +
     lgState.rows.length + ':' + lgRowToken + '\u0001' +
     lgState.sort.col + ':' + lgState.sort.dir;
 }
@@ -1293,6 +1427,16 @@ function lgFiltered() {
     if (lgState.filters.reporter && r.reporter !== lgState.filters.reporter) return false;
     if (lgState.filters.assignee && r.assignee !== lgState.filters.assignee) return false;
     if (lgState.filters.direction && r.direction !== lgState.filters.direction) return false;
+    /* SLA filter: 'late' is the manager view — measured breaches AND still-open
+       overdue tasks in one bucket; the other values match the state directly
+       (response OR resolution in that state shows the row) */
+    if (lgState.filters.sla) {
+      const f = lgState.filters.sla;
+      const hit = f === 'late'
+        ? (r.respState === 'out' || r.resState === 'out' || r.respState === 'overdue' || r.resState === 'overdue')
+        : (r.respState === f || r.resState === f);
+      if (!hit) return false;
+    }
     if (!q) return true;
     /* haystack was pre-built (lowercased) once per row in lgNormalize —
        see `hay` there. Same search behavior, ~zero rebuild cost. */
@@ -1300,11 +1444,15 @@ function lgFiltered() {
   });
   const { col, dir } = lgState.sort;
   const mul = dir === 'asc' ? 1 : -1;
+  /* worse SLA state = bigger rank, so a desc sort floats the late tasks up */
+  const SLA_RANK = { in: 0, pending: 1, nodata: 2, overdue: 3, out: 4 };
+  const slaWorst = (r) => Math.max(SLA_RANK[r.respState] || 0, SLA_RANK[r.resState] || 0);
   rows.sort((a, b) => {
     let r;
     if (col === 'created' || col === 'updated') r = (a[col] || 0) - (b[col] || 0);
     else if (col === 'key') r = a.num - b.num;   /* LOG-123 → 123 */
     else if (col === 'comments') r = a.comments.length - b.comments.length;
+    else if (col === 'sla') r = slaWorst(a) - slaWorst(b);
     else r = String(a[col] || '').localeCompare(String(b[col] || ''), undefined, { sensitivity: 'base' });
     return r * mul;
   });
@@ -1387,6 +1535,7 @@ function lgRowHtmlUncached(r) {
       ).join('') +
       `</div>`
     : '<span class="muted">—</span>';
+  /* SLA column: response + resolution chips (label S under the header split) */
   return `<tr>
     <td class="lg-nowrap lg-key-cell">${keyLink}</td>
     <td class="lg-title-cell">
@@ -1400,6 +1549,7 @@ function lgRowHtmlUncached(r) {
     <td class="lg-dates-cell">${datesHtml}</td>
     <td class="lg-direction-cell">${direction}</td>
     <td class="lg-comments-cell">${commentsHtml}</td>
+    <td class="lg-sla-cell">${lgSlaCellHtml(r)}</td>
   </tr>`;
 }
 
@@ -1417,6 +1567,7 @@ function lgSkeletonRowsHtml(n) {
       <td class="lg-dates-cell"><div class="lg-skel lg-skel-line"></div><div class="lg-skel lg-skel-line2"></div></td>
       <td class="lg-direction-cell"><div class="lg-skel lg-skel-line" style="max-width:130px"></div><div class="lg-skel lg-skel-line2" style="max-width:110px"></div></td>
       <td class="lg-comments-cell"><div class="lg-skel lg-skel-cmt"></div><div class="lg-skel lg-skel-cmt2"></div></td>
+      <td class="lg-sla-cell"><div class="lg-skel lg-skel-line" style="max-width:120px"></div></td>
     </tr>`;
   }
   return rows;
