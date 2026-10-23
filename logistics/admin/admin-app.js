@@ -1568,6 +1568,54 @@ function admCloseDrilldown() {
   hide($('#admDrillSection'));
 }
 
+/* ── Excel export of the drill-down task list ──
+   Downloads EVERYTHING in the open task list (admDrillFiltered: active
+   drill + filters + search + sort), not just the visible page — one row
+   per task, same column order as the on-screen table, SheetJS workbook
+   with a frozen header, exactly like the logistics desk's tasks export. */
+function admIsoDate(v) {
+  if (!v) return '';
+  const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
+  return isNaN(d.getTime()) ? '' : new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+function admSlaStateOf(r) {
+  const nat = r.slaNative || null;
+  const natResp = nat?.resp && nat.resp.completed ? nat.resp : null;
+  const natRes = nat?.res && nat.res.completed ? nat.res : null;
+  const respState = natResp ? (natResp.breached ? 'out' : 'in') : r.respState;
+  const resState = natRes ? (natRes.breached ? 'out' : 'in') : r.resState;
+  const worstRank = { out: 4, overdue: 3, nodata: 2, pending: 1, in: 0 };
+  const worst = Math.max(worstRank[respState] || 0, worstRank[resState] || 0);
+  return Object.keys(worstRank).find(k => worstRank[k] === worst) || 'in';
+}
+function admExportDrillExcel() {
+  if (!window.XLSX) throw new Error('XLSX library not loaded');
+  const rows = admDrillFiltered();
+  const slaLbl = { in: t('adm.sla.inSla'), out: t('adm.sla.outSla'), pending: t('adm.sla.pending'), overdue: t('adm.sla.overdue'), nodata: t('adm.sla.nodata') };
+  const data = rows.map((r) => ({
+    ['Key']: r.key || '',
+    ['Title']: r.summary || '',
+    ['Status']: r.status || '',
+    [t('lg.th.reporter')]: r.reportName || '',
+    [t('lg.th.assignee')]: r.assignName || '',
+    [t('lg.th.direction')]: r.direction || '',
+    [t('lg.th.created')]: admIsoDate(r.createdMs),
+    [t('lg.th.resolved')]: r.resolved && r.resolvedAt ? admIsoDate(r.resolvedAt) : '',
+    ['Response (working)']: r.respMs > 0 ? admFmtSlaHours(r.respMs) : '',
+    ['Resolution (working)']: r.resMs > 0 ? admFmtSlaHours(r.resMs) : '',
+    [t('lg.th.sla')]: slaLbl[admSlaStateOf(r)] || '',
+    ['Link']: r.href || JIRA_BASE + (r.key || ""),
+  }));
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ ['Title']: t('adm.lb.nodata') }]);
+  XLSX.utils.book_append_sheet(wb, ws, 'Tasks');
+  ws['!cols'] = [{ wch: 14 }, { wch: 60 }, { wch: 18 }, { wch: 22 }, { wch: 22 }, { wch: 40 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 46 }];
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  const range = admPeriodRange();
+  const tag = `${admIsoDate(range.from)}_${admIsoDate(range.to)}`;
+  XLSX.writeFile(wb, `JiraPulse_admin_${tag}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
 /* ── drill-list table engine (search + filters + sort + 100-row pages) ──
    Mirrors the logistics desk's lgFiltered(): memoized (q + filters + sort)
    → rows pipeline; the page paints slice(0, dlPage) and the footer's
@@ -2801,6 +2849,15 @@ async function admRefresh() {
   /* "Show more": grow the visible page by +100 while more rows exist */
   const dlMore = $('#admDrillMore');
   if (dlMore) dlMore.addEventListener('click', () => { adm.dlPage += 100; admRenderDrilldown(); });
+  /* Excel export — downloads EVERYTHING currently in the task list (the
+     active drill + its filters + search + sort), not just the visible page */
+  const dlExport = $('#admDrillExport');
+  if (dlExport) dlExport.addEventListener('click', () => {
+    try {
+      admExportDrillExcel();
+      toast('Excel exported', 2600);
+    } catch (e) { toast('Excel export failed: ' + (e?.message || ''), 3400); }
+  });
   /* click-to-sort headers (delegated once — thead never re-renders) */
   const dlTable = $('#admDrillTable');
   if (dlTable) dlTable.querySelectorAll('th[data-col], .lg-th-split[data-col]').forEach((h) => {

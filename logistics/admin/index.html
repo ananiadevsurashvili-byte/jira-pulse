@@ -233,6 +233,8 @@
         <h4 id="admDrillTitle" style="margin:0">Task list</h4>
         <span class="lg-head-spacer"></span>
         <span id="admDrillCount" class="pub-count-chip"></span>
+        <button id="admDrillExport" class="btn btn-ghost btn-excel tl-export" type="button"
+          ><svg class="excel-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Excel</span></button>
         <button id="admDrillClose" class="btn btn-ghost" type="button">✕</button>
       </div>
       <div class="tl-filterbar">
@@ -285,6 +287,7 @@
   </div>
 </div>
 
-<script src="admin-app.js?v=21"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="admin-app.js?v=22"></script>
 </body>
 </html>
