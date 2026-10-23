@@ -101,7 +101,7 @@ const I18N = {
     /* detail-popup strings — mirror the desk's keys so admRenderCard can
        reuse the same labels (the desk's lg.* keys are NOT loaded here) */
     'lg.th.reporter': 'Reporter', 'lg.th.assignee': 'Assignee',
-    'lg.th.created': 'Created', 'lg.th.updated': 'Updated',
+    'lg.th.created': 'Created', 'lg.th.updated': 'Updated', 'lg.th.sla': 'SLA',
     'lg.th.direction': 'Direction', 'lg.th.resolved': 'Resolved',
     'lg.th.comments': 'Comments', 'lg.descLabel': 'Description',
     'lg.card.noComments': 'No comments', 'lg.card.noDescription': 'No description',
@@ -200,7 +200,7 @@ const I18N = {
     'adm.dl.fDirection': 'მიმართულება', 'adm.dl.fSla': 'SLA',
     'adm.dl.shown': 'ნაჩვენებია {a}–{b} / {n}', 'adm.dl.showMore': 'მეტის ჩვენება',
     'lg.th.reporter': 'მომხსენებელი', 'lg.th.assignee': 'ასიგნებული',
-    'lg.th.created': 'შექმნის თარიღი', 'lg.th.updated': 'განახლება',
+    'lg.th.created': 'შექმნის თარიღი', 'lg.th.updated': 'განახლება', 'lg.th.sla': 'SLA',
     'lg.th.direction': 'მიმართულება', 'lg.th.resolved': 'გადაწყვეტის თარიღი',
     'lg.th.comments': 'კომენტარები', 'lg.descLabel': 'აღწერა',
     'lg.card.noComments': 'კომენტარები არ არის', 'lg.card.noDescription': 'აღწერა არ არის',
@@ -576,6 +576,28 @@ function whSpanMs(fromMs, toMs) {
    (an approximation there would invent SLA breaches). Resolution = created →
    resolutiondate/last-update, measured in WORKING hours. Open tasks keep a
    live working-clock: 'pending' while inside the goal, 'overdue' past it. */
+/* map one JSM-native SLA aspect ({elapsedMs, goalMs, breached, completed,
+   startMs, stopMs}) into the row's SLA state — same keys admSlaRow
+   produces, so cells/filters/drills keep working unchanged. Verdict
+   (green/red) comes from Jira's own `breached` flag, NOT from our
+   working-hours re-estimate: JSM's clock is the exact one the agent view
+   shows. Ongoing cycles are ignored (a paused 0m tells nothing); the
+   working clock keeps covering open tasks. */
+function admSlaApplyNative(r, sla) {
+  if (!sla || typeof sla !== 'object') return;
+  const mk = (a) => {
+    if (!a || !a.completed) return null;
+    const ms = Number(a.elapsedMs) || 0;
+    return { ms, state: a.breached ? 'out' : 'in' };
+  };
+  const resp = mk(sla.resp);
+  const res = mk(sla.res);
+  if (resp) { r.respMs = resp.ms; r.respAtMs = Number(sla.resp.stopMs) || r.respAtMs; r.respState = resp.state; }
+  if (res) { r.resMs = res.ms; r.resolvedMs = res.ms; r.resState = res.state; }
+  /* keep the native payload so the popup can show exact settled times */
+  r.slaNative = sla;
+}
+
 function admSlaRow(r) {
   const g = adm.slaGoals || SLA_DEFAULT_GOALS;
   const respGoal = (g.respHours || 2) * 3600e3;   /* working-ms */
@@ -592,6 +614,10 @@ function admSlaRow(r) {
   r.elapsedMs = whSpanMs(r.createdMs, now);
   if (r.resolved) {
     r.resolvedMs = r.resMs = r.resolvedAt ? whSpanMs(r.createdMs, r.resolvedAt) : 0;
+    /* settled with NO non-reporter reply visible: the reply happened in the
+       part of the thread the relay doesn't carry — Jira DID measure it
+       (hydrated later via admSlaApplyNative); until then it's honest
+       nodata, NOT 'out'. */
     r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : 'nodata';
     r.resState = r.resMs ? (r.resMs <= resGoal ? 'in' : 'out') : 'nodata';
   } else {
@@ -1471,13 +1497,25 @@ const SLA_CLS = { in: 'lg-st-done', out: 'lg-st-breach', overdue: 'lg-st-breach'
 function admSlaBadgeCell(r) {
   const chip = (state, val, lbl) =>
     `<span class="lg-st-badge ${SLA_CLS[state] || 'lg-st-other'}" title="${escapeHtml(lbl)}">${escapeHtml(val)}</span>`;
-  const resp = r.respState === 'nodata' || !r.respAtMs
-    ? chip('nodata', '–', t('adm.sla.nodataSub'))
-    : chip(r.respState, admFmtSlaHours(r.respMs), t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(r.respMs));
-  const res = r.resState === 'pending' || r.resState === 'overdue'
-    ? chip(r.resState, admFmtSlaHours(r.elapsedMs) + ' /', t('adm.sla.resRunning') + ' ' + admFmtSlaHours(r.elapsedMs))
-    : r.resMs > 0 ? chip(r.resState, admFmtSlaHours(r.resMs), t('adm.sla.resTitle') + ' · ' + admFmtSlaHours(r.resMs))
-    : chip('nodata', '–', t('adm.sla.nodataSub'));
+  /* JSM-native cycles (r.slaNative, hydrated async per row) win when the
+     aspect is COMPLETED — for unsettled aspects the live working clock is
+     still the better display (JSM's ongoing elapsed can sit at a paused 0m). */
+  const nat = r.slaNative || null;
+  const natResp = nat?.resp && nat.resp.completed ? nat.resp : null;
+  const natRes = nat?.res && nat.res.completed ? nat.res : null;
+  const resp = natResp
+    ? chip(natResp.breached ? 'out' : 'in', admFmtSlaHours(natResp.elapsedMs),
+        t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(natResp.elapsedMs))
+    : r.respState === 'nodata' || !r.respAtMs
+      ? chip('nodata', '–', t('adm.sla.nodataSub'))
+      : chip(r.respState, admFmtSlaHours(r.respMs), t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(r.respMs));
+  const res = natRes
+    ? chip(natRes.breached ? 'out' : 'in', admFmtSlaHours(natRes.elapsedMs),
+        t('adm.sla.resTitle') + ' · ' + admFmtSlaHours(natRes.elapsedMs))
+    : r.resState === 'pending' || r.resState === 'overdue'
+      ? chip(r.resState, admFmtSlaHours(r.elapsedMs) + ' /', t('adm.sla.resRunning') + ' ' + admFmtSlaHours(r.elapsedMs))
+      : r.resMs > 0 ? chip(r.resState, admFmtSlaHours(r.resMs), t('adm.sla.resTitle') + ' · ' + admFmtSlaHours(r.resMs))
+      : chip('nodata', '–', t('adm.sla.nodataSub'));
   return `<td class="lg-sla-cell"><div class="lg-mini-row">${resp} ${res}</div></td>`;
 }
 function admOpenDrilldown(key) {
@@ -1687,6 +1725,8 @@ function admRenderDrilldown() {
       admOpenCard(b.dataset.key);
     });
   });
+  /* lazy native-SLA hydration for the rows actually shown */
+  admSlaQueueMissing(vis.map((r) => r.key));
   show(sec);
 }
 
@@ -1724,6 +1764,94 @@ async function admFetchAttachments(key) {
   const attachments = Array.isArray(data && data.attachments) ? data.attachments : [];
   _admAttachCache.set(key, { ts: Date.now(), attachments });
   return attachments;
+}
+
+/* ── JSM-native SLA hydration (per row) ────────────────────────────────
+   SLA cycles live OUTSIDE the bulk desk payload (too heavy for ~4k
+   issues), so — like attachments — each task's Jira-measured SLA clocks
+   (Time to first response / Time to resolution) are fetched lazily via
+   the relay's ?cmd=deskSla (with the admin auth header when connected)
+   and cached in _admSlaCache. Rendering: once a row's SLA lands, ONLY
+   that row's chips are re-painted in place (no full table re-render). */
+const ADM_SLA_TTL = 10 * 60 * 1000;    /* per-session cache: 10 min */
+const _admSlaCache = new Map();        /* key → { ts, sla } */
+const _admSlaInFlight = new Map();     /* key → Promise (dedupe concurrent) */
+const _admSlaTried = new Set();        /* keys that returned nothing → don't refetch */
+let _admSlaQueue = [];                 /* pending keys for the deferred pump */
+let _admSlaTimer = null;
+
+/* fetch Jira's own SLA clocks for one task */
+async function admFetchSla(key) {
+  const hit = _admSlaCache.get(key);
+  if (hit && Date.now() - hit.ts < ADM_SLA_TTL) return hit.sla;
+  if (_admSlaInFlight.has(key)) return _admSlaInFlight.get(key);
+  const p = (async () => {
+    try {
+      const url = PUB_RELAY + '?cmd=deskSla&key=' + encodeURIComponent(key) +
+        '&domain=' + encodeURIComponent(PUBLISH_DOMAIN);
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      const text = await res.text();
+      let data = null;
+      try { data = JSON.parse(text); } catch (_) { /* non-json */ }
+      if (!res.ok) throw new Error((data && (data.error || data.detail)) || ('HTTP ' + res.status));
+      const sla = data?.sla && typeof data.sla === 'object' ? data.sla : null;
+      if (sla && (sla.resp || sla.res)) _admSlaCache.set(key, { ts: Date.now(), sla });
+      else _admSlaTried.add(key);   /* Jira holds no cycles for this task */
+      return sla;
+    } finally {
+      _admSlaInFlight.delete(key);
+    }
+  })();
+  _admSlaInFlight.set(key, p);
+  return p;
+}
+
+/* queue keys whose native SLA is still missing (drilldown + final table) */
+function admSlaQueueMissing(keys) {
+  for (const key of keys) {
+    if (_admSlaCache.has(key) || _admSlaTried.has(key) || _admSlaInFlight.has(key)) continue;
+    const r = admFindTask(key);
+    if (!r || r.slaNative) continue;
+    _admSlaQueue.push(key);
+  }
+  if (_admSlaQueue.length && !_admSlaTimer) {
+    _admSlaTimer = setTimeout(admSlaPump, 120);
+  }
+}
+
+/* deferred pump: a few requests per tick so scrolling never stutter */
+function admSlaPump() {
+  _admSlaTimer = null;
+  const batch = _admSlaQueue.splice(0, 4);
+  if (!batch.length) return;
+  for (const key of batch) {
+    admFetchSla(key).then((sla) => {
+      if (!sla) return;
+      const r = admFindTask(key);
+      if (!r) return;
+      admSlaApplyNative(r, sla);
+      admRepaintRowSla(key);
+      /* open popup shows exact settled times once the SLA lands */
+      if (adm.cardKey === key) admRenderCard();
+    }).catch(() => { /* optional garnish — approximation stays */ });
+  }
+  if (_admSlaQueue.length) _admSlaTimer = setTimeout(admSlaPump, 120);
+}
+
+/* surgical repaint of ONE row's SLA cell */
+function admRepaintRowSla(key) {
+  for (const tb of document.querySelectorAll('.lg-table tbody')) {
+    const a = tb.querySelector(`.lg-open-card[data-key="${CSS.escape(key)}"]`);
+    if (!a) continue;
+    const row = a.closest('tr');
+    if (!row) continue;
+    const r = admFindTask(key);
+    if (!r) continue;
+    const cells = row.querySelectorAll('td');
+    const slaTd = cells[cells.length - 1];   /* SLA is the last column */
+    if (slaTd) slaTd.innerHTML = admSlaBadgeCell(r);
+    break;
+  }
 }
 async function admAttachBlob(att) {
   if (_admBlobCache.has(att.id)) return _admBlobCache.get(att.id);
@@ -1843,6 +1971,17 @@ function admRenderCard() {
           <div class="lg-card-comment-attach" data-comment-idx="${c._idx != null ? c._idx : ''}"></div>
         </div>`).join('')
     : `<div class="muted">${escapeHtml(t('lg.card.noComments'))}</div>`;
+  /* SLA meta line: exact settled times from Jira's own clocks when the
+     payload has landed (row hydration queues it; popup open re-checks) */
+  const nat = r.slaNative || null;
+  const natChip = (a) => a
+    ? `<span class="lg-st-badge ${a.breached ? 'lg-st-breach' : 'lg-st-done'}">${escapeHtml(admFmtSlaHours(a.elapsedMs))}</span>`
+    : `<span class="lg-st-badge lg-st-other">–</span>`;
+  const slaHtml =
+    `<span class="lg-card-sla-wrap" title="${escapeHtml(t('adm.sla.respTitle') + ' / ' + t('adm.sla.resTitle'))}">` +
+    natChip(nat?.resp?.completed ? nat.resp : null) +
+    ' ' + natChip(nat?.res?.completed ? nat.res : null) +
+    `</span>`;
   body.innerHTML = `
     <div class="lg-card-top">${statusPill}<span class="lg-card-key">${escapeHtml(r.key)}</span></div>
     <h3 class="lg-card-title">${escapeHtml(r.summary || '—')}</h3>
@@ -1855,6 +1994,7 @@ function admRenderCard() {
       ${metaItem(t('lg.th.updated'), fmtDateTime(r.updatedMs))}
       ${r.direction ? metaItem(t('lg.th.direction'), escapeHtml(r.direction)) : ''}
       ${r.resolved && r.resolvedAt ? metaItem(t('lg.th.resolved'), fmtDateTime(r.resolvedAt)) : ''}
+      ${metaItem(t('lg.th.sla'), slaHtml)}
     </div>
     <div class="lg-card-section">
       <span class="lg-person-role">${escapeHtml(t('lg.descLabel') || 'Description')}</span>
@@ -1878,6 +2018,17 @@ function admRenderCard() {
     }
   };
   admLoadCardAttachments(r.key);
+
+  /* eager native-SLA fetch so the popup's SLA line lands immediately
+     (queued row hydration may not have reached this key yet); repaints
+     the popup when it arrives */
+  if (!r.slaNative) {
+    admFetchSla(r.key).then((sla) => {
+      if (!sla || adm.cardKey !== r.key) return;
+      admSlaApplyNative(r, sla);
+      admRenderCard();
+    }).catch(() => { /* SLA chips stay approximate */ });
+  }
 }
 /* description text → esc'd text where every 📷 marker becomes an inline
    image slot the matching attachment later sits inside (mirrors the desk's

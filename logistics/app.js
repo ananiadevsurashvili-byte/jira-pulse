@@ -165,7 +165,9 @@ const I18N = {
     'lg.sla.overdue': 'Overdue',
     'lg.sla.nodata': 'No data',
     'lg.sla.respTitle': 'First response',
+    'lg.sla.resTitle': 'Resolution',
     'lg.sla.resRunning': 'Resolution running',
+    'lg.sla.settledAt': 'Settled {w}',
     'lg.period.30d': 'Last 30 days',
     'lg.period.all': 'All time',
     'lg.period.custom': 'Custom range…',
@@ -273,7 +275,9 @@ const I18N = {
     'lg.sla.overdue': 'ვადაგადაცილებული',
     'lg.sla.nodata': 'მონაცემი არაა',
     'lg.sla.respTitle': 'პირველი პასუხი',
+    'lg.sla.resTitle': 'გადაწყვეტა',
     'lg.sla.resRunning': 'გადაწყვეტა მიმდინარეობს',
+    'lg.sla.settledAt': 'დასრულდა {w}',
     'lg.period.30d': 'ბოლო 30 დღე',
     'lg.period.all': 'მთელი პერიოდი',
     'lg.period.custom': 'არჩეული პერიოდი…',
@@ -1097,6 +1101,26 @@ function lgsWhSpanMs(fromMs, toMs) {
   return total;
 }
 
+/* map one JSM-native SLA aspect ({elapsedMs, goalMs, breached, completed,
+   startMs, stopMs}) into the row's SLA state — same keys lgSlaRow produces,
+   so loggerisks/cells/filters/sorts keep working unchanged. Verdict (green/
+   red) comes from Jira's own `breached` flag, NOT from our working-hours
+   re-estimate: JSM's clock is the exact one the agent view shows. */
+function lgSlaApplyNative(r, sla) {
+  if (!sla || typeof sla !== 'object') return;
+  const mk = (a, fallbackState) => {
+    if (!a || !a.completed) return null;
+    const ms = Number(a.elapsedMs) || 0;
+    return { ms, state: a.breached ? 'out' : 'in' };
+  };
+  const resp = mk(sla.resp);
+  const res = mk(sla.res);
+  if (resp) { r.respMs = resp.ms; r.respAtMs = Number(sla.resp.stopMs) || r.respAtMs; r.respState = resp.state; }
+  if (res) { r.resMs = res.ms; r.resState = res.state; }
+  /* keep the native payload so the card can show exact settled times */
+  r.slaNative = sla;
+}
+
 /* SLA state per row — called from lgNormalize AFTER each row is built.
    First response = earliest REAL comment we hold by someone other than the
    reporter (the relay keeps only the last 10 comments, so a long silent
@@ -1131,17 +1155,30 @@ function lgSlaRow(r) {
   return r;
 }
 
-/* compact SLA cell: response chip + resolution chip on one mini-row */
+/* compact SLA cell: response chip + resolution chip on one mini-row.
+   JSM-native cycles (r.slaNative, hydrated async per row) win when the
+   aspect is COMPLETED — for unsettled aspects the live working clock is
+   still the better display (JSM's ongoing elapsed can sit at a paused 0m). */
 function lgSlaCellHtml(r) {
   const g = lgState.slaGoals || { respHours: 2, resHours: 30 };
-  const resp = r.respState === 'nodata' || !r.respAtMs
-    ? lgSlaChip('nodata', '–', t('lg.sla.nodata'))
-    : lgSlaChip(r.respState, lgFmtSla(r.respMs), t('lg.sla.respTitle') + ': ' + lgFmtSla(r.respMs) + ' / ' + (g.respHours || 2) + ' working h');
-  const res = r.resState === 'pending' || r.resState === 'overdue'
-    ? lgSlaChip(r.resState, lgFmtSla(r.elapsedMs) + ' /', t('lg.sla.resRunning') + ' ' + lgFmtSla(r.elapsedMs))
-    : r.resMs > 0
-      ? lgSlaChip(r.resState, lgFmtSla(r.resMs), t('lg.sla.resTitle') + ': ' + lgFmtSla(r.resMs) + ' / ' + (g.resHours || 30) + ' working h')
-      : lgSlaChip('nodata', '–', t('lg.sla.nodata'));
+  const nat = r.slaNative || null;
+  const natResp = nat?.resp && nat.resp.completed ? nat.resp : null;
+  const natRes = nat?.res && nat.res.completed ? nat.res : null;
+  const fmtGoalH = (ms, fb) => (ms > 0 ? lgFmtSla(ms) : fb + ' working h');
+  const resp = natResp
+    ? lgSlaChip(natResp.breached ? 'out' : 'in', lgFmtSla(natResp.elapsedMs),
+        t('lg.sla.respTitle') + ': ' + lgFmtSla(natResp.elapsedMs) + ' / ' + fmtGoalH(natResp.goalMs, g.respHours || 2))
+    : r.respState === 'nodata' || !r.respAtMs
+      ? lgSlaChip('nodata', '–', t('lg.sla.nodata'))
+      : lgSlaChip(r.respState, lgFmtSla(r.respMs), t('lg.sla.respTitle') + ': ' + lgFmtSla(r.respMs) + ' / ' + (g.respHours || 2) + ' working h');
+  const res = natRes
+    ? lgSlaChip(natRes.breached ? 'out' : 'in', lgFmtSla(natRes.elapsedMs),
+        t('lg.sla.resTitle') + ': ' + lgFmtSla(natRes.elapsedMs) + ' / ' + fmtGoalH(natRes.goalMs, g.resHours || 30))
+    : r.resState === 'pending' || r.resState === 'overdue'
+      ? lgSlaChip(r.resState, lgFmtSla(r.elapsedMs) + ' /', t('lg.sla.resRunning') + ' ' + lgFmtSla(r.elapsedMs))
+      : r.resMs > 0
+        ? lgSlaChip(r.resState, lgFmtSla(r.resMs), t('lg.sla.resTitle') + ': ' + lgFmtSla(r.resMs) + ' / ' + (g.resHours || 30) + ' working h')
+        : lgSlaChip('nodata', '–', t('lg.sla.nodata'));
   return `<div class="lg-mini-row">${resp} ${res}</div>`;
 }
 
@@ -1713,6 +1750,9 @@ function lgRenderRows(opts) {
     const still = all.some((r) => r.key === lgState.cardKey) || lgState.rows.some((r) => r.key === lgState.cardKey);
     if (still) lgRenderCard(); else lgCloseCard();
   }
+  /* lazy native-SLA hydration for the rows actually shown (Jira's own
+     verdicts arrive a tick later and re-paint their chips in place) */
+  lgSlaQueueMissing(rows.map((r) => r.key));
 }
 
 /* ── task card: Jira-style full detail popup, rendered in-app ────────────
@@ -1828,6 +1868,100 @@ async function lgFetchAttachments(key) {
   return attachments;
 }
 
+/* ── JSM-native SLA hydration (per row) ────────────────────────────────
+   SLA cycles live OUTSIDE the bulk desk payload (too heavy for ~4k
+   issues), so — like attachments — each task's Jira-measured SLA clocks
+   (Time to first response / Time to resolution) are fetched lazily via
+   the relay's ?cmd=deskSla and cached in _lgSlaCache. Rendering: once a
+   row's SLA lands, ONLY that row's chips are re-painted in place (no full
+   table re-render), so the hydration is invisible to the user. */
+const LG_SLA_TTL = 10 * 60 * 1000;     /* per-session cache: 10 min */
+const _lgSlaCache = new Map();         /* key → { ts, sla } */
+const _lgSlaInFlight = new Map();      /* key → Promise (dedupe concurrent) */
+const _lgSlaTried = new Set();         /* keys that returned nothing → don't refetch */
+let _lgSlaQueue = [];                  /* pending keys for the deferred pump */
+let _lgSlaTimer = null;
+
+/* fetch Jira's own SLA clocks for one task */
+async function lgFetchSla(key) {
+  const hit = _lgSlaCache.get(key);
+  if (hit && Date.now() - hit.ts < LG_SLA_TTL) return hit.sla;
+  if (_lgSlaInFlight.has(key)) return _lgSlaInFlight.get(key);
+  const p = (async () => {
+    try {
+      const conn = loadConn();
+      const domain = conn?.domain ? String(conn.domain).replace(/^https?:\/\//, '') : JIRA_DOMAIN;
+      const url = PUB_RELAY + '?cmd=deskSla&key=' + encodeURIComponent(key) +
+        '&domain=' + encodeURIComponent(domain);
+      const headers = { 'Accept': 'application/json' };
+      if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
+      const res = await fetch(url, { method: 'GET', headers });
+      const text = await res.text();
+      let data = null;
+      try { data = JSON.parse(text); } catch (_) { /* non-json */ }
+      if (!res.ok) throw new Error((data && (data.error || data.detail)) || `HTTP ${res.status}`);
+      const sla = data?.sla && typeof data.sla === 'object' ? data.sla : null;
+      if (sla && (sla.resp || sla.res)) _lgSlaCache.set(key, { ts: Date.now(), sla });
+      else _lgSlaTried.add(key);   /* Jira holds no cycles for this task */
+      return sla;
+    } finally {
+      _lgSlaInFlight.delete(key);
+    }
+  })();
+  _lgSlaInFlight.set(key, p);
+  return p;
+}
+
+/* determine which of the painted rows still need native SLA: DONE tasks
+   first (their settled chips are what this feature is about), then open
+   ones — the stopped/paused verdicts only exist in Jira's own data */
+function lgSlaQueueMissing(keys) {
+  for (const key of keys) {
+    if (_lgSlaCache.has(key) || _lgSlaTried.has(key) || _lgSlaInFlight.has(key)) continue;
+    const r = lgFindTask(key);
+    if (!r || r.slaNative) continue;
+    _lgSlaQueue.push(key);
+  }
+  if (_lgSlaQueue.length && !_lgSlaTimer) {
+    _lgSlaTimer = setTimeout(lgSlaPump, 120);
+  }
+}
+
+/* deferred pump: a few requests per tick so scrolling never stutter */
+function lgSlaPump() {
+  _lgSlaTimer = null;
+  const batch = _lgSlaQueue.splice(0, 4);
+  if (!batch.length) return;
+  for (const key of batch) {
+    lgFetchSla(key).then((sla) => {
+      if (!sla) return;
+      const r = lgFindTask(key);
+      if (!r) return;
+      lgSlaApplyNative(r, sla);
+      r._h = undefined;          /* force lgRowHtml to rebuild this row */
+      lgRepaintRow(key);
+      /* open card shows exact settled times once the SLA lands */
+      if (lgState.cardKey === key) lgRenderCard();
+    }).catch(() => { /* optional garnish — approximation stays */ });
+  }
+  if (_lgSlaQueue.length) _lgSlaTimer = setTimeout(lgSlaPump, 120);
+}
+
+/* surgical repaint of ONE row's cells (keeps table paint cost near zero) */
+function lgRepaintRow(key) {
+  const tbody = $('#lgTbody');
+  if (!tbody) return;
+  const tr = tbody.querySelector(`a.lg-open-card[data-key="${CSS.escape(key)}"]`);
+  if (!tr) return;
+  const row = tr.closest('tr');
+  if (!row) return;
+  const r = lgFindTask(key);
+  if (!r) return;
+  const cells = row.querySelectorAll('td');
+  const slaTd = cells[cells.length - 1];   /* SLA is the last column */
+  if (slaTd) slaTd.innerHTML = lgSlaCellHtml(r);
+}
+
 /* blob URL cache so the same image isn't re-downloaded while its card is open */
 const _lgBlobCache = new Map();         /* attachId → objectURL */
 let _lgBlobRevokes = new Set();         /* revocable after card close */
@@ -1931,6 +2065,20 @@ function lgRenderCard() {
       ).join('')
     : `<div class="muted">${escapeHtml(t('lg.card.noComments'))}</div>`;
 
+  /* SLA meta line: exact settled times from Jira's own clocks when the
+     payload has landed (row paint queued it; card open re-checks). Shows
+     measurement + status WITHOUT the goal, so no misleading 'working h'
+     framing is attached to JSM's own calendar rules. */
+  const nat = r.slaNative || null;
+  const natChip = (a) => a
+    ? `<span class="lg-st-badge ${a.breached ? 'lg-st-breach' : 'lg-st-done'}">${escapeHtml(lgFmtSla(a.elapsedMs))}</span>`
+    : `<span class="lg-st-badge lg-st-other">–</span>`;
+  const slaHtml =
+    `<span class="lg-card-sla-wrap" title="${escapeHtml(t('lg.sla.respTitle') + ' / ' + t('lg.sla.resTitle'))}">` +
+    natChip(nat?.resp?.completed ? nat.resp : null) +
+    ' ' + natChip(nat?.res?.completed ? nat.res : null) +
+    `</span>`;
+
   $('#lgCardBody').innerHTML = `
     <div class="lg-card-top">
       ${statusPill}
@@ -1945,6 +2093,7 @@ function lgRenderCard() {
       ${metaItem('lg.th.created', fmtDateTime(r.created))}
       ${metaItem('lg.th.updated', fmtDateTime(r.updated))}
       ${r.direction ? metaItem('lg.th.direction', escapeHtml(r.direction)) : ''}
+      ${metaItem('lg.th.sla', slaHtml)}
     </div>
     <div class="lg-card-section">
       <span class="lg-person-role" data-i18n="lg.descLabel">${escapeHtml(t('lg.descLabel') || 'Description')}</span>
@@ -1963,6 +2112,17 @@ function lgRenderCard() {
      exactly this issue) — comments' inline images land under their own
      comment; everything else appears in the Attachments section */
   lgLoadCardAttachments(r.key);
+
+  /* eager native-SLA fetch so the card's SLA line lands immediately
+     (queued row hydration may not have reached this key yet); repaints
+     the card when it arrives */
+  if (!r.slaNative) {
+    lgFetchSla(r.key).then((sla) => {
+      if (!sla || lgState.cardKey !== r.key) return;
+      lgSlaApplyNative(r, sla);
+      lgRenderCard();
+    }).catch(() => { /* SLA line stays approximate */ });
+  }
 }
 
 /* description text → esc'd text where every 📷 marker becomes an inline

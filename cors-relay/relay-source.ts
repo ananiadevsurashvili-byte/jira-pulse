@@ -193,6 +193,15 @@ async function handler(request: Request): Promise<Response> {
         return await handleDeskAttachCmd(u, request);
       }
 
+      /* JSM-native SLA clocks for ONE issue (logistics task lists).
+         Reads the same service-desk SLA data Jira shows in the agent view
+         (Time to first response / Time to resolution cycles) — the client
+         renders GREEN/RED from Jira's own verdict instead of re-computing
+         an approximation. */
+      if (cmd === 'deskSla') {
+        return await handleDeskSlaCmd(u, request);
+      }
+
       /* lightweight login-activity tracking (logistics admin dashboard):
          POST ?cmd=lgPing  body {email}  → upsert one visitor record
          GET  ?cmd=lgStats            → sorted activity + active/today counts */
@@ -898,6 +907,183 @@ async function handleDeskAttachCmd(u: URL, request: Request): Promise<Response> 
     commentCount,
     attachments,
   });
+}
+
+/* ───────────── JSM-native SLA for ONE issue (?cmd=deskSla) ────────────────
+   The logistics task lists previously APPROXIMATED first-response and
+   resolution SLAs in client-side working-hours math. That is wrong whenever
+   JSM itself has measured cycles (it pauses on status changes, knows the
+   actual goals, carries the REAL breach verdict, and reports the exact
+   settlement times). This endpoint returns Jira's OWN SLA clock for one
+   request so the client can show exactly what the agent view shows.
+
+   Data sources (first that works wins):
+   1. GET /rest/api/3/issue/{key}?fields=customfield_10041
+      → {"Time to resolution": { completedCycles, ongoingCycle, ... }}
+      (SLA custom fields appear on /issue when the API token has JSM perms)
+   2. GET /rest/servicedeskapi/request/{key}/sla  (SDE API fallback)
+
+   Response:
+     { ok, cmd:'deskSla', key, sla: {
+         resp: { elapsedMs, goalMs, breached, completed, startMs, stopMs, breachMs } | null,
+         res:  { ...same } | null,
+         source: 'issue-field' | 'sde-api' | 'none',
+     } }
+   elapsedMs is WALL-CLOCK JSM-time (already respects JSM's calendar + pause
+   rules); the client treats goalMs/breached verbatim. */
+type DeskSlaCycle = {
+  elapsedMs: number; goalMs: number; breached: boolean;
+  completed: boolean; startMs: number; stopMs: number; breachMs: number;
+};
+type DeskSlaAspect = { elapsedMs: number; goalMs: number; breached: boolean; completed: boolean; startMs: number; stopMs: number; breachMs: number } | null;
+
+function deskSlaCycle(c: any, completed: boolean): DeskSlaCycle {
+  return {
+    elapsedMs: Number(c?.elapsedTime?.millis) || 0,
+    goalMs: Number(c?.goalDuration?.millis) || 0,
+    breached: c?.breached === true || String(c?.breached) === 'true',
+    completed,
+    startMs: Number(c?.startTime?.epochMillis) || 0,
+    stopMs: Number(c?.stopTime?.epochMillis) || 0,
+    breachMs: Number(c?.breachTime?.epochMillis) || 0,
+  };
+}
+
+function deskSlaGoalOverride(a: DeskSlaAspect, fallbackHours: number): DeskSlaAspect {
+  if (!a || a.goalMs > 0) return a;
+  const goalMs = Math.round(fallbackHours * 3600e3);
+  return a ? { ...a, goalMs } : a;
+}
+
+/* JSM can ACCUMULATE cycles (goal missed → clock restarts). For FIRST
+   RESPONSE the settled measurement is the earliest completed cycle (the
+   first agent reply); for RESOLUTION it is the last completed cycle (the
+   actual settlement). Ongoing cycles: response prefers the earliest (the
+   clock JSM started for the FIRST reply), resolution the current one. */
+function deskSlaRespCycle(cf: any): DeskSlaAspect | null {
+  const completed: any[] = Array.isArray(cf?.completedCycles) ? cf.completedCycles : [];
+  const ongoing: any = cf?.ongoingCycle || null;
+  let pick: any = null;
+  for (const c of completed) {
+    if (!pick || deskSlaCycle(c, true).stopMs < pick.stopMs) pick = deskSlaCycle(c, true);
+  }
+  if (!pick && ongoing) pick = deskSlaCycle(ongoing, false);
+  return pick;
+}
+function deskSlaResCycle(cf: any): DeskSlaAspect | null {
+  const completed: any[] = Array.isArray(cf?.completedCycles) ? cf.completedCycles : [];
+  const ongoing: any = cf?.ongoingCycle || null;
+  if (completed.length) return deskSlaCycle(completed[completed.length - 1], true);
+  if (ongoing) return deskSlaCycle(ongoing, false);
+  return null;
+}
+
+function deskSlaFromField(cf: any, isResp: boolean): DeskSlaAspect | null {
+  if (!cf || typeof cf !== 'object') return null;
+  return isResp ? deskSlaRespCycle(cf) : deskSlaResCycle(cf);
+}
+
+/* the /issue payload names each SLA custom field; JSM ships "Time to first
+   response" and "Time to resolution" under names like customfield_10041 —
+   match by the issue's names/base fields to pick them apart. */
+function deskSlaAspectsFromIssue(issue: any): { resp: DeskSlaAspect; res: DeskSlaAspect } | null {
+  const f = issue?.fields || {};
+  const names = issue?.names || {};
+  let resp: DeskSlaAspect = null;
+  let res: DeskSlaAspect = null;
+  for (const k of Object.keys(f)) {
+    if (!/^customfield_\d+$/.test(k)) continue;
+    const nm = String(names[k] || '');
+    const cf = f[k];
+    if (!cf || typeof cf !== 'object') continue;
+    if (/first response/i.test(nm)) {
+      const a = deskSlaFromField(cf, true);
+      if (a) resp = deskSlaGoalOverride(a, 2);
+    } else if (/resolution/i.test(nm)) {
+      const a = deskSlaFromField(cf, false);
+      if (a) res = deskSlaGoalOverride(a, 30);
+    }
+  }
+  return (resp || res) ? { resp, res } : null;
+}
+
+function deskSlaFromSde(values: any): { resp: DeskSlaAspect; res: DeskSlaAspect } | null {
+  if (!Array.isArray(values) || !values.length) return null;
+  let resp: DeskSlaAspect = null;
+  let res: DeskSlaAspect = null;
+  for (const s of values) {
+    const active = deskSlaFromField(s, /first response/i.test(String(s?.name || '')));
+    if (!active) continue;
+    if (/first response/i.test(String(s?.name || ''))) resp = deskSlaGoalOverride(active, 2);
+    else if (/resolution/i.test(String(s?.name || ''))) res = deskSlaGoalOverride(active, 30);
+  }
+  return (resp || res) ? { resp, res } : null;
+}
+
+async function handleDeskSlaCmd(u: URL, request: Request): Promise<Response> {
+  const key = (u.searchParams.get('key') || '').trim().toUpperCase();
+  if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(key)) {
+    return json({ error: 'invalid key' }, 400);
+  }
+  const domainParam = (u.searchParams.get('domain') || '').trim();
+
+  /* credentials: identical rules to handleDeskAttachCmd */
+  let authHeader = request.headers.get('authorization') || '';
+  let domain = '';
+  const stored = await blob.getJSON(CREDS_KEY);
+  if (authHeader) {
+    if (domainParam && /(^|\.)atlassian\.net$/i.test(domainParam)) {
+      domain = domainParam;
+    } else {
+      domain = stored?.domain || '';
+    }
+  }
+  if (!authHeader) {
+    if (!stored?.domain || !stored?.email || !stored?.token) {
+      return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
+    }
+    authHeader = 'Basic ' + btoa(stored.email + ':' + stored.token);
+    domain = stored.domain;
+  }
+  if (domain && !/^https:\/\//i.test(domain)) domain = 'https://' + domain;
+  if (!domain || !/^https:\/\/[a-z0-9.-]+\.atlassian\.net$/i.test(domain)) {
+    return json({ error: 'no usable Jira domain' }, 400);
+  }
+  const base = domain.replace(/\/+$/, '');
+  const jh: Record<string, string> = {
+    'Authorization': authHeader,
+    'Accept': 'application/json',
+    'User-Agent': 'JiraPulse-Relay/1.0',
+  };
+
+  /* 1st: /issue with names expansion → get ALL SLA custom fields. */
+  try {
+    const r1 = await fetch(base + '/rest/api/3/issue/' + encodeURIComponent(key) +
+      '?fields=*nocommon&expand=names', { method: 'GET', headers: jh, redirect: 'follow' });
+    if (r1.ok) {
+      const issue = await r1.json();
+      const aspects = deskSlaAspectsFromIssue(issue);
+      if (aspects) {
+        return json({ ok: true, cmd: 'deskSla', key, sla: { ...aspects, source: 'issue-field' } });
+      }
+    }
+  } catch { /* fall through to SDE API */ }
+
+  /* 2nd: service desk API (only for JSM project requests) */
+  try {
+    const r2 = await fetch(base + '/rest/servicedeskapi/request/' + encodeURIComponent(key) + '/sla', {
+      method: 'GET', headers: jh, redirect: 'follow',
+    });
+    if (r2.ok) {
+      const j = await r2.json();
+      const aspects = deskSlaFromSde(j?.values);
+      if (aspects) {
+        return json({ ok: true, cmd: 'deskSla', key, sla: { ...aspects, source: 'sde-api' } });
+      }
+    }
+  } catch { /* fall through to the none response */ }
+
+  return json({ ok: true, cmd: 'deskSla', key, sla: { resp: null, res: null, source: 'none' } });
 }
 
 /* ───────────────── login-activity tracking (admin dashboard) ──────────

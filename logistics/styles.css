@@ -816,6 +816,7 @@ body.light .lg-card-person { background: #f6f8fd; border-color: #dfe4f2; }
 .lg-card-meta { display: flex; flex-wrap: wrap; gap: 8px 22px; }
 .lg-card-meta-item { display: flex; flex-direction: column; gap: 2px; font-size: 0.82rem; }
 .lg-card-meta-item > :last-child { font-weight: 500; }
+.lg-card-sla-wrap { display: inline-flex; gap: 6px; align-items: center; }
 
 .lg-card-section { display: flex; flex-direction: column; gap: 6px; }
 .lg-card-desc {
