@@ -585,9 +585,18 @@ function whSpanMs(fromMs, toMs) {
    working clock keeps covering open tasks. */
 function admSlaApplyNative(r, sla) {
   if (!sla || typeof sla !== 'object') return;
+  /* Jira's NEW_SLA_FORMAT quirk: completed cycles often report
+     elapsedTime "0m" even though startTime/stopTime hold the real
+     settlement window — recompute the working-clock span then (wall-clock
+     fallback for settlements outside working hours). Verdict stays Jira's
+     own breached flag either way. */
   const mk = (a) => {
     if (!a || !a.completed) return null;
-    const ms = Number(a.elapsedMs) || 0;
+    let ms = Number(a.elapsedMs) || 0;
+    if (!ms && a.stopMs && a.startMs) {
+      ms = whSpanMs(Number(a.startMs), Number(a.stopMs)) ||
+        (Number(a.stopMs) - Number(a.startMs));
+    }
     return { ms, state: a.breached ? 'out' : 'in' };
   };
   const resp = mk(sla.resp);
