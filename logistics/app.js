@@ -1153,7 +1153,13 @@ function lgSlaRow(r) {
   r.respMs = respAt ? lgsWhSpanMs(r.created, respAt) : 0;
   r.elapsedMs = lgsWhSpanMs(r.created, now);
   if (r.resolvedAt) {
-    r.resMs = lgsWhSpanMs(r.created, r.resolvedAt);
+    /* zero working-span is a REAL measurement, not missing data: tasks
+       created AND settled outside Mon–Fri 02:00–10:00 (same-evening /
+       weekend work) span no calendar working time. Fall back to the
+       wall-clock span so they land in in/out instead of the gray nodata
+       bucket that used to swallow ~40% of all resolved work. */
+    const resSpan = lgsWhSpanMs(r.created, r.resolvedAt);
+    r.resMs = resSpan || (r.resolvedAt - r.created);
     r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : 'nodata';
     r.resState = r.resMs ? (r.resMs <= resGoal ? 'in' : 'out') : 'nodata';
   } else {

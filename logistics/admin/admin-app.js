@@ -165,6 +165,7 @@ const I18N = {
     'adm.sla.inSla': 'In SLA', 'adm.sla.outSla': 'Out of SLA',
     'adm.sla.pending': 'Waiting (within goal)', 'adm.sla.overdue': 'Overdue (past goal)',
     'adm.sla.nodata': 'No first reply data',
+    'adm.sla.nodataRes': 'No resolution data',
     'adm.sla.respBreaches': 'First-response breaches',
     'adm.sla.resBreaches': 'Resolution breaches',
     'adm.sla.respTitle': 'First response', 'adm.sla.resTitle': 'Resolution',
@@ -248,6 +249,7 @@ const I18N = {
     'adm.sla.inSla': 'SLA-ში', 'adm.sla.outSla': 'SLA-გარე',
     'adm.sla.pending': 'ლოდინში (მიზანში)', 'adm.sla.overdue': 'ვადაგადაცილებული',
     'adm.sla.nodata': 'პირველი პასუხის მონაცემი არ არის',
+    'adm.sla.nodataRes': 'გადაწყვეტის მონაცემი არ არის',
     'adm.sla.respBreaches': 'პირველი პასუხის დარღვევები',
     'adm.sla.resBreaches': 'გადაწყვეტის დარღვევები',
     'adm.sla.respTitle': 'პირველი პასუხი', 'adm.sla.resTitle': 'გადაწყვეტა',
@@ -622,7 +624,13 @@ function admSlaRow(r) {
   r.respMs = respAt ? whSpanMs(r.createdMs, respAt) : 0;
   r.elapsedMs = whSpanMs(r.createdMs, now);
   if (r.resolved) {
-    r.resolvedMs = r.resMs = r.resolvedAt ? whSpanMs(r.createdMs, r.resolvedAt) : 0;
+    /* zero working-span is a REAL measurement, not missing data: tasks
+       created AND settled outside Mon–Fri 02:00–10:00 (same-evening /
+       weekend work) span no calendar working time. Fall back to the
+       wall-clock span so they land in in/out instead of the gray nodata
+       bucket that used to swallow ~40% of all resolved work. */
+    const resSpan = r.resolvedAt ? whSpanMs(r.createdMs, r.resolvedAt) : 0;
+    r.resolvedMs = r.resMs = r.resolvedAt ? (resSpan || (r.resolvedAt - r.createdMs)) : 0;
     /* settled with NO non-reporter reply visible: the reply happened in the
        part of the thread the relay doesn't carry — Jira DID measure it
        (hydrated later via admSlaApplyNative); until then it's honest
@@ -2315,7 +2323,7 @@ const C = new Map([
       { key: 'slaResOut', label: t('adm.sla.outSla'), value: a.slaRes.out, color: cc.red },
       { key: 'slaResOverdue', label: t('adm.sla.overdue'), value: a.slaRes.overdue, color: cc.amber },
       { key: 'slaResPending', label: t('adm.sla.pending'), value: a.slaRes.pending, color: cc.cyan },
-      { key: 'slaResNodata', label: t('adm.sla.nodata'), value: a.slaRes.nodata, color: 'rgba(148,163,184,0.35)' }
+      { key: 'slaResNodata', label: t('adm.sla.nodataRes'), value: a.slaRes.nodata, color: 'rgba(148,163,184,0.35)' }
     ].filter(s => s.value > 0);
     admChartSlaStatus('chSlaRes', segs);
     admSlaClickBind('chSlaRes');
@@ -2360,30 +2368,41 @@ function admChartSlaStatus(id, segs) {
   g.clearRect(0, 0, w, h);
   const total = segs.reduce((a, s) => a + s.value, 0);
   if (!total) { admNoData(g, w, h, c); return; }
+  /* The big bar answers the SAME question as the KPI card: of the MEASURED
+     tasks (met + breached), what share met the goal? So it normalizes the
+     in/out segments among themselves — excluding pending/overdue/nodata —
+     and its headline % matches the KPI exactly. Pending/overdue/nodata stay
+     fully visible as legend rows with counts and share-of-total. */
+  const measured = segs.filter(s => s.key.endsWith('In') || s.key.endsWith('Out'));
+  const mTotal = measured.reduce((a, s) => a + s.value, 0);
   const rows = segs.length;
   const rowH = Math.min(30, (h - 8) / rows);
   const barH = 22;
   /* the big total share bar on top */
-  let x = 12;
-  const bw = w - 24;
-  segs.forEach(s => {
-    const bws = bw * (s.value / total);
-    g.fillStyle = s.color;
-    if (g.roundRect) { g.beginPath(); g.roundRect(x, 8, bws, barH, 4); g.fill(); }
-    else g.fillRect(x, 8, Math.max(2, bws), barH);
-    x += bws;
-  });
-  /* share % drawn inside segments wide enough */
-  g.font = '700 11px Inter, sans-serif'; g.textAlign = 'center';
-  x = 12;
-  segs.forEach(s => {
-    const bws = bw * (s.value / total);
-    if (bws >= 34) {
-      g.fillStyle = '#fff';
-      g.fillText(Math.round(100 * s.value / total) + '%', x + bws / 2, 8 + barH / 2 + 4);
-    }
-    x += bws;
-  });
+  if (mTotal) {
+    let x = 12;
+    const bw = w - 24;
+    measured.forEach(s => {
+      const bws = bw * (s.value / mTotal);
+      g.fillStyle = s.color;
+      if (g.roundRect) { g.beginPath(); g.roundRect(x, 8, bws, barH, 4); g.fill(); }
+      else g.fillRect(x, 8, Math.max(2, bws), barH);
+      x += bws;
+    });
+    /* share % drawn inside segments wide enough */
+    g.font = '700 11px Inter, sans-serif'; g.textAlign = 'center';
+    x = 12;
+    measured.forEach(s => {
+      const bws = bw * (s.value / mTotal);
+      if (bws >= 34) {
+        g.fillStyle = '#fff';
+        g.fillText(Math.round(100 * s.value / mTotal) + '%', x + bws / 2, 8 + barH / 2 + 4);
+      }
+      x += bws;
+    });
+  } else {
+    admNoData(g, w, h, c); return;
+  }
   /* legend rows: swatch + label + count */
   segs.forEach((s, i) => {
     const y = 8 + barH + 8 + i * rowH;
@@ -2397,19 +2416,26 @@ function admChartSlaStatus(id, segs) {
     g.font = '11px Inter, sans-serif';
   });
 }
-/* status-bar hit-test — row over legend rows, or the share bar on top */
+/* status-bar hit-test — row over legend rows, or the share bar on top.
+   Bar segments (measured in/out) report their measured-denominator %, so
+   the tooltip agrees with the KPI card and the drawn headline %. */
 function admHitSlaStatus(cv, mx, my, segs, _buckets) {
   const total = segs.reduce((s, x) => s + x.value, 0);
   if (!total) return null;
+  const measured = segs.filter(s => s.key.endsWith('In') || s.key.endsWith('Out'));
+  const mTotal = measured.reduce((a, s) => a + s.value, 0);
+  const pctOf = (s) => (s.key.endsWith('In') || s.key.endsWith('Out')) && mTotal
+    ? Math.round(100 * s.value / mTotal)
+    : Math.round(100 * s.value / total);
   const w = cv.clientWidth || 300, h = cv.clientHeight || 220;
   const barH = 22;
-  /* share bar on top: hit by x fraction */
-  if (my >= 8 && my <= 8 + barH) {
+  /* share bar on top: hit by x fraction (geometry mirrors the measured-only bar) */
+  if (my >= 8 && my <= 8 + barH && mTotal) {
     const bw = w - 24;
     let acc = 12;
-    for (const s of segs) {
-      const bws = bw * (s.value / total);
-      if (mx >= acc && mx <= acc + bws) return { title: s.label, rows: [{ color: s.color, label: s.label, value: `${s.value} (${Math.round(100 * s.value / total)}%)` }], drill: s.key };
+    for (const s of measured) {
+      const bws = bw * (s.value / mTotal);
+      if (mx >= acc && mx <= acc + bws) return { title: s.label, rows: [{ color: s.color, label: s.label, value: `${s.value} (${pctOf(s)}%)` }], drill: s.key };
       acc += bws;
     }
     return null;
@@ -2420,7 +2446,7 @@ function admHitSlaStatus(cv, mx, my, segs, _buckets) {
   const i = Math.floor((my - (8 + barH + 8)) / rowH);
   if (i < 0 || i >= rows) return null;
   const s = segs[i];
-  return { title: s.label, rows: [{ color: s.color, label: s.label, value: `${s.value} (${Math.round(100 * s.value / total)}%)` }], drill: s.key };
+  return { title: s.label, rows: [{ color: s.color, label: s.label, value: `${s.value} (${pctOf(s)}%)` }], drill: s.key };
 }
 /* SLA histogram hit-test — bar geometry mirrors admChartSlaHist (pad l=34 r=10);
    the item's drill key (bucket index) comes back for click-through */
