@@ -1252,7 +1252,14 @@ function lgNormalize(data) {
       assignee: f.assignee?.displayName || '',
       created: f.created ? Date.parse(f.created) : 0,
       updated: f.updated ? Date.parse(f.updated) : 0,
-      resolvedAt: f.resolutiondate ? Date.parse(f.resolutiondate) : 0,
+      /* SLA goal finishes on "Resolution: Set OR Entered Status: Done" — a
+         task parked in a done-class status WITHOUT a resolutiondate is
+         still settled; use updated as the settlement moment (mirrors the
+         admin side's resolvedAt fallback and the root board's
+         issueCompletedAt changelog walk). */
+      resolvedAt: f.resolutiondate ? Date.parse(f.resolutiondate)
+        : (lgStatusClass(f.status?.name || '') === 'lg-st-done' ? (Date.parse(f.updated) || 0) : 0),
+      rdReal: f.resolutiondate ? true : false,
       direction,
       comments,
       attFiles,
