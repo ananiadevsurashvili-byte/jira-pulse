@@ -1160,8 +1160,17 @@ function lgSlaRow(r) {
        bucket that used to swallow ~40% of all resolved work. */
     const resSpan = lgsWhSpanMs(r.created, r.resolvedAt);
     r.resMs = resSpan || (r.resolvedAt - r.created);
+    /* response goal stops wider than the comment thread (Assignee change,
+       In-Progress walk, Resolution Set) — same honesty rule as the admin
+       side: with no visible non-reporter reply it stays nodata, except the
+       bound below (settled within the response goal ⇒ response was in). */
     r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : 'nodata';
     r.resState = r.resMs ? (r.resMs <= resGoal ? 'in' : 'out') : 'nodata';
+    if (!respAt && r.resState === 'in' && r.resMs <= respGoal) {
+      r.respState = 'in';
+      r.respAtMs = r.resolvedAt || 0;
+      r.respMs = r.resMs;
+    }
   } else {
     r.resMs = 0;
     r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : (r.elapsedMs > respGoal ? 'overdue' : 'pending');

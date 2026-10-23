@@ -631,12 +631,26 @@ function admSlaRow(r) {
        bucket that used to swallow ~40% of all resolved work. */
     const resSpan = r.resolvedAt ? whSpanMs(r.createdMs, r.resolvedAt) : 0;
     r.resolvedMs = r.resMs = r.resolvedAt ? (resSpan || (r.resolvedAt - r.createdMs)) : 0;
-    /* settled with NO non-reporter reply visible: the reply happened in the
-       part of the thread the relay doesn't carry — Jira DID measure it
-       (hydrated later via admSlaApplyNative); until then it's honest
-       nodata, NOT 'out'. */
+    /* settled with NO non-reporter reply visible: the goal's stop list is
+       wide (Assignee changed · Comment for customers · Entered In Progress/
+       Work In Progress · Resolution Set) and most of those stops are NOT the
+       comment thread we hold. A settled task with a visible reply ⇒ in/out
+       from the comment; no visible reply ⇒ if the settlement was quick it's
+       covered by the resolution fallback BELOW; otherwise honest nodata,
+       NOT 'out' (native hydration lands later via admSlaApplyNative). */
     r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : 'nodata';
     r.resState = r.resMs ? (r.resMs <= resGoal ? 'in' : 'out') : 'nodata';
+    /* one of the response stops (Resolution Set / status walk to progress)
+       fires AT most right after the resolution stop moment — so when a task
+       settled within the response goal, first response couldn't have
+       breached either. Cover the tail of the nodata bucket with that bound:
+       settled fast ⇒ 'in'; settled slow ⇒ still honest nodata (the stop
+       could ALSO have fired early, we can't see it in the bulk payload). */
+    if (!respAt && r.resState === 'in' && r.resMs <= respGoal) {
+      r.respState = 'in';
+      r.respAtMs = r.resolvedAt || 0;
+      r.respMs = r.resMs;
+    }
   } else {
     /* still open: the working clock keeps running — past goal ⇒ overdue, else pending */
     r.resolvedMs = 0; r.resMs = 0;
