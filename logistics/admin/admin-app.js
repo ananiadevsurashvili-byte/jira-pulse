@@ -792,6 +792,12 @@ function admNormalize(data) {
     const attFiles = (Array.isArray(f.attachment) ? f.attachment : [])
       .map((a) => ({ filename: String(a?.filename || ''), mimeType: String(a?.mimeType || '') }))
       .filter((a) => a.filename);
+    /* ordered description media (media UUID + alt filename) — the detail
+       popup paints one slot per 📷 marker in the text and slots the
+       matching ?cmd=deskAttach attachment into each (mirrors the desk) */
+    const descMedia = Array.isArray(f.descMedia)
+      ? f.descMedia.map((m) => ({ id: String(m?.id || ''), alt: String(m?.alt || '') }))
+      : [];
     rows.push({
       key: it.key || '',
       href: JIRA_BASE + (it.key || ''),
@@ -807,6 +813,7 @@ function admNormalize(data) {
       descOne: descLines[0] || '',
       comments,
       attFiles,
+      descMedia,
       createdMs: Date.parse(f.created) || 0,
       updatedMs: Date.parse(f.updated) || 0,
       resolvedAt: resolved ? (realRdMs || Date.parse(f.updated) || Date.parse(f.created) || 0) : 0,
@@ -1851,9 +1858,7 @@ function admRenderCard() {
     </div>
     <div class="lg-card-section">
       <span class="lg-person-role">${escapeHtml(t('lg.descLabel') || 'Description')}</span>
-      <div class="lg-card-desc">${r.descFull
-        ? escapeHtml(r.descFull)
-        : `<span class="muted">${escapeHtml(t('lg.card.noDescription'))}</span>`}</div>
+      <div class="lg-card-desc" id="admCardDesc">${admPaintDescHtml(r.descFull)}</div>
     </div>
     <div class="lg-card-section lg-card-attach-section" hidden>
       <span class="lg-person-role">${escapeHtml(t('lg.card.attachments') || 'Attachments')}</span>
@@ -1874,6 +1879,48 @@ function admRenderCard() {
   };
   admLoadCardAttachments(r.key);
 }
+/* description text → esc'd text where every 📷 marker becomes an inline
+   image slot the matching attachment later sits inside (mirrors the desk's
+   lgPaintDescHtml). Empty descriptions keep the muted placeholder. */
+function admPaintDescHtml(descFull) {
+  if (!descFull) return `<span class="muted">${escapeHtml(t('lg.card.noDescription'))}</span>`;
+  let mi = -1;
+  return escapeHtml(descFull).replace(/📷/g, () => {
+    mi += 1;
+    return `<span class="jp-desc-media" data-desc-media="${mi}"></span>`;
+  });
+}
+
+/* slot the attachment whose mediaId/alt matches each description marker
+   into its slot — mediaId match first, filename fallback (this instance's
+   image attachments often carry an EMPTY mediaId). Safe from both async
+   arrival orders; slots already filled are skipped. */
+function admPlaceDescAttachments(body, r, attachments) {
+  const descEl = body.querySelector('#admCardDesc');
+  if (!descEl || !r?.descMedia?.length) return;
+  const slots = descEl.querySelectorAll('.jp-desc-media[data-desc-media]');
+  if (!slots.length) return;
+  const list = Array.isArray(attachments) && attachments.length
+    ? attachments
+    : (body._admAttMeta ? [...body._admAttMeta.values()] : []);
+  const byMedia = new Map();
+  const byFile = new Map();
+  for (const a of list) {
+    if (a.mediaId) byMedia.set(String(a.mediaId), a);
+    const fn = String(a.filename || '').trim().toLowerCase();
+    if (fn && !byFile.has(fn)) byFile.set(fn, a);
+  }
+  slots.forEach((slot) => {
+    if (slot.getAttribute('data-done') === '1') return;
+    const m = r.descMedia[Number(slot.getAttribute('data-desc-media'))] || null;
+    if (!m) return;
+    const att = byMedia.get(m.id) || byFile.get(String(m.alt || '').trim().toLowerCase()) || null;
+    if (!att || !admIsImageMime(att.mimeType, att.filename)) return;
+    slot.setAttribute('data-done', '1');
+    slot.insertAdjacentHTML('beforeend', admAttachThumbHtml(att));
+  });
+  admHydrateAttachImages(body);
+}
 async function admLoadCardAttachments(key) {
   const body = $('#admCardBody');
   const keyAtStart = adm.cardKey;
@@ -1888,6 +1935,9 @@ async function admLoadCardAttachments(key) {
       if (!slot) continue;
       slot.insertAdjacentHTML('beforeend', admAttachThumbHtml(att));
     }
+    /* description-embedded images: slot matching attachments into the
+       📷 markers painted into the description text */
+    admPlaceDescAttachments(body, admFindTask(key), attachments);
     const rest = attachments.filter((a) => a.commentIndex == null);
     const sec = body.querySelector('.lg-card-attach-section');
     const grid = body.querySelector('#admCardAttachGrid');

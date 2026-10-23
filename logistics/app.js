@@ -1174,6 +1174,12 @@ function lgNormalize(data) {
       .map((a) => ({ filename: String(a?.filename || ''), mimeType: String(a?.mimeType || '') }))
       .filter((a) => a.filename);
 
+    /* ordered description media (media UUID + alt filename) — the card
+       paints one slot per 📷 marker in the text and slots the matching
+       ?cmd=deskAttach attachment into each (mirrors root app's jpPlaceDescAttachments) */
+    const descMedia = Array.isArray(f.descMedia)
+      ? f.descMedia.map((m) => ({ id: String(m?.id || ''), alt: String(m?.alt || '') }))
+      : [];
     const num = parseInt(String(iss.key).split('-')[1], 10) || 0;
     /* pre-build the lowercase search haystack once per row — lgFiltered()
        used to rebuild this (descFull + all comment bodies) on every render
@@ -1198,6 +1204,7 @@ function lgNormalize(data) {
       direction,
       comments,
       attFiles,
+      descMedia,
       hay,
     });
     lgSlaRow(rows[rows.length - 1]);   /* SLA compute needs the final row shape */
@@ -1941,9 +1948,7 @@ function lgRenderCard() {
     </div>
     <div class="lg-card-section">
       <span class="lg-person-role" data-i18n="lg.descLabel">${escapeHtml(t('lg.descLabel') || 'Description')}</span>
-      <div class="lg-card-desc">${r.descFull
-        ? escapeHtml(r.descFull)
-        : `<span class="muted">${escapeHtml(t('lg.card.noDescription'))}</span>`}</div>
+      <div class="lg-card-desc" id="lgCardDesc">${lgPaintDescHtml(r.descFull)}</div>
     </div>
     <div class="lg-card-section lg-card-attach-section" hidden>
       <span class="lg-person-role" data-i18n="lg.card.attachments">${escapeHtml(t('lg.card.attachments') || 'Attachments')}</span>
@@ -1958,6 +1963,49 @@ function lgRenderCard() {
      exactly this issue) — comments' inline images land under their own
      comment; everything else appears in the Attachments section */
   lgLoadCardAttachments(r.key);
+}
+
+/* description text → esc'd text where every 📷 marker becomes an inline
+   image slot the matching attachment later sits inside (mirrors root
+   app's jpPaintDesc). Empty descriptions keep the muted placeholder. */
+function lgPaintDescHtml(descFull) {
+  if (!descFull) return `<span class="muted">${escapeHtml(t('lg.card.noDescription'))}</span>`;
+  let mi = -1;
+  return escapeHtml(descFull).replace(/📷/g, () => {
+    mi += 1;
+    return `<span class="jp-desc-media" data-desc-media="${mi}"></span>`;
+  });
+}
+
+/* slot the attachment whose mediaId/alt matches each description marker
+   into its slot — mediaId match first, filename fallback (this instance's
+   image attachments often carry an EMPTY mediaId). Safe to call from both
+   async arrival orders; slots already filled are skipped. */
+function lgPlaceDescAttachments(body, r, attachments) {
+  const descEl = body.querySelector('#lgCardDesc');
+  if (!descEl || !r?.descMedia?.length) return;
+  const slots = descEl.querySelectorAll('.jp-desc-media[data-desc-media]');
+  if (!slots.length) return;
+  const list = Array.isArray(attachments) && attachments.length
+    ? attachments
+    : (body._lgAttMeta ? [...body._lgAttMeta.values()] : []);
+  const byMedia = new Map();
+  const byFile = new Map();
+  for (const a of list) {
+    if (a.mediaId) byMedia.set(String(a.mediaId), a);
+    const fn = String(a.filename || '').trim().toLowerCase();
+    if (fn && !byFile.has(fn)) byFile.set(fn, a);
+  }
+  slots.forEach((slot) => {
+    if (slot.getAttribute('data-done') === '1') return;
+    const m = r.descMedia[Number(slot.getAttribute('data-desc-media'))] || null;
+    if (!m) return;
+    const att = byMedia.get(m.id) || byFile.get(String(m.alt || '').trim().toLowerCase()) || null;
+    if (!att || !lgIsImageMime(att.mimeType, att.filename)) return;
+    slot.setAttribute('data-done', '1');
+    slot.insertAdjacentHTML('beforeend', lgAttachThumbHtml(att));
+  });
+  lgHydrateAttachImages(body);
 }
 
 /* fill the card's attachment sections (called async after lgRenderCard) */
@@ -1980,7 +2028,11 @@ async function lgLoadCardAttachments(key) {
       slot.insertAdjacentHTML('beforeend', lgAttachThumbHtml(att));
     }
 
-    /* 2) everything else (files + non-comment images) into the Attachments grid */
+    /* 2) description-embedded images: slot matching attachments into the
+       📷 markers painted into the description text */
+    lgPlaceDescAttachments(body, lgFindTask(key), attachments);
+
+    /* 3) everything else (files + non-comment images) into the Attachments grid */
     const rest = attachments.filter((a) => a.commentIndex == null);
     const sec = body.querySelector('.lg-card-attach-section');
     const grid = body.querySelector('#lgCardAttachGrid');
@@ -1989,7 +2041,7 @@ async function lgLoadCardAttachments(key) {
       grid.innerHTML = rest.map(lgAttachThumbHtml).join('');
     }
 
-    /* 3) hydrate image thumbnails (fetch binaries via CORS proxy → blob) */
+    /* 4) hydrate image thumbnails (fetch binaries via CORS proxy → blob) */
     lgHydrateAttachImages(body);
   } catch (_) {
     /* attachments are optional garnish — a failed fetch leaves the card clean */
