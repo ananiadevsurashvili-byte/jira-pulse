@@ -1220,14 +1220,26 @@ function lgNormalize(data) {
 
     /* comments come pre-slimmed from the relay: last 3, plain-text bodies;
        idx = the comment's position in Jira's FULL list (comment attachments
-       from ?cmd=deskAttach are anchored against this full-list index) */
+       from ?cmd=deskAttach are anchored against this full-list index).
+       📷 markers are carried in `media` and stripped from the body — the
+       paired attachment renders as a chip/thumb in the comment's slot, so
+       the raw emoji must never show (this instance often QUEUES inline
+       media with an EMPTY ADF alt AND an empty attachment mediaId, which
+       the relay's exact matcher can't link) */
     const rawComments = Array.isArray(f.comment) ? f.comment : [];
-    const comments = rawComments.map((c) => ({
-      author: String(c?.author || ''),
-      created: c?.created ? Date.parse(c.created) : 0,
-      body: String(c?.body || '').replace(/\r/g, '').trim(),
-      _idx: typeof c.idx === 'number' ? c.idx : null,
-    })).filter((c) => c.body);
+    const comments = rawComments.map((c) => {
+      const media = Array.isArray(c?.media)
+        ? c.media.map((m) => ({ id: String(m?.id || ''), alt: String(m?.alt || '') }))
+        : [];
+      const body = String(c?.body || '').replace(/\r/g, '').replace(/\s*📷\s*/g, ' ').trim();
+      return {
+        author: String(c?.author || ''),
+        created: c?.created ? Date.parse(c.created) : 0,
+        body,
+        _idx: typeof c.idx === 'number' ? c.idx : null,
+        media,
+      };
+    }).filter((c) => c.body || c.media.length);
 
     /* attachment presence (filename + mime only, no binaries — the relay
        sends them in the bulk payload just for the 📎 badge on table rows) */
@@ -1877,7 +1889,8 @@ function lgAttachProxyUrl(contentUrl) {
 
 function lgIsImageMime(mime, filename) {
   if (/^image\//i.test(mime || '')) return true;
-  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(filename || '');
+  /* broader raster list — Jira clients paste tiff/heic/avif screenshots too */
+  return /\.(png|jpe?g|gif|webp|bmp|svg|tiff?|avif|heic|heif|ico)$/i.test(filename || '');
 }
 
 function lgFmtBytes(n) {
@@ -2189,6 +2202,7 @@ function lgPlaceDescAttachments(body, r, attachments) {
   const list = Array.isArray(attachments) && attachments.length
     ? attachments
     : (body._lgAttMeta ? [...body._lgAttMeta.values()] : []);
+  const claimedSet = new Set();   /* attachments already slotted here */
   const byMedia = new Map();
   const byFile = new Map();
   for (const a of list) {
@@ -2200,8 +2214,20 @@ function lgPlaceDescAttachments(body, r, attachments) {
     if (slot.getAttribute('data-done') === '1') return;
     const m = r.descMedia[Number(slot.getAttribute('data-desc-media'))] || null;
     if (!m) return;
-    const att = byMedia.get(m.id) || byFile.get(String(m.alt || '').trim().toLowerCase()) || null;
+    let att = byMedia.get(m.id) || byFile.get(String(m.alt || '').trim().toLowerCase()) || null;
+    /* empty-mediaId + empty-alt fallback: when the slot's media node is
+       blank on BOTH signals, the attachment can't be identified exactly —
+       but an image attachment with NO commentIndex of its own is almost
+       always the pasted media for it (comment media was already paired
+       above). Claim the first still-unclaimed image for this slot. */
+    if (!att && !m.id && !m.alt) {
+      att = list.find((a) => !claimedSet.has(String(a.id)) &&
+        (a.commentIndex == null || a.commentIndex === -1) &&
+        lgIsImageMime(a.mimeType, a.filename)) || null;
+    }
     if (!att || !lgIsImageMime(att.mimeType, att.filename)) return;
+    if (claimedSet.has(String(att.id)) && !(!m.id && !m.alt)) return;
+    claimedSet.add(String(att.id));
     slot.setAttribute('data-done', '1');
     slot.insertAdjacentHTML('beforeend', lgAttachThumbHtml(att));
   });
@@ -2228,12 +2254,39 @@ async function lgLoadCardAttachments(key) {
       slot.insertAdjacentHTML('beforeend', lgAttachThumbHtml(att));
     }
 
-    /* 2) description-embedded images: slot matching attachments into the
-       📷 markers painted into the description text */
-    lgPlaceDescAttachments(body, lgFindTask(key), attachments);
+    /* 2) LEFTOVER PAIRING — this Jira instance often queues inline media
+       with an EMPTY ADF alt AND an empty attachment mediaId, so the relay's
+       exact matcher can never link them (the 📷 marker would stay raw and
+       the pasted file would only show in the Attachments grid). Fallback:
+       an inline paste's attachment lands in Jira at the SAME moment as its
+       comment, so pair each unclaimed attachment to the nearest comment by
+       |created distance| (≤60s). Works for images AND inline PDFs. Runs
+       BEFORE the description pass so desc slots can't steal comment media. */
+    const r = lgFindTask(key);
+    const claimed = new Set(inComments.map((a) => String(a.id)));
+    const comments = r?.comments || [];
+    const leftovers = attachments.filter((a) => a.commentIndex == null && !claimed.has(String(a.id)));
+    for (const att of leftovers) {
+      const t = Date.parse(att.created) || 0;
+      if (!t) continue;
+      let best = null, bestDiff = Infinity;
+      for (const c of comments) {
+        const d = Math.abs((c.created || 0) - t);
+        if (d < bestDiff) { bestDiff = d; best = c; }
+      }
+      if (!best || bestDiff > 60_000) continue;
+      const slot = body.querySelector(`.lg-card-comment-attach[data-comment-idx="${best._idx}"]`);
+      if (!slot) continue;
+      claimed.add(String(att.id));
+      slot.insertAdjacentHTML('beforeend', lgAttachThumbHtml(att));
+    }
 
-    /* 3) everything else (files + non-comment images) into the Attachments grid */
-    const rest = attachments.filter((a) => a.commentIndex == null);
+    /* 3) description-embedded images: slot matching attachments into the
+       📷 markers painted into the description text */
+    lgPlaceDescAttachments(body, r, attachments);
+
+    /* 4) everything else (files + non-comment images) into the Attachments grid */
+    const rest = attachments.filter((a) => !claimed.has(String(a.id)));
     const sec = body.querySelector('.lg-card-attach-section');
     const grid = body.querySelector('#lgCardAttachGrid');
     if (rest.length && sec && grid) {
