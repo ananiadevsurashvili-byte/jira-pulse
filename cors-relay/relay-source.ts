@@ -1107,6 +1107,15 @@ async function handleDeskSlaCmd(u: URL, request: Request): Promise<Response> {
     'User-Agent': 'JiraPulse-Relay/1.0',
   };
 
+  /* MERGE both sources instead of "first that works wins": on this Jira
+     instance the /search + /issue GET NEVER carry "Time to first response"
+     (the field comes back empty for all 5,496 LOG requests) — the settled
+     response cycles only surface through the servicedeskapi endpoint. So
+     take resolution from the issue field and response from the SDE API,
+     whichever each source can supply. */
+  let best: { resp: DeskSlaAspect; res: DeskSlaAspect } | null = null;
+  let source = 'none';
+
   /* 1st: /issue with names expansion → get ALL SLA custom fields. */
   try {
     const r1 = await fetch(base + '/rest/api/3/issue/' + encodeURIComponent(key) +
@@ -1114,8 +1123,9 @@ async function handleDeskSlaCmd(u: URL, request: Request): Promise<Response> {
     if (r1.ok) {
       const issue = await r1.json();
       const aspects = deskSlaAspectsFromIssue(issue);
-      if (aspects) {
-        return json({ ok: true, cmd: 'deskSla', key, sla: { ...aspects, source: 'issue-field' } });
+      if (aspects && (aspects.resp || aspects.res)) {
+        best = { resp: aspects.resp, res: aspects.res };
+        source = 'issue-field';
       }
     }
   } catch { /* fall through to SDE API */ }
@@ -1128,11 +1138,18 @@ async function handleDeskSlaCmd(u: URL, request: Request): Promise<Response> {
     if (r2.ok) {
       const j = await r2.json();
       const aspects = deskSlaFromSde(j?.values);
-      if (aspects) {
-        return json({ ok: true, cmd: 'deskSla', key, sla: { ...aspects, source: 'sde-api' } });
+      if (aspects && (aspects.resp || aspects.res)) {
+        best = best
+          ? { resp: best.resp || aspects.resp, res: best.res || aspects.res }
+          : { resp: aspects.resp, res: aspects.res };
+        source = source === 'issue-field' ? 'issue-field+sde-api' : 'sde-api';
       }
     }
   } catch { /* fall through to the none response */ }
+
+  if (best && (best.resp || best.res)) {
+    return json({ ok: true, cmd: 'deskSla', key, sla: { ...best, source } });
+  }
 
   return json({ ok: true, cmd: 'deskSla', key, sla: { resp: null, res: null, source: 'none' } });
 }

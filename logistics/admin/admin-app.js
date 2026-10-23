@@ -864,6 +864,11 @@ function admNormalize(data) {
     if (it.fields && (it.fields.sla || it.fields.slaRes)) {
       admSlaApplyNative(row, { resp: it.fields.sla || null, res: it.fields.slaRes || null });
       delete row._natResp; delete row._natRes;
+      /* bulk native is PARTIAL: Jira's search/o-issue GET never carries the
+         first-response cycles on this instance (only servicedeskapi does) —
+         mark the row so admSlaQueueMissing still queues it for the full
+         per-issue fetch. Cleared by admSlaPump once hydration lands. */
+      row.slaBulk = true;
     }
   }
   return rows;
@@ -1829,7 +1834,7 @@ function admSlaQueueMissing(keys) {
   for (const key of keys) {
     if (_admSlaCache.has(key) || _admSlaTried.has(key) || _admSlaInFlight.has(key)) continue;
     const r = admFindTask(key);
-    if (!r || r.slaNative) continue;
+    if (!r || (r.slaNative && !r.slaBulk)) continue;
     _admSlaQueue.push(key);
   }
   if (_admSlaQueue.length && !_admSlaTimer) {
@@ -1848,6 +1853,7 @@ function admSlaPump() {
       const r = admFindTask(key);
       if (!r) return;
       admSlaApplyNative(r, sla);
+      r.slaBulk = false;         /* fully hydrated — skip next time */
       admRepaintRowSla(key);
       /* open popup shows exact settled times once the SLA lands */
       if (adm.cardKey === key) admRenderCard();

@@ -1257,10 +1257,10 @@ function lgNormalize(data) {
     /* Jira's OWN SLA cycles ship in the bulk payload now — apply them right
        after the approximation so list chips, filters and stats card all come
        from the same verdicts the agent view shows (completed aspects only;
-       open tasks keep the live working clock). Re-fetch per row is then only
-       needed when Jira holds NO cycles in the payload. */
+       open tasks keep the live working clock). */
     if (f.sla || f.slaRes) {
       lgSlaApplyNative(rows[rows.length - 1], { resp: f.sla || null, res: f.slaRes || null });
+      rows[rows.length - 1].slaBulk = true;
     }
   }
   return rows;
@@ -1936,7 +1936,7 @@ function lgSlaQueueMissing(keys) {
   for (const key of keys) {
     if (_lgSlaCache.has(key) || _lgSlaTried.has(key) || _lgSlaInFlight.has(key)) continue;
     const r = lgFindTask(key);
-    if (!r || r.slaNative) continue;
+    if (!r || (r.slaNative && !r.slaBulk)) continue;
     _lgSlaQueue.push(key);
   }
   if (_lgSlaQueue.length && !_lgSlaTimer) {
@@ -1955,6 +1955,7 @@ function lgSlaPump() {
       const r = lgFindTask(key);
       if (!r) return;
       lgSlaApplyNative(r, sla);
+      r.slaBulk = false;         /* fully hydrated — skip next time */
       r._h = undefined;          /* force lgRowHtml to rebuild this row */
       lgRepaintRow(key);
       /* open card shows exact settled times once the SLA lands */
