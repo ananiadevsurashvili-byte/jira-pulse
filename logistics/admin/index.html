@@ -159,12 +159,12 @@
         </span>
         <button id="admSlaSaveBtn" class="btn btn-ghost" type="button" data-i18n="adm.sla.save">Save goals</button>
       </div>
-      <p class="muted small" style="margin:0 0 10px" data-i18n="adm.sla.legend">Dashed line = SLA goal · green = inside SLA, red = out of SLA</p>
+      <p class="muted small" style="margin:0 0 10px" data-i18n="adm.sla.schedule">Working clock ticks Mon–Fri, 02:00–10:00 (Tbilisi) · goals are WORKING hours, not calendar hours</p>
       <div class="adm-chart-grid">
-        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.sla.respKpi">First response · in SLA</h4><select class="input tl-select adm-ch-period" data-ch-period="chSlaResp" title="Period"></select></div><canvas id="chSlaResp" height="220"></canvas></div>
-        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.sla.resKpi">Resolution · in SLA</h4><select class="input tl-select adm-ch-period" data-ch-period="chSlaRes" title="Period"></select></div><canvas id="chSlaRes" height="220"></canvas></div>
-        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.sla.respKpi">First response · in SLA</h4><select class="input tl-select adm-ch-period" data-ch-period="chSlaRespHist" title="Period"></select></div><canvas id="chSlaRespHist" height="220"></canvas></div>
-        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.sla.resKpi">Resolution · in SLA</h4><select class="input tl-select adm-ch-period" data-ch-period="chSlaResHist" title="Period"></select></div><canvas id="chSlaResHist" height="220"></canvas></div>
+        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.sla.respKpi">First response · SLA status</h4><select class="input tl-select adm-ch-period" data-ch-period="chSlaResp" title="Period"></select></div><canvas id="chSlaResp" height="220"></canvas></div>
+        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.sla.resKpi">Resolution · SLA status</h4><select class="input tl-select adm-ch-period" data-ch-period="chSlaRes" title="Period"></select></div><canvas id="chSlaRes" height="220"></canvas></div>
+        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.sla.respHist">First response · how fast replies came</h4><select class="input tl-select adm-ch-period" data-ch-period="chSlaRespHist" title="Period"></select></div><canvas id="chSlaRespHist" height="220"></canvas></div>
+        <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.sla.resHist">Resolution · how long tasks took</h4><select class="input tl-select adm-ch-period" data-ch-period="chSlaResHist" title="Period"></select></div><canvas id="chSlaResHist" height="220"></canvas></div>
         <div class="adm-chart-card"><div class="adm-ch-head"><h4 data-i18n="adm.sla.respBreaches">First-response breaches</h4><select class="input tl-select adm-ch-period" data-ch-period="chSlaDir" title="Period"></select></div><canvas id="chSlaDir" height="260"></canvas></div>
       </div>
     </div>
@@ -262,6 +262,6 @@
   </div>
 </div>
 
-<script src="admin-app.js?v=13"></script>
+<script src="admin-app.js?v=14"></script>
 </body>
 </html>

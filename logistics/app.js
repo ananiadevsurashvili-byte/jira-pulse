@@ -1077,16 +1077,37 @@ function lgSlaChip(state, val, title) {
   return `<span class="lg-st-badge ${cls}" title="${escapeHtml(title)}">${escapeHtml(val)}</span>`;
 }
 
+/* ═══ SLA WORKING-HOURS CLOCK (mirrors admin-app: Mon–Fri 02:00–10:00 Tbilisi) ═══
+   Goals are WORKING hours; Georgia is UTC+4 year-round so the measurement
+   uses shifted integer math — the viewer's local zone can never skew it. */
+const LG_SLA_TZ_OFF = 4 * 3600e3, LG_SLA_WIN_START = 2 * 3600e3, LG_SLA_WIN_END = 10 * 3600e3;
+function lgsWhSpanMs(fromMs, toMs) {
+  if (!(toMs > fromMs)) return 0;
+  const a = fromMs + LG_SLA_TZ_OFF, b = toMs + LG_SLA_TZ_OFF;
+  const aD = Math.floor(a / 864e5), bD = Math.floor(b / 864e5);
+  let total = 0;
+  for (let d = aD; d <= bD; d++) {
+    const wd = (d + 4) % 7;             /* 1970-01-01 was Thursday → 0=Sun */
+    if (wd === 0 || wd === 6) continue; /* Sat/Sun — clock paused */
+    const day0 = d * 864e5;
+    const lo = Math.max(a, day0 + LG_SLA_WIN_START);
+    const hi = Math.min(b, day0 + LG_SLA_WIN_END);
+    if (hi > lo) total += hi - lo;
+  }
+  return total;
+}
+
 /* SLA state per row — called from lgNormalize AFTER each row is built.
    First response = earliest REAL comment we hold by someone other than the
    reporter (the relay keeps only the last 10 comments, so a long silent
    thread can be missing its first reply — we use what we have; if nothing
-   qualifies the aspect is 'nodata'). Resolution = created → resolved.
-   Open tasks get a live elapsed clock: 'pending' while inside the goal,
+   qualifies the aspect is 'nodata'). Resolution = created → resolved,
+   measured in WORKING hours (clock ticks Mon–Fri 02:00–10:00 Tbilisi).
+   Open tasks get a live working clock: 'pending' inside the goal,
    'overdue' once past it. */
 function lgSlaRow(r) {
   const g = lgState.slaGoals || { respHours: 2, resHours: 30 };
-  const respGoal = (g.respHours || 2) * 3600e3;
+  const respGoal = (g.respHours || 2) * 3600e3;   /* working-ms */
   const resGoal = (g.resHours || 30) * 3600e3;
   const now = Date.now();
   const rep = (r.reporter || '').toLowerCase().trim();
@@ -1096,10 +1117,10 @@ function lgSlaRow(r) {
     if (c.created && (rep ? (au && au !== rep) : !!au)) { respAt = c.created; break; }
   }
   r.respAtMs = respAt || 0;
-  r.respMs = respAt ? respAt - r.created : 0;
-  r.elapsedMs = Math.max(0, now - r.created);
+  r.respMs = respAt ? lgsWhSpanMs(r.created, respAt) : 0;
+  r.elapsedMs = lgsWhSpanMs(r.created, now);
   if (r.resolvedAt) {
-    r.resMs = r.resolvedAt - r.created;
+    r.resMs = lgsWhSpanMs(r.created, r.resolvedAt);
     r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : 'nodata';
     r.resState = r.resMs ? (r.resMs <= resGoal ? 'in' : 'out') : 'nodata';
   } else {
@@ -1115,11 +1136,11 @@ function lgSlaCellHtml(r) {
   const g = lgState.slaGoals || { respHours: 2, resHours: 30 };
   const resp = r.respState === 'nodata' || !r.respAtMs
     ? lgSlaChip('nodata', '–', t('lg.sla.nodata'))
-    : lgSlaChip(r.respState, lgFmtSla(r.respMs), t('lg.sla.respTitle') + ': ' + lgFmtSla(r.respMs) + ' / ' + (g.respHours || 2) + 'h');
+    : lgSlaChip(r.respState, lgFmtSla(r.respMs), t('lg.sla.respTitle') + ': ' + lgFmtSla(r.respMs) + ' / ' + (g.respHours || 2) + ' working h');
   const res = r.resState === 'pending' || r.resState === 'overdue'
     ? lgSlaChip(r.resState, lgFmtSla(r.elapsedMs) + ' /', t('lg.sla.resRunning') + ' ' + lgFmtSla(r.elapsedMs))
     : r.resMs > 0
-      ? lgSlaChip(r.resState, lgFmtSla(r.resMs), t('lg.sla.resTitle') + ': ' + lgFmtSla(r.resMs) + ' / ' + (g.resHours || 30) + 'h')
+      ? lgSlaChip(r.resState, lgFmtSla(r.resMs), t('lg.sla.resTitle') + ': ' + lgFmtSla(r.resMs) + ' / ' + (g.resHours || 30) + ' working h')
       : lgSlaChip('nodata', '–', t('lg.sla.nodata'));
   return `<div class="lg-mini-row">${resp} ${res}</div>`;
 }

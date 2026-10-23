@@ -135,20 +135,23 @@ const I18N = {
     'auth.googleFail': 'Google sign-in failed', 'auth.adminOnly': 'This page is restricted to administrator accounts',
     'auth.googleFailed': 'Google sign-in failed · only @{d} accounts can access the admin',
     /* ── SLA (logistics service desk) ── */
-    'adm.sla.title': 'SLA · first response & resolution',
+    'adm.sla.title': 'SLA · first response & resolution (working hours)',
     'adm.sla.goals': 'SLA goals',
-    'adm.sla.respGoal': 'First response within (h)',
-    'adm.sla.resGoal': 'Resolution within (h)',
+    'adm.sla.respGoal': 'First response within (working h)',
+    'adm.sla.resGoal': 'Resolution within (working h)',
     'adm.sla.save': 'Save goals',
     'adm.sla.saving': 'Saving…',
-    'adm.sla.saved': 'SLA goals saved: first response {rh}h · resolution {sh}h',
+    'adm.sla.saved': 'SLA goals saved: first response {rh} working h · resolution {sh} working h',
     'adm.sla.saveFail': 'Could not save SLA goals:',
     'adm.sla.invalid': 'SLA goals must be positive hours',
     'adm.sla.legend': 'Dashed line = SLA goal · green = inside SLA, red = out of SLA',
-    'adm.sla.respKpi': 'First response · in SLA',
-    'adm.sla.resKpi': 'Resolution · in SLA',
-    'adm.sla.medRespSub': 'median {t} · {n} tasks with first reply',
-    'adm.sla.medResSub': 'median {t} · {n} tasks resolved',
+    'adm.sla.schedule': 'Working clock ticks Mon–Fri, 02:00–10:00 (Tbilisi) · goals are WORKING hours, not calendar hours',
+    'adm.sla.respKpi': 'First response · SLA status',
+    'adm.sla.resKpi': 'Resolution · SLA status',
+    'adm.sla.respHist': 'First response · how fast replies came',
+    'adm.sla.resHist': 'Resolution · how long tasks took',
+    'adm.sla.medRespSub': 'median {t} working · {n} tasks with first reply',
+    'adm.sla.medResSub': 'median {t} working · {n} tasks resolved',
     'adm.sla.nodataSub': 'no measured tasks in period',
     'adm.sla.inSla': 'In SLA', 'adm.sla.outSla': 'Out of SLA',
     'adm.sla.pending': 'Waiting (within goal)', 'adm.sla.overdue': 'Overdue (past goal)',
@@ -157,8 +160,12 @@ const I18N = {
     'adm.sla.resBreaches': 'Resolution breaches',
     'adm.sla.respTitle': 'First response', 'adm.sla.resTitle': 'Resolution',
     'adm.sla.resRunning': 'Still open · elapsed',
-    'adm.sla.dl.slaResp': 'First response · met SLA', 'adm.sla.dl.slaRes': 'Resolution · met SLA',
-    'adm.sla.dl.slaRespOut': 'First response · breached', 'adm.sla.dl.slaResOut': 'Resolution · breached'
+    'adm.sla.dl.slaResp': 'First response · measured (met + breached)', 'adm.sla.dl.slaRes': 'Resolution · measured (met + breached)',
+    'adm.sla.dl.slaRespIn': 'First response · in SLA', 'adm.sla.dl.slaResIn': 'Resolution · in SLA',
+    'adm.sla.dl.slaRespOut': 'First response · breached', 'adm.sla.dl.slaResOut': 'Resolution · breached',
+    'adm.sla.dl.slaRespPending': 'First response · still waiting (within goal)', 'adm.sla.dl.slaResPending': 'Resolution · still waiting (within goal)',
+    'adm.sla.dl.slaRespOverdue': 'First response · overdue (past goal)', 'adm.sla.dl.slaResOverdue': 'Resolution · overdue (past goal)',
+    'adm.sla.dl.slaRespNodata': 'First response · no reply data', 'adm.sla.dl.slaResNodata': 'Resolution · no data'
   },
   ka: {
     'lg.toMain': 'ლოგისტიკის მაგიდაზე', 'lg.footer': 'JiraPulse · ლოგისტიკის ადმინი — ცოცხალი მონაცემები, მხოლოდ ადმინისთვის',
@@ -209,18 +216,21 @@ const I18N = {
     'adm.ch.period': 'პერიოდი', 'adm.ch.periodMaster': 'ძირითადი პერიოდი',
     'adm.count.n': '{n} დავალება', 'adm.count.loading': 'იტვირთება…', 'adm.fetched': 'განახლდა {t}',
     /* ── SLA (logistics service desk) ── */
-    'adm.sla.title': 'SLA · პირველი პასუხი და გადაწყვეტა',
+    'adm.sla.title': 'SLA · პირველი პასუხი და გადაწყვეტა (სამუშაო საათები)',
     'adm.sla.goals': 'SLA მიზნები',
-    'adm.sla.respGoal': 'პირველი პასუხი (სთ)', 'adm.sla.resGoal': 'გადაწყვეტა (სთ)',
+    'adm.sla.respGoal': 'პირველი პასუხი (სამუშაო სთ)', 'adm.sla.resGoal': 'გადაწყვეტა (სამუშაო სთ)',
     'adm.sla.save': 'მიზნების შენახვა', 'adm.sla.saving': 'ინახება…',
-    'adm.sla.saved': 'SLA მიზნები შენახულია: პირველი პასუხი {rh}სთ · გადაწყვეტა {sh}სთ',
+    'adm.sla.saved': 'SLA მიზნები შენახულია: პირველი პასუხი {rh} სამუშაო სთ · გადაწყვეტა {sh} სამუშაო სთ',
     'adm.sla.saveFail': 'SLA მიზნების შენახვა ვერ მოხდა:',
     'adm.sla.invalid': 'SLA მიზნები უნდა იყოს დადებითი საათები',
     'adm.sla.legend': 'ტაშტირებული ხაზი = SLA მიზანი · მწვანე = SLA-ში, წითელი = SLA-გარე',
-    'adm.sla.respKpi': 'პირველი პასუხი · SLA-ში',
-    'adm.sla.resKpi': 'გადაწყვეტა · SLA-ში',
-    'adm.sla.medRespSub': 'მედიანა {t} · {n} დავალება პასუხით',
-    'adm.sla.medResSub': 'მედიანა {t} · {n} გადაწყვეტილი დავალება',
+    'adm.sla.schedule': 'სამუშაო საათი ითვლება ორშ–პარ, 02:00–10:00 (თბილისი) · მიზნები სამუშაო საათებშია, არა კალენდარულში',
+    'adm.sla.respKpi': 'პირველი პასუხი · SLA სტატუსი',
+    'adm.sla.resKpi': 'გადაწყვეტა · SLA სტატუსი',
+    'adm.sla.respHist': 'პირველი პასუხი · რამდენად სწრაფად მოვიდა',
+    'adm.sla.resHist': 'გადაწყვეტა · რამდენ ხანში გადაიწყდა',
+    'adm.sla.medRespSub': 'მედიანა {t} სამუშაო · {n} დავალება პასუხით',
+    'adm.sla.medResSub': 'მედიანა {t} სამუშაო · {n} გადაწყვეტილი დავალება',
     'adm.sla.nodataSub': 'გაზომილი დავალება პერიოდში არ არის',
     'adm.sla.inSla': 'SLA-ში', 'adm.sla.outSla': 'SLA-გარე',
     'adm.sla.pending': 'ლოდინში (მიზანში)', 'adm.sla.overdue': 'ვადაგადაცილებული',
@@ -229,8 +239,12 @@ const I18N = {
     'adm.sla.resBreaches': 'გადაწყვეტის დარღვევები',
     'adm.sla.respTitle': 'პირველი პასუხი', 'adm.sla.resTitle': 'გადაწყვეტა',
     'adm.sla.resRunning': 'ღიაა · გასული',
-    'adm.sla.dl.slaResp': 'პირველი პასუხი · SLA-ში', 'adm.sla.dl.slaRes': 'გადაწყვეტა · SLA-ში',
+    'adm.sla.dl.slaResp': 'პირველი პასუხი · გაზომილი (შესრულ. + დარღვეული)', 'adm.sla.dl.slaRes': 'გადაწყვეტა · გაზომილი (შესრულ. + დარღვეული)',
+    'adm.sla.dl.slaRespIn': 'პირველი პასუხი · SLA-ში', 'adm.sla.dl.slaResIn': 'გადაწყვეტა · SLA-ში',
     'adm.sla.dl.slaRespOut': 'პირველი პასუხი · დარღვეული', 'adm.sla.dl.slaResOut': 'გადაწყვეტა · დარღვეული',
+    'adm.sla.dl.slaRespPending': 'პირველი პასუხი · ლოდინში (მიზანში)', 'adm.sla.dl.slaResPending': 'გადაწყვეტა · ლოდინში (მიზანში)',
+    'adm.sla.dl.slaRespOverdue': 'პირველი პასუხი · ვადაგადაცილებული', 'adm.sla.dl.slaResOverdue': 'გადაწყვეტა · ვადაგადაცილებული',
+    'adm.sla.dl.slaRespNodata': 'პირველი პასუხი · მონაცემი არ არის', 'adm.sla.dl.slaResNodata': 'გადაწყვეტა · მონაცემი არ არის',
     'settings.email': 'ელფოსტა',
     'theme.title': 'თემის შეცვლა', 'theme.dark': 'მუქი თემა', 'theme.light': 'ღია თემა',
     'pub.google': 'Google-ით შესვლა', 'pub.orEmail': '— ან იმეილით —', 'pub.emailPh': 'you@caucasusauto.com',
@@ -514,16 +528,44 @@ async function admSaveSlaGoals(rh, sh) {
   try { localStorage.setItem(LS_ADM_SLA_GOALS, JSON.stringify(adm.slaGoals)); } catch (e) {}
   return adm.slaGoals;
 }
+/* ═══ SLA WORKING-HOURS CLOCK ═══
+   The service desk's SLA goals are WORKING hours (first response 2h,
+   resolution 30h) and the clock ticks Mon–Fri 02:00–10:00 Tbilisi time.
+   Georgia is UTC+4 year-round (no DST), so all measurements are done in
+   shifted integer math (ms + 4h then treated as UTC) — the viewer's own
+   local timezone can never skew the result. */
+const SLA_TZ_OFF = 4 * 3600e3;        /* Tbilisi = UTC+4 */
+const SLA_WIN_START = 2 * 3600e3;     /* working window opens 02:00 */
+const SLA_WIN_END = 10 * 3600e3;      /* working window closes 10:00 */
+/* how much of the wall-clock span [fromMs, toMs] falls INSIDE the working
+   schedule Mon–Fri 02:00–10:00 (Tbilisi). Pure integer math — walks the
+   shifted calendar day-by-day, 8 working hours per weekday. */
+function whSpanMs(fromMs, toMs) {
+  if (!(toMs > fromMs)) return 0;
+  const a = fromMs + SLA_TZ_OFF, b = toMs + SLA_TZ_OFF;
+  const aD = Math.floor(a / 864e5), bD = Math.floor(b / 864e5);
+  let total = 0;
+  for (let d = aD; d <= bD; d++) {
+    const wd = (d + 4) % 7;                 /* 1970-01-01 was a Thursday → 0=Sun */
+    if (wd === 0 || wd === 6) continue;     /* Sat/Sun — clock paused */
+    const day0 = d * 864e5;
+    const lo = Math.max(a, day0 + SLA_WIN_START);
+    const hi = Math.min(b, day0 + SLA_WIN_END);
+    if (hi > lo) total += hi - lo;
+  }
+  return total;
+}
 /* SLA state per row — called from admNormalize AFTER each row is built.
    First response = earliest REAL comment we hold by someone other than the
    reporter. NOTE: the relay ships only the last 10 public comments per issue,
    so on long threads the agent's true first reply is missing — we then have
    no reliable first-response figure and mark the row 'nodata' for response
    (an approximation there would invent SLA breaches). Resolution = created →
-   resolutiondate/last-update, same fallbacks as the resolution-time metrics. */
+   resolutiondate/last-update, measured in WORKING hours. Open tasks keep a
+   live working-clock: 'pending' while inside the goal, 'overdue' past it. */
 function admSlaRow(r) {
   const g = adm.slaGoals || SLA_DEFAULT_GOALS;
-  const respGoal = (g.respHours || 2) * 3600e3;
+  const respGoal = (g.respHours || 2) * 3600e3;   /* working-ms */
   const resGoal = (g.resHours || 30) * 3600e3;
   const now = Date.now();
   const rep = (r.reportName || '').toLowerCase().trim();
@@ -533,21 +575,21 @@ function admSlaRow(r) {
     if (c.created && (rep ? (au && au !== rep) : !!au)) { respAt = c.created; break; }
   }
   r.respAtMs = respAt || 0;
-  r.respMs = respAt ? respAt - r.createdMs : 0;
-  r.elapsedMs = Math.max(0, now - r.createdMs);
+  r.respMs = respAt ? whSpanMs(r.createdMs, respAt) : 0;
+  r.elapsedMs = whSpanMs(r.createdMs, now);
   if (r.resolved) {
-    r.resolvedMs = r.resMs = r.resolvedAt ? r.resolvedAt - r.createdMs : 0;
+    r.resolvedMs = r.resMs = r.resolvedAt ? whSpanMs(r.createdMs, r.resolvedAt) : 0;
     r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : 'nodata';
     r.resState = r.resMs ? (r.resMs <= resGoal ? 'in' : 'out') : 'nodata';
   } else {
-    /* still open: the clock keeps running — past goal ⇒ overdue (red), otherwise pending */
+    /* still open: the working clock keeps running — past goal ⇒ overdue, else pending */
     r.resolvedMs = 0; r.resMs = 0;
     r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : (r.elapsedMs > respGoal ? 'overdue' : 'pending');
     r.resState = r.elapsedMs > resGoal ? 'overdue' : 'pending';
   }
   return r;
 }
-/* formats an SLA duration: "1h 24m" up to 48h, then days */
+/* formats an SLA duration (WORKING hours): "1h 24m" up to 48wh, then days */
 function admFmtSlaHours(ms) {
   if (!(ms > 0)) return '—';
   const h = ms / 3600e3;
@@ -1258,6 +1300,20 @@ function admTipBind(id, hitTest) {
     });
   }
 }
+/* drill-through for SLA charts: the hit-test function may return a
+   `drill` key alongside the tooltip info — clicking the hovered bar /
+   segment opens the task list below pre-filtered to exactly those rows. */
+function admSlaClickBind(id) {
+  const cv = document.getElementById(id); if (!cv) return;
+  if (cv._slaClickBound) return;
+  cv._slaClickBound = '1';
+  cv.addEventListener('click', () => {
+    if (!cv._tipFn) return;
+    const hit = cv._tipFn(cv._mx, cv._my);
+    if (hit && hit.drill) admOpenDrilldown(hit.drill);
+  });
+  cv.style.cursor = 'pointer';
+}
 
 /* ═══ 17. Render: KPI, charts, leaderboards, login activity ═══ */
 function admKpiCard(icon, label, value, cls, sub, dlKey) {
@@ -1350,13 +1406,44 @@ function admDrillRows(key) {
     case 'avgres': return rows.filter((r) => resInPeriod(r) && r.resolvedAt > r.createdMs && r.createdMs);
     case 'open': return rows.filter((r) => createdInPeriod(r) && !r.resolved);
     case 'inprog': return rows.filter((r) => createdInPeriod(r) && !r.resolved && lgStatusClass(r.status) === 'lg-st-progress');
-    /* SLA drills — same definitions as the compliance donuts: state first,
-       then period-created (mirrors admAggregate's SLA buckets) */
+    /* SLA drills — per-state, matching every click target on the SLA
+       charts (status bars, histogram buckets, per-direction breaches) and
+       the KPI cards. State first, then period-created (mirrors
+       admAggregate's SLA buckets). */
     case 'slaResp': return rows.filter((r) => createdInPeriod(r) && (r.respState === 'in' || r.respState === 'out'));
     case 'slaRes': return rows.filter((r) => createdInPeriod(r) && (r.resState === 'in' || r.resState === 'out'));
+    case 'slaRespIn': return rows.filter((r) => createdInPeriod(r) && r.respState === 'in');
+    case 'slaResIn': return rows.filter((r) => createdInPeriod(r) && r.resState === 'in');
     case 'slaRespOut': return rows.filter((r) => createdInPeriod(r) && (r.respState === 'out' || r.respState === 'overdue'));
     case 'slaResOut': return rows.filter((r) => createdInPeriod(r) && (r.resState === 'out' || r.resState === 'overdue'));
-    default: return [];
+    case 'slaRespPending': return rows.filter((r) => createdInPeriod(r) && r.respState === 'pending');
+    case 'slaResPending': return rows.filter((r) => createdInPeriod(r) && r.resState === 'pending');
+    case 'slaRespOverdue': return rows.filter((r) => createdInPeriod(r) && r.respState === 'overdue');
+    case 'slaResOverdue': return rows.filter((r) => createdInPeriod(r) && r.resState === 'overdue');
+    case 'slaRespNodata': return rows.filter((r) => createdInPeriod(r) && r.respState === 'nodata');
+    case 'slaResNodata': return rows.filter((r) => createdInPeriod(r) && r.resState === 'nodata');
+    default: {
+      /* parametric SLA drills: histogram bucket "slaRespHist:N" /
+         "slaResHist:N" and per-direction breaches "slaDirRespOut:<dir>" /
+         "slaDirResOut:<dir>" */
+      let m = key.match(/^(slaRespHist|slaResHist):(\d+)$/);
+      if (m) {
+        const edges = m[1] === 'slaRespHist' ? SLA_RESP_EDGES : SLA_RES_EDGES;
+        const msKey = m[1] === 'slaRespHist' ? 'respMs' : 'resMs';
+        const idx = Number(m[2]);
+        const lo = idx === 0 ? 0 : edges[idx - 1];
+        const hi = idx < edges.length ? edges[idx] : Infinity;
+        return rows.filter((r) => createdInPeriod(r) && r[msKey] > lo && r[msKey] <= hi);
+      }
+      m = key.match(/^slaDir(Resp|Res)Out:(.+)$/);
+      if (m) {
+        const stKey = m[1] === 'Resp' ? 'respState' : 'resState';
+        const dir = key.slice(key.indexOf(':') + 1);
+        return rows.filter((r) => createdInPeriod(r) && (r.direction || '—') === dir
+          && (r[stKey] === 'out' || r[stKey] === 'overdue'));
+      }
+      return [];
+    }
   }
 }
 /* SLA compact badges for drill rows — "R: 1h 20m" green/red, "Res: 3h" */
@@ -1830,74 +1917,139 @@ const C = new Map([
     admTipBind('chDirDone', (mx, my) => admHitStackedRow(_cv('chDirDone'), my, rows,
       [{ color: cc.green, label: t('adm.ch.legResolved') }, { color: cc.cyan, label: t('adm.lb.open') }]));
   }],
-  /* ── SLA charts ── compliance donuts (in / out / pending / overdue / no-data)
-     + duration histograms with the dashed SLA goal line + per-direction
-     breach stacked bars. Colors: in=green, out=red, overdue=amber, pending=cyan, nodata=gray */
+  /* ── SLA charts ── per-state horizontal status bars (easier to read than
+     the old donuts) + duration histograms with the dashed SLA goal line +
+     per-direction breach stacked bars. Every SLA chart is CLICK-THROUGH:
+     clicking a bar/segment opens the task list below with exactly those
+     tasks (drill key in the hit-test → admDrillRows). States:
+     in=green, out=red, overdue=amber, pending=cyan, nodata=gray. */
   ['chSlaResp', (a, cc) => {
     const segs = [
-      { label: t('adm.sla.inSla'), value: a.slaResp.in, color: cc.green },
-      { label: t('adm.sla.outSla'), value: a.slaResp.out, color: cc.red },
-      { label: t('adm.sla.overdue'), value: a.slaResp.overdue, color: cc.amber },
-      { label: t('adm.sla.pending'), value: a.slaResp.pending, color: cc.cyan },
-      { label: t('adm.sla.nodata'), value: a.slaResp.nodata, color: cc.grid.startsWith('rgba(15') ? 'rgba(15,23,42,0.25)' : 'rgba(148,163,184,0.30)' }
+      { key: 'slaRespIn', label: t('adm.sla.inSla'), value: a.slaResp.in, color: cc.green },
+      { key: 'slaRespOut', label: t('adm.sla.outSla'), value: a.slaResp.out, color: cc.red },
+      { key: 'slaRespOverdue', label: t('adm.sla.overdue'), value: a.slaResp.overdue, color: cc.amber },
+      { key: 'slaRespPending', label: t('adm.sla.pending'), value: a.slaResp.pending, color: cc.cyan },
+      { key: 'slaRespNodata', label: t('adm.sla.nodata'), value: a.slaResp.nodata, color: 'rgba(148,163,184,0.35)' }
     ].filter(s => s.value > 0);
-    admChartDonut('chSlaResp', segs);
-    admTipBind('chSlaResp', (mx, my) => admHitSlaDonut(_cv('chSlaResp'), mx, my, segs, a.slaResp));
+    admChartSlaStatus('chSlaResp', segs);
+    admSlaClickBind('chSlaResp');
+    admTipBind('chSlaResp', (mx, my) => admHitSlaStatus(_cv('chSlaResp'), mx, my, segs, a.slaResp));
   }],
   ['chSlaRes', (a, cc) => {
     const segs = [
-      { label: t('adm.sla.inSla'), value: a.slaRes.in, color: cc.green },
-      { label: t('adm.sla.outSla'), value: a.slaRes.out, color: cc.red },
-      { label: t('adm.sla.overdue'), value: a.slaRes.overdue, color: cc.amber },
-      { label: t('adm.sla.pending'), value: a.slaRes.pending, color: cc.cyan },
-      { label: t('adm.sla.nodata'), value: a.slaRes.nodata, color: cc.grid.startsWith('rgba(15') ? 'rgba(15,23,42,0.25)' : 'rgba(148,163,184,0.30)' }
+      { key: 'slaResIn', label: t('adm.sla.inSla'), value: a.slaRes.in, color: cc.green },
+      { key: 'slaResOut', label: t('adm.sla.outSla'), value: a.slaRes.out, color: cc.red },
+      { key: 'slaResOverdue', label: t('adm.sla.overdue'), value: a.slaRes.overdue, color: cc.amber },
+      { key: 'slaResPending', label: t('adm.sla.pending'), value: a.slaRes.pending, color: cc.cyan },
+      { key: 'slaResNodata', label: t('adm.sla.nodata'), value: a.slaRes.nodata, color: 'rgba(148,163,184,0.35)' }
     ].filter(s => s.value > 0);
-    admChartDonut('chSlaRes', segs);
-    admTipBind('chSlaRes', (mx, my) => admHitSlaDonut(_cv('chSlaRes'), mx, my, segs, a.slaRes));
+    admChartSlaStatus('chSlaRes', segs);
+    admSlaClickBind('chSlaRes');
+    admTipBind('chSlaRes', (mx, my) => admHitSlaStatus(_cv('chSlaRes'), mx, my, segs, a.slaRes));
   }],
   ['chSlaRespHist', (a, cc) => {
     const b = admSlaBuckets(a.slaRespMsList, (adm.slaGoals.respHours || 2) * 3600e3, SLA_RESP_EDGES);
-    const items = b.labels.map((label, i) => ({ label, value: b.counts[i] }));
+    const items = b.labels.map((label, i) => ({ label, value: b.counts[i], drill: 'slaRespHist:' + i }));
     admChartSlaHist('chSlaRespHist', items, b.goalIdx, cc.green, cc.red);
+    admSlaClickBind('chSlaRespHist');
     admTipBind('chSlaRespHist', (mx, my) => admHitSlaHistBar(_cv('chSlaRespHist'), mx, my, items, b.goalIdx));
   }],
   ['chSlaResHist', (a, cc) => {
     const b = admSlaBuckets(a.slaResMsList, (adm.slaGoals.resHours || 30) * 3600e3, SLA_RES_EDGES);
-    const items = b.labels.map((label, i) => ({ label, value: b.counts[i] }));
+    const items = b.labels.map((label, i) => ({ label, value: b.counts[i], drill: 'slaResHist:' + i }));
     admChartSlaHist('chSlaResHist', items, b.goalIdx, cc.green, cc.red);
+    admSlaClickBind('chSlaResHist');
     admTipBind('chSlaResHist', (mx, my) => admHitSlaHistBar(_cv('chSlaResHist'), mx, my, items, b.goalIdx));
   }],
   ['chSlaDir', (a, cc) => {
     const dirs = Array.from(a.slaPerDir.entries()).map(([n, v]) => ({ n, ...v }))
       .sort((x, y) => (y.respOut + y.resOut) - (x.respOut + x.resOut)).slice(0, 10)
       .filter(d => d.respOut || d.resOut);
-    const rows = dirs.map(d => ({ label: d.n, parts: [d.respOut, d.resOut] }));
+    const rows = dirs.map(d => ({ label: d.n, parts: [d.respOut, d.resOut], dir: d.n }));
     admChartStacked('chSlaDir', rows, [cc.red, cc.amber]);
-    admTipBind('chSlaDir', (mx, my) => admHitStackedRow(_cv('chSlaDir'), my, rows,
-      [{ color: cc.red, label: t('adm.sla.respBreaches') }, { color: cc.amber, label: t('adm.sla.resBreaches') }]));
+    admSlaClickBind('chSlaDir');
+    admTipBind('chSlaDir', (mx, my) => admHitSlaDirRow(_cv('chSlaDir'), my, mx, rows,
+      [{ color: cc.red, label: t('adm.sla.respBreaches'), drill: (d) => 'slaDirRespOut:' + d },
+       { color: cc.amber, label: t('adm.sla.resBreaches'), drill: (d) => 'slaDirResOut:' + d }]));
   }]
 ]);
-/* bucket edges (ms) for the two SLA histograms — resp goal 2h, res goal 30h */
-const SLA_RESP_EDGES = [0.25 * 3600e3, 0.5 * 3600e3, 3600e3, 2 * 3600e3, 4 * 3600e3, 24 * 3600e3];
-const SLA_RES_EDGES = [4 * 3600e3, 12 * 3600e3, 24 * 3600e3, 30 * 3600e3, 48 * 3600e3, 120 * 3600e3];
-/* SLA donut hit-test — geometry mirrors admChartDonut */
-function admHitSlaDonut(cv, mx, my, segs, _buckets) {
+/* bucket edges (ms) for the two SLA histograms — resp goal 2wh, res goal 30wh.
+   Values are WORKING-ms, so the buckets read as working-hour ranges. */
+const SLA_RESP_EDGES = [0.25 * 3600e3, 0.5 * 3600e3, 3600e3, 2 * 3600e3, 4 * 3600e3, 8 * 3600e3];
+const SLA_RES_EDGES = [4 * 3600e3, 12 * 3600e3, 24 * 3600e3, 30 * 3600e3, 60 * 3600e3, 120 * 3600e3];
+/* ── SLA status bar (replaces the donut) ── one horizontal stacked bar per
+   chart with each state as a separate labeled row next to it: the label,
+   the count and the share are directly readable, no pie-angle guessing. */
+function admChartSlaStatus(id, segs) {
+  const cv = document.getElementById(id); if (!cv) return;
+  const { g, w, h, c } = admChartSetup(cv);
+  g.clearRect(0, 0, w, h);
+  const total = segs.reduce((a, s) => a + s.value, 0);
+  if (!total) { admNoData(g, w, h, c); return; }
+  const rows = segs.length;
+  const rowH = Math.min(30, (h - 8) / rows);
+  const barH = 22;
+  /* the big total share bar on top */
+  let x = 12;
+  const bw = w - 24;
+  segs.forEach(s => {
+    const bws = bw * (s.value / total);
+    g.fillStyle = s.color;
+    if (g.roundRect) { g.beginPath(); g.roundRect(x, 8, bws, barH, 4); g.fill(); }
+    else g.fillRect(x, 8, Math.max(2, bws), barH);
+    x += bws;
+  });
+  /* share % drawn inside segments wide enough */
+  g.font = '700 11px Inter, sans-serif'; g.textAlign = 'center';
+  x = 12;
+  segs.forEach(s => {
+    const bws = bw * (s.value / total);
+    if (bws >= 34) {
+      g.fillStyle = '#fff';
+      g.fillText(Math.round(100 * s.value / total) + '%', x + bws / 2, 8 + barH / 2 + 4);
+    }
+    x += bws;
+  });
+  /* legend rows: swatch + label + count */
+  segs.forEach((s, i) => {
+    const y = 8 + barH + 8 + i * rowH;
+    g.textAlign = 'left'; g.font = '11px Inter, sans-serif';
+    g.fillStyle = s.color; g.fillRect(14, y + rowH / 2 - 5, 10, 10);
+    g.fillStyle = c.text; g.fillText(s.label, 30, y + rowH / 2 + 4);
+    g.textAlign = 'right';
+    g.fillText(String(s.value), w - 44, y + rowH / 2 + 4);
+    g.fillStyle = c.text; g.font = '10px Inter, sans-serif';
+    g.fillText(Math.round(100 * s.value / total) + '%', w - 10, y + rowH / 2 + 4);
+    g.font = '11px Inter, sans-serif';
+  });
+}
+/* status-bar hit-test — row over legend rows, or the share bar on top */
+function admHitSlaStatus(cv, mx, my, segs, _buckets) {
   const total = segs.reduce((s, x) => s + x.value, 0);
   if (!total) return null;
   const w = cv.clientWidth || 300, h = cv.clientHeight || 220;
-  const cx = w / 2, cy = (h - 22) / 2, R = Math.min(w, h - 30) / 2 - 12, r = R * 0.62;
-  const dx = mx - cx, dy = my - cy;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  if (dist < r - 2 || dist > R + 2) return null;
-  let ang = Math.atan2(dy, dx);
-  if (ang < -Math.PI / 2) ang += Math.PI * 2;
-  const frac = (ang + Math.PI / 2) / (Math.PI * 2);
-  let acc = 0, hit = null;
-  for (const s of segs) { acc += s.value / total; if (frac <= acc) { hit = s; break; } }
-  if (!hit) hit = segs[segs.length - 1];
-  return { title: hit.label, rows: [{ color: hit.color, label: hit.label, value: `${hit.value} (${Math.round(100 * hit.value / total)}%)` }] };
+  const barH = 22;
+  /* share bar on top: hit by x fraction */
+  if (my >= 8 && my <= 8 + barH) {
+    const bw = w - 24;
+    let acc = 12;
+    for (const s of segs) {
+      const bws = bw * (s.value / total);
+      if (mx >= acc && mx <= acc + bws) return { title: s.label, rows: [{ color: s.color, label: s.label, value: `${s.value} (${Math.round(100 * s.value / total)}%)` }], drill: s.key };
+      acc += bws;
+    }
+    return null;
+  }
+  /* legend rows below */
+  const rows = segs.length;
+  const rowH = Math.min(30, (h - 8) / rows);
+  const i = Math.floor((my - (8 + barH + 8)) / rowH);
+  if (i < 0 || i >= rows) return null;
+  const s = segs[i];
+  return { title: s.label, rows: [{ color: s.color, label: s.label, value: `${s.value} (${Math.round(100 * s.value / total)}%)` }], drill: s.key };
 }
-/* SLA histogram hit-test — bar geometry mirrors admChartSlaHist (pad l=34 r=10) */
+/* SLA histogram hit-test — bar geometry mirrors admChartSlaHist (pad l=34 r=10);
+   the item's drill key (bucket index) comes back for click-through */
 function admHitSlaHistBar(cv, mx, my, items, goalIdx) {
   const w = cv.clientWidth || 300;
   const frac = (mx - 34) / (w - 34 - 10);
@@ -1905,7 +2057,37 @@ function admHitSlaHistBar(cv, mx, my, items, goalIdx) {
   if (frac < 0 || frac > 1 || !n) return null;
   const i = Math.min(n - 1, Math.floor(frac * n));
   const inside = i <= goalIdx ? t('adm.sla.inSla') : t('adm.sla.outSla');
-  return { title: items[i].label, rows: [{ color: '', label: inside, value: items[i].value }] };
+  return { title: items[i].label, rows: [{ color: '', label: inside, value: items[i].value }], drill: items[i].drill };
+}
+/* SLA per-direction breach hit-test — like admHitStackedRow but also maps
+   the hovered PART (resp vs res breach) + the row's direction to a drill key */
+function admHitSlaDirRow(cv, my, mx, rows, series) {
+  if (!rows.length) return null;
+  const h = cv.clientHeight || 200;
+  const rowH = Math.min(30, (h - 8) / rows.length);
+  const i = Math.floor((my - 6) / rowH);
+  if (i < 0 || i >= rows.length) return null;
+  const it = rows[i];
+  /* which stacked segment was clicked? mirror geometry: bars start at
+     labelW = min(120, w*0.26) + 4, scaled per painter */
+  const w = cv.clientWidth || 300;
+  const labelW = Math.min(120, w * 0.26);
+  const barW = w - labelW - 4 - 34;
+  const tot = it.parts.reduce((s, v) => s + v, 0);
+  const maxV = tot; /* approx: painter scales per-row relative to chart max,
+     the part boundary fraction within the total is what we need */
+  let x = labelW + 4, drill = null;
+  for (let pi = 0; pi < it.parts.length; pi++) {
+    const frac = it.parts[pi] / maxV;
+    const bwid = Math.max(2, barW * frac);
+    if (mx >= x && mx <= x + bwid && it.parts[pi]) { drill = series[pi].drill(it.dir); break; }
+    x += bwid;
+  }
+  return {
+    title: it.label,
+    rows: series.map((s, pi) => ({ color: s.color, label: s.label, value: it.parts[pi] || 0 })),
+    drill
+  };
 }
 /* hbar hit-test: row = label + value */
 function admHitHbarRow(cv, my, items, _unused, _fullLbl) {
