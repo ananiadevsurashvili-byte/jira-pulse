@@ -40,6 +40,11 @@ const adm = {
   lbSearch: { user: '', dir: '', login: '' },
   /* KPI drill-down: which dashboard number opened the task list (null = none) */
   dl: null,
+  /* drill-list table engine (mirrors the desk's lgState): 100-row pages,
+     Show-more grows by +100; q/filters/sort reset per new drill, page too */
+  dlPage: 100, dlQ: '',
+  dlFilters: { status: '', reporter: '', assignee: '', direction: '', sla: '' },
+  dlSort: { col: 'created', dir: 'desc' },
   cardKey: null,   /* task detail popup (admOpenCard) */
   /* per-chart period overrides: chId → 'master' | '30d' | 'month' | … ('master' = follow the master period) */
   chPeriod: {},
@@ -89,6 +94,10 @@ const I18N = {
     'adm.kpi.medianNone': 'no tasks resolved in period',
     'adm.dl.title': 'Task list', 'adm.dl.tip': 'Show these tasks in list',
     'adm.dl.resMarker': 'resolved', 'adm.dl.openCard': 'Open task details',
+    'adm.dl.searchPh': 'Search tasks…', 'adm.dl.filterAll': 'All',
+    'adm.dl.fStatus': 'Status', 'adm.dl.fReporter': 'Reporter', 'adm.dl.fAssignee': 'Assignee',
+    'adm.dl.fDirection': 'Direction', 'adm.dl.fSla': 'SLA',
+    'adm.dl.shown': 'Showing {a}–{b} of {n}', 'adm.dl.showMore': 'Show more',
     /* detail-popup strings — mirror the desk's keys so admRenderCard can
        reuse the same labels (the desk's lg.* keys are NOT loaded here) */
     'lg.th.reporter': 'Reporter', 'lg.th.assignee': 'Assignee',
@@ -186,6 +195,10 @@ const I18N = {
     'adm.kpi.medianNone': 'პერიოდში გადაწყვეტილი დავალება არ არის',
     'adm.dl.title': 'დავალებების სია', 'adm.dl.tip': 'ამ დავალებების სიაში ნახვა',
     'adm.dl.resMarker': 'გადაწყვეტილი', 'adm.dl.openCard': 'დავალების დეტალების გახსნა',
+    'adm.dl.searchPh': 'ამოცანების ძებნა…', 'adm.dl.filterAll': 'ყველა',
+    'adm.dl.fStatus': 'სტატუსი', 'adm.dl.fReporter': 'მომხსენებელი', 'adm.dl.fAssignee': 'აღმასრულებელი',
+    'adm.dl.fDirection': 'მიმართულება', 'adm.dl.fSla': 'SLA',
+    'adm.dl.shown': 'ნაჩვენებია {a}–{b} / {n}', 'adm.dl.showMore': 'მეტის ჩვენება',
     'lg.th.reporter': 'მომხსენებელი', 'lg.th.assignee': 'ასიგნებული',
     'lg.th.created': 'შექმნის თარიღი', 'lg.th.updated': 'განახლება',
     'lg.th.direction': 'მიმართულება', 'lg.th.resolved': 'გადაწყვეტის თარიღი',
@@ -1461,6 +1474,14 @@ function admSlaBadgeCell(r) {
   return `<td class="lg-sla-cell"><div class="lg-mini-row">${resp} ${res}</div></td>`;
 }
 function admOpenDrilldown(key) {
+  if (adm.dl !== key) {
+    /* a NEW drill click resets search/filters/sort/page so no stale state
+       leaks between different drills; re-clicking the SAME drill keeps it */
+    adm.dlQ = '';
+    adm.dlFilters = { status: '', reporter: '', assignee: '', direction: '', sla: '' };
+    adm.dlSort = { col: 'created', dir: 'desc' };
+    adm.dlPage = 100;
+  }
   adm.dl = key;
   admRenderDrilldown();
   const sec = $('#admDrillSection');
@@ -1470,28 +1491,156 @@ function admCloseDrilldown() {
   adm.dl = null;
   hide($('#admDrillSection'));
 }
+
+/* ── drill-list table engine (search + filters + sort + 100-row pages) ──
+   Mirrors the logistics desk's lgFiltered(): memoized (q + filters + sort)
+   → rows pipeline; the page paints slice(0, dlPage) and the footer's
+   "Show more" button grows dlPage by +100 while more rows exist. */
+
+/* lowercase search haystack — pre-built once per row render cycle.
+   Rows are plain objects recreated only by admNormalize() (each data load /
+   language switch), so attaching `._hay` on-demand here is safe and eventual. */
+function admDrillHay(r) {
+  if (r._hay === undefined || r._hayLang !== adm.lang) {
+    r._hay = (r.key + ' ' + (r.summary || '') + ' ' + (r.descFull || '') + ' ' +
+      (r.status || '') + ' ' + (r.reportName || '') + ' ' + (r.assignName || '') + ' ' +
+      (r.direction || '') + ' ' + (r.comments || []).map((c) => c.author + ' ' + c.body).join(' ')
+    ).toLowerCase();
+    r._hayLang = adm.lang;
+  }
+  return r._hay;
+}
+
+const ADM_DRILL_SLA_OPTS = [['', 'adm.dl.filterAll'], ['in', 'adm.sla.inSla'], ['late', 'adm.sla.outSla'],
+  ['out', 'adm.sla.outSla'], ['pending', 'adm.sla.pending'], ['overdue', 'adm.sla.overdue'], ['nodata', 'adm.sla.nodata']];
+const ADM_DRILL_SLA_RANK = { in: 0, pending: 1, nodata: 2, overdue: 3, out: 4 };
+
+function admDrillDistinct(col) {
+  const s = new Set();
+  admDrillRows(adm.dl).forEach((r) => { if (r[col]) s.add(r[col]); });
+  return [...s].sort((a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }));
+}
+
+/* per-column filter bar: status / reporter / assignee selects + direction
+   (natural <select>) + SLA fixed-state select — same look as the desk's bar. */
+function admDrillBuildFilterBar() {
+  const bar = $('#admDrillFilterBar'); if (!bar) return;
+  const mk = (col, labelKey, opts) => {
+    const o = opts || admDrillDistinct(col);
+    return `<div class="lg-filter-item">` +
+      `<span class="lg-filter-label">${escapeHtml(t(labelKey))}</span>` +
+      `<select class="input tl-select" data-col="${col}" aria-label="${escapeHtml(t(labelKey))}">` +
+      `<option value="">${escapeHtml(t('adm.dl.filterAll'))}</option>` +
+      o.map((v) => {
+        const lbl = col === 'sla' ? t(v) : v;
+        return `<option value="${escapeHtml(col === 'sla' ? v : v)}"${adm.dlFilters[col] === v ? ' selected' : ''}>${escapeHtml(lbl)}</option>`;
+      }).join('') + `</select></div>`;
+  };
+  const SLA_LBL = { in: 'adm.sla.inSla', late: 'adm.sla.outSla', pending: 'adm.sla.pending', overdue: 'adm.sla.overdue', nodata: 'adm.sla.nodata' };
+  bar.innerHTML =
+    mk('status', 'adm.dl.fStatus') +
+    mk('reporter', 'adm.dl.fReporter') +
+    mk('assignee', 'adm.dl.fAssignee') +
+    mk('direction', 'adm.dl.fDirection') +
+    mk('sla', 'adm.dl.fSla', ADM_DRILL_SLA_OPTS.map(([v]) => v).slice(1).map((v) => v === 'late' ? 'late' : v));
+  bar.querySelectorAll('select[data-col]').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      adm.dlFilters[sel.dataset.col] = sel.value;
+      adm.dlPage = 100;                    /* new filter → back to page 1 */
+      admRenderDrilldown();
+    });
+  });
+}
+
+function admDrillFiltered() {
+  const rows = admDrillRows(adm.dl);
+  const q = adm.dlQ.trim().toLowerCase();
+  const f = adm.dlFilters;
+  const out = rows.filter((r) => {
+    if (f.status && r.status !== f.status) return false;
+    if (f.reporter && r.reportName !== f.reporter) return false;
+    if (f.assignee && r.assignName !== f.assignee) return false;
+    if (f.direction && r.direction !== f.direction) return false;
+    if (f.sla) {
+      /* 'late' = measured breach OR still-open overdue (manager view);
+         any other value matches either metric state directly */
+      const hit = f.sla === 'late'
+        ? (r.respState === 'out' || r.resState === 'out' || r.respState === 'overdue' || r.resState === 'overdue')
+        : (r.respState === f.sla || r.resState === f.sla);
+      if (!hit) return false;
+    }
+    if (q) return admDrillHay(r).includes(q);
+    return true;
+  });
+  /* default sort when untouched: newest first (kept for period re-renders) */
+  const sp = (adm.dlSort && adm.dlSort.col) ? adm.dlSort : { col: 'created', dir: 'desc' };
+  const mul = sp.dir === 'asc' ? 1 : -1;
+  const slaWorst = (r) => Math.max(ADM_DRILL_SLA_RANK[r.respState] || 0, ADM_DRILL_SLA_RANK[r.resState] || 0);
+  const num = (r) => parseInt(String(r.key).split('-')[1], 10) || 0;
+  out.sort((a, b) => {
+    let res;
+    const col = sp.col;
+    if (col === 'created') res = (a.createdMs || 0) - (b.createdMs || 0);
+    else if (col === 'resolved') res = (a.resolvedAt || 0) - (b.resolvedAt || 0);
+    else if (col === 'key') res = num(a) - num(b);
+    else if (col === 'sla') res = slaWorst(a) - slaWorst(b);
+    else if (col === 'reporter') res = String(a.reportName || '').localeCompare(String(b.reportName || ''), undefined, { sensitivity: 'base' });
+    else if (col === 'assignee') res = String(a.assignName || '').localeCompare(String(b.assignName || ''), undefined, { sensitivity: 'base' });
+    else res = String(a[col] || '').localeCompare(String(b[col] || ''), undefined, { sensitivity: 'base' });
+    return res * mul;
+  });
+  return out;
+}
+
+function admDrillMarkSortHeads() {
+  const tbl = $('#admDrillTable'); if (!tbl) return;
+  const sp = (adm.dlSort && adm.dlSort.col) ? adm.dlSort : { col: 'created', dir: 'desc' };
+  tbl.querySelectorAll('th[data-col], .lg-th-split[data-col]').forEach((h) => {
+    h.classList.toggle('lg-sorted', h.dataset.col === sp.col);
+    if (h.dataset.col === sp.col) h.dataset.sort = sp.dir; else delete h.dataset.sort;
+  });
+}
+
 function admRenderDrilldown() {
   const sec = $('#admDrillSection'); if (!sec) return;
   if (!adm.dl || !adm.verified) { hide(sec); return; }
-  const rows = admDrillRows(adm.dl);
-  rows.sort((a, b) => b.createdMs - a.createdMs);
+  const all = admDrillRows(adm.dl);
   /* SLA drills have their own titles (not adm.kpi.*) */
   const dlTitleKey = adm.dl.startsWith('sla') ? ('adm.sla.dl.' + adm.dl) :
     ('adm.kpi.' + (adm.dl === 'resall' ? 'resAll' : adm.dl === 'avgres' ? 'avgRes' : adm.dl === 'inprog' ? 'inwork' : adm.dl));
   const title = t('adm.dl.title') + ' · ' + t(dlTitleKey);
   $('#admDrillTitle').textContent = title;
-  $('#admDrillCount').textContent = tReplace('adm.count.n', { n: rows.length });
+  $('#admDrillCount').textContent = tReplace('adm.count.n', { n: all.length });
   const tb = $('#admDrillTable tbody'); if (!tb) return;
   /* faint accent ring on the KPI card whose number is currently open */
   document.querySelectorAll('#admKpiGrid .kpi').forEach((k) => {
     const b = k.querySelector('.kpi-dl-btn');
     k.classList.toggle('dl-open', !!(b && b.dataset.dl === adm.dl));
   });
-  if (!rows.length) {
-    tb.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`;
+  tb.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center">${escapeHtml(t('adm.lb.nodata'))}</td></tr>`;
+  /* filter bar reflects the (memoized) drill rows each render — distinct
+     options come from the current drill */
+  admDrillBuildFilterBar();
+  admDrillMarkSortHeads();
+  const searchInp = $('#admDrillSearch');
+  if (searchInp && searchInp.value !== adm.dlQ) searchInp.value = adm.dlQ;
+  if (!all.length) {
+    $('#admDrillShown').textContent = '';
+    $('#admDrillMore').classList.add('hidden');
     show(sec); return;
   }
-  tb.innerHTML = rows.map((r) => {
+  const rows = admDrillFiltered();
+  const vis = rows.slice(0, adm.dlPage);
+  const footShown = $('#admDrillShown');
+  footShown.textContent = tReplace('adm.dl.shown', { a: 1, b: vis.length, n: rows.length });
+  const moreBtn = $('#admDrillMore');
+  if (rows.length > vis.length) {
+    moreBtn.textContent = t('adm.dl.showMore') + ' +100';
+    moreBtn.classList.remove('hidden');
+  } else {
+    moreBtn.classList.add('hidden');
+  }
+  tb.innerHTML = vis.map((r) => {
     /* title cell mirrors lgRowHtmlUncached exactly: clickable title +
        description preview + 📎 badge pinned top-right of the title line.
        Old plain <button class="lg-sum-link"> had no stylesheet rule and the
@@ -2391,6 +2540,26 @@ async function admRefresh() {
   const slaSave = $('#admSlaSaveBtn'); if (slaSave) slaSave.addEventListener('click', admOnSlaSave);
   const dlClose = $('#admDrillClose');
   if (dlClose) dlClose.addEventListener('click', admCloseDrilldown);
+  /* drill-list search box (free-text, mirrors #lgSearch) */
+  const dlSearch = $('#admDrillSearch');
+  if (dlSearch) dlSearch.addEventListener('input', () => {
+    adm.dlQ = dlSearch.value;
+    adm.dlPage = 100;                      /* new search → back to page 1 */
+    admRenderDrilldown();
+  });
+  /* "Show more": grow the visible page by +100 while more rows exist */
+  const dlMore = $('#admDrillMore');
+  if (dlMore) dlMore.addEventListener('click', () => { adm.dlPage += 100; admRenderDrilldown(); });
+  /* click-to-sort headers (delegated once — thead never re-renders) */
+  const dlTable = $('#admDrillTable');
+  if (dlTable) dlTable.querySelectorAll('th[data-col], .lg-th-split[data-col]').forEach((h) => {
+    h.addEventListener('click', () => {
+      const col = h.dataset.col;
+      const cur = (adm.dlSort && adm.dlSort.col) ? adm.dlSort : { col: 'created', dir: 'desc' };
+      adm.dlSort = { col, dir: cur.col === col ? (cur.dir === 'asc' ? 'desc' : 'asc') : 'desc' };
+      admRenderDrilldown();
+    });
+  });
   /* task detail popup wiring: close button, outside click, Esc */
   const cc = $('#admCardClose');
   if (cc) cc.addEventListener('click', admCloseCard);

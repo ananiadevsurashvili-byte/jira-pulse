@@ -544,6 +544,40 @@ body.light #admDrillTable td { border-bottom-color: rgba(15, 23, 42, 0.07); }
   #admDrillTable thead th { padding: 5px 8px; }
 }
 
+/* ── admin drill-down: sortable headers (same carets as the desk table) ── */
+#admDrillTable thead th[data-col] { cursor: pointer; user-select: none; }
+#admDrillTable thead th[data-col]::after,
+#admDrillTable thead .lg-th-split::after {
+  content: '↕';
+  display: inline-block; margin-left: 3px;
+  font-size: 0.55rem; color: var(--muted); opacity: 0.45;
+  transition: opacity 0.12s ease;
+}
+#admDrillTable thead th[data-col]:hover::after,
+#admDrillTable thead .lg-th-split:hover::after { opacity: 1; }
+#admDrillTable thead th[data-col].lg-sorted::after,
+#admDrillTable thead .lg-th-split.lg-sorted::after { opacity: 1; color: var(--accent); font-weight: 700; }
+#admDrillTable thead th[data-col][data-sort="asc"]::after,
+#admDrillTable thead .lg-th-split[data-sort="asc"]::after { content: '▲'; }
+#admDrillTable thead th[data-col][data-sort="desc"]::after,
+#admDrillTable thead .lg-th-split[data-sort="desc"]::after { content: '▼'; }
+#admDrillTable thead .lg-th-split { cursor: pointer; white-space: nowrap; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+#admDrillTable thead .lg-col-people .lg-th-split + .lg-th-split,
+#admDrillTable thead .lg-col-dates .lg-th-split + .lg-th-split { padding-left: 0; border-left: 0; }
+/* status pills inside the drill table (same bucket colors as #lgContent) */
+#admDrillSection .status-pill {
+  display: inline-block; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  vertical-align: top;
+}
+#admDrillSection .lg-filter-item { flex: 0 1 auto; min-width: 150px; }
+#admDrillFilterBar .tl-select { min-width: 0; width: 100%; }
+/* Show-more footer lives under (not inside) the scroll box */
+#admDrillSection .tl-footer-wrap { margin-top: 8px; }
+#admDrillSection .tl-more { font-size: 0.76rem; padding: 6px 16px; border-radius: 9px; }
+#admDrillSection .tl-count { font-size: 0.74rem; white-space: nowrap; }
+body.light #admDrillSection .tl-select option { background-color: #fff; color: #0f172a; }
+
 /* ── page-size switcher (compact select at the toolbar's right end) ────── */
 .lg-page-select {
   min-width: 0;

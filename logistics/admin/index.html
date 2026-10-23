@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="../../styles.css?v=8241341" />
-<link rel="stylesheet" href="../styles.css?v=38" />
+<link rel="stylesheet" href="../styles.css?v=39" />
 <!-- lg-card-* task-popup classes come from ../styles.css (loaded above) -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M6 20l4-6 4 4 5-9 7 11' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <script src="https://accounts.google.com/gsi/client" async></script>
@@ -235,10 +235,33 @@
         <span id="admDrillCount" class="pub-count-chip"></span>
         <button id="admDrillClose" class="btn btn-ghost" type="button">✕</button>
       </div>
-      <div class="table-scroll" style="max-height:560px">
+      <div class="tl-filterbar">
+        <input id="admDrillSearch" class="input tl-search" type="text"
+               data-i18n-placeholder="adm.dl.searchPh" placeholder="Search tasks…" />
+        <span id="admDrillFilterBar" style="display:flex;flex-wrap:wrap;gap:10px;flex:1 1 auto;justify-content:flex-end"></span>
+      </div>
+      <div class="table-scroll" style="max-height:calc(100vh - 280px)">
         <table class="data-table lg-table" id="admDrillTable"><thead><tr>
-          <th>Key</th><th>Title</th><th>Status</th><th>Reporter / Assignee</th><th>Direction</th><th>Created → Resolved</th><th>SLA</th>
+          <th data-col="key">Key</th>
+          <th data-col="summary">Title</th>
+          <th data-col="status">Status</th>
+          <th class="lg-col-people">
+            <span class="lg-th-split" data-col="reporter" title="Reporter">Reporter</span>
+            <span class="lg-th-split" data-col="assignee" title="Assignee">Assignee</span>
+          </th>
+          <th data-col="direction">Direction</th>
+          <th class="lg-col-dates">
+            <span class="lg-th-split" data-col="created" title="Creation date">Created</span>
+            <span class="lg-th-split" data-col="resolved" title="Resolution date">→ Res.</span>
+          </th>
+          <th data-col="sla">SLA</th>
         </tr></thead><tbody></tbody></table>
+      </div>
+      <div class="tl-footer-wrap">
+        <div class="tl-footer">
+          <span id="admDrillShown" class="tl-count"></span>
+          <button id="admDrillMore" class="btn btn-ghost tl-more hidden" type="button">Show more</button>
+        </div>
       </div>
     </div>
   </section>
@@ -262,6 +285,6 @@
   </div>
 </div>
 
-<script src="admin-app.js?v=14"></script>
+<script src="admin-app.js?v=15"></script>
 </body>
 </html>
