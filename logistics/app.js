@@ -1254,6 +1254,14 @@ function lgNormalize(data) {
       hay,
     });
     lgSlaRow(rows[rows.length - 1]);   /* SLA compute needs the final row shape */
+    /* Jira's OWN SLA cycles ship in the bulk payload now — apply them right
+       after the approximation so list chips, filters and stats card all come
+       from the same verdicts the agent view shows (completed aspects only;
+       open tasks keep the live working clock). Re-fetch per row is then only
+       needed when Jira holds NO cycles in the payload. */
+    if (f.sla || f.slaRes) {
+      lgSlaApplyNative(rows[rows.length - 1], { resp: f.sla || null, res: f.slaRes || null });
+    }
   }
   return rows;
 }

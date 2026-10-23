@@ -432,6 +432,38 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
    results server-side too — the viewer page filters a third time client-side).
    Credentials: viewer's own Authorization header wins; else the admin's stored
    read-only Jira credentials (same rules as ?cmd=board). */
+/* compact SLA aspect from a BULK search custom field (desk payload).
+   Response picks the earliest completed cycle (first agent reply, JSM can
+   accumulate), falling back to the ongoing one; resolution picks the last
+   completed cycle (actual settlement), falling back to ongoing. Only the
+   numbers the client needs are kept — wire-size friendly at ~4k issues. */
+function bulkSlaAspect(cf: any, isResp: boolean) {
+  if (!cf || typeof cf !== 'object') return null;
+  const completed: any[] = Array.isArray(cf.completedCycles) ? cf.completedCycles : [];
+  const ongoing: any = cf.ongoingCycle || null;
+  let pick: any = null;
+  if (isResp) {
+    for (const c of completed) {
+      const s = Number(c?.stopTime?.epochMillis) || 0;
+      if (!pick || s < pick.s) pick = { c, s, done: true };
+    }
+    if (!pick && ongoing) pick = { c: ongoing, s: 0, done: false };
+  } else {
+    if (completed.length) pick = { c: completed[completed.length - 1], s: 0, done: true };
+    else if (ongoing) pick = { c: ongoing, s: 0, done: false };
+  }
+  if (!pick) return null;
+  const c = pick.c;
+  return {
+    elapsedMs: Number(c?.elapsedTime?.millis) || 0,
+    goalMs: Number(c?.goalDuration?.millis) || 0,
+    breached: c?.breached === true || String(c?.breached) === 'true',
+    completed: pick.done,
+    startMs: Number(c?.startTime?.epochMillis) || 0,
+    stopMs: Number(c?.stopTime?.epochMillis) || 0,
+  };
+}
+
 async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
   const project = (u.searchParams.get('project') || '').trim().toUpperCase();
   if (!/^[A-Z][A-Z0-9_]{0,9}$/.test(project)) {
@@ -510,6 +542,8 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
      (ids differ per instance; overridable via query params) */
   let directionFieldId = (u.searchParams.get('directionField') || '').trim();
   let titleFieldId = (u.searchParams.get('titleField') || '').trim();
+  let slaRespFieldId = (u.searchParams.get('slaRespField') || '').trim();
+  let slaResFieldId = (u.searchParams.get('slaResField') || '').trim();
   let directionFieldName = '';
   let titleFieldName = '';
   let titleCandidates: { id: string; name: string }[] = [];
@@ -517,6 +551,14 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
     const fResp = await get('/rest/api/3/field');
     if (fResp.ok) {
       const catalog: any[] = await fResp.json();
+      if (!slaRespFieldId) {
+        const fr = catalog.find((f) => f && f.custom && /^time to first response$/i.test(f.name || ''));
+        if (fr?.id) slaRespFieldId = String(fr.id);
+      }
+      if (!slaResFieldId) {
+        const rs = catalog.find((f) => f && f.custom && /^time to resolution$/i.test(f.name || ''));
+        if (rs?.id) slaResFieldId = String(rs.id);
+      }
       if (!directionFieldId) {
         const dir = catalog.find((f) => f && f.custom && /^logistics direction$/i.test(f.name || ''))
           || catalog.find((f) => f && f.custom && /logistics/i.test(f.name || ''));
@@ -538,7 +580,7 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
     }
   } catch { /* best-effort — columns just come back empty without it */ }
 
-  const SEARCH_FIELDS = [DESK_FIELDS_BASE, directionFieldId, titleFieldId]
+  const SEARCH_FIELDS = [DESK_FIELDS_BASE, directionFieldId, titleFieldId, slaRespFieldId, slaResFieldId]
     .filter(Boolean).join(',');
 
   /* paged search — same shape as handleBoardCmd.searchJql (no changelog here).
@@ -696,6 +738,14 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
               mimeType: String(a?.mimeType || ''),
             }))
           : [],
+        /* Jira's OWN SLA clocks (same data the agent view shows) — one
+           compact settled-cycle per aspect so every chart/KPI/list chip can
+           aggregate from Jira's verdict instead of a client approximation.
+           Completed cycles often report elapsedTime "0m" (NEW_SLA_FORMAT),
+           but start/stop hold the real settlement window — the client
+           recomputes from those when needed. */
+        sla: bulkSlaAspect(f[slaRespFieldId], true) || undefined,
+        slaRes: bulkSlaAspect(f[slaResFieldId], false) || undefined,
       },
     };
     if (directionFieldId) {
@@ -723,6 +773,7 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
     period: { from: fromQ || null, to: toQ || null },
     fieldIds: { direction: directionFieldId || null, title: titleFieldId || null },
     fieldNames: { direction: directionFieldName, title: titleFieldName },
+    slaFieldIds: { resp: slaRespFieldId || null, res: slaResFieldId || null },
     titleCandidates,
     issues: slimIssues,
   };

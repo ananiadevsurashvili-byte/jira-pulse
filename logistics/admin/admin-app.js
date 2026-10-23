@@ -601,8 +601,8 @@ function admSlaApplyNative(r, sla) {
   };
   const resp = mk(sla.resp);
   const res = mk(sla.res);
-  if (resp) { r.respMs = resp.ms; r.respAtMs = Number(sla.resp.stopMs) || r.respAtMs; r.respState = resp.state; }
-  if (res) { r.resMs = res.ms; r.resolvedMs = res.ms; r.resState = res.state; }
+  if (resp) { r.respMs = resp.ms; r.respAtMs = Number(sla.resp.stopMs) || r.respAtMs; r.respState = resp.state; r._natResp = true; }
+  if (res) { r.resMs = res.ms; r.resolvedMs = res.ms; r.resState = res.state; r._natRes = true; }
   /* keep the native payload so the popup can show exact settled times */
   r.slaNative = sla;
 }
@@ -855,7 +855,16 @@ function admNormalize(data) {
       rdReal: realRdMs > 0,
       direction: admShortDir(dirId ? lgAdfText(f[dirId]) : '')
     });
-    admSlaRow(rows[rows.length - 1]);
+    const row = rows[rows.length - 1];
+    admSlaRow(row);
+    /* Jira's OWN SLA cycles ship in the bulk payload now — apply them AFTER
+       the approximation so every chart/KPI/filter aggregates from the same
+       verdicts the agent view shows (no more invented "no first reply" 33%).
+       Drop _natResp/_natRes applied flags so hydration can still overwrite. */
+    if (it.fields && (it.fields.sla || it.fields.slaRes)) {
+      admSlaApplyNative(row, { resp: it.fields.sla || null, res: it.fields.slaRes || null });
+      delete row._natResp; delete row._natRes;
+    }
   }
   return rows;
 }
