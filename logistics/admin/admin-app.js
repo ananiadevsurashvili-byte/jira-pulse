@@ -79,6 +79,7 @@ const I18N = {
     'adm.title': 'Logistics admin', 'adm.subtitle': 'Metrics and activity dashboard · admin accounts only',
     'adm.dashTitle': 'Dashboard', 'adm.dashSub': 'All LOG service-desk metrics · items labeled “Internal” are hidden',
     'adm.period': 'Period', 'adm.customRange': 'Custom range',
+    'adm.p.24h': 'Last 24 hours',
     'adm.p.30d': 'Last 30 days', 'adm.p.month': 'This month', 'adm.p.quarter': 'This quarter',
     'adm.p.year': 'This year', 'adm.p.all': 'All time', 'adm.p.custom': 'Custom…',
     'adm.kpi.total': 'Tasks · period', 'adm.kpi.today': 'Created today', 'adm.kpi.month': 'Created this month',
@@ -184,6 +185,7 @@ const I18N = {
     'adm.title': 'ლოგისტიკის ადმინი', 'adm.subtitle': 'მეტრიკები და აქტივობები · მხოლოდ ადმინისთვის',
     'adm.dashTitle': 'დაშბორდი', 'adm.dashSub': 'LOG სერვის-დესკის სრული მეტრიკები · “Internal” ეტიკეტი მალუფებულია',
     'adm.period': 'პერიოდი', 'adm.customRange': 'თვითონ არჩეული',
+    'adm.p.24h': 'ბოლო 24 საათი',
     'adm.p.30d': 'ბოლო 30 დღე', 'adm.p.month': 'ეს თვე', 'adm.p.quarter': 'ეს კვარტალი',
     'adm.p.year': 'ეს წელი', 'adm.p.all': 'მთელი ისტორია', 'adm.p.custom': 'სხვა…',
     'adm.kpi.total': 'დავალებები · პერიოდში', 'adm.kpi.today': 'დღეს შექმნილი', 'adm.kpi.month': 'ამ თვეს შექმნილი',
@@ -712,6 +714,11 @@ function lgPeriodRange(kind, fromMs, toMs) {
   if (kind === 'custom' && fromMs && toMs) {
     return { from: lgDayStart(new Date(fromMs)), to: lgDayEnd(new Date(toMs)) };
   }
+  if (kind === '24h') {
+    const to = new Date(now);
+    const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    return { from, to };
+  }
   if (kind === 'today') return { from: lgDayStart(now), to: lgDayEnd(now) };
   if (kind === 'month') {
     return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: lgDayEnd(now) };
@@ -754,7 +761,7 @@ function admChRenderSelects() {
     const ch = sel.dataset.chPeriod;
     const cur = adm.chPeriod[ch] || 'master';
     if (!sel.dataset.built) {
-      const opts = [['master', 'adm.ch.periodMaster'], ['30d', 'adm.p.30d'], ['month', 'adm.p.month'],
+      const opts = [['master', 'adm.ch.periodMaster'], ['24h', 'adm.p.24h'], ['30d', 'adm.p.30d'], ['month', 'adm.p.month'],
         ['quarter', 'adm.p.quarter'], ['year', 'adm.p.year'], ['all', 'adm.p.all']];
       sel.innerHTML = opts.map(([v, k]) => `<option value="${v}">${escapeHtml(t(k))}</option>`).join('');
       sel.dataset.built = '1';
@@ -964,8 +971,9 @@ function admAggregate(rows, range) {
     : 'M' + ymOf(ms);
   const dayMap = new Map();
   if (useDay) {
-    for (let i = periodDays - 1; i >= 0; i--) {
-      const d = new Date(to - i * 864e5);
+    /* seed EVERY calendar day the range touches — a rolling window
+       (e.g. "Last 24 hours") can span two days, so anchor on `from` */
+    for (let d = new Date(lgDayStart(new Date(from))); d.getTime() <= to; d.setDate(d.getDate() + 1)) {
       dayMap.set(ymdOf(d.getTime()), { created: 0, resolved: 0 });
     }
   } else if (useWeeks) {
@@ -1254,11 +1262,13 @@ function admChartHbar(id, items, color) {
   if (!items.length) { admNoData(g, w, h, c); return; }
   const maxV = Math.max(1, ...items.map(i => i.value));
   const rowH = Math.min(28, (h - 8) / Math.max(items.length, 1));
-  const labelW = Math.min(120, w * 0.28);
+  /* wider label column — full names/surnames must be readable, not clipped.
+     3-col grid gives each card enough width; truncate only at extreme length. */
+  const labelW = Math.min(170, Math.max(120, w * 0.34));
   items.forEach((it, i) => {
     const y = 6 + i * rowH;
     g.font = '10px Inter, sans-serif'; g.textAlign = 'right'; g.fillStyle = c.text;
-    let nm = it.label; if (nm.length > 18) nm = nm.slice(0, 17) + '…';
+    let nm = it.label; if (nm.length > 26) nm = nm.slice(0, 25) + '…';
     g.fillText(nm, labelW - 4, y + rowH / 2 + 3);
     const bx = labelW + 4, bws = w - bx - 30;
     const bwid = Math.max(2, bws * (it.value / maxV));
@@ -1325,11 +1335,11 @@ function admChartStacked(id, items, colors) {
   const LEG_H = 16;
   const maxV = Math.max(1, ...items.map(i => i.parts.reduce((a, b) => a + b, 0)));
   const rowH = Math.min(30, (h - 8 - LEG_H) / Math.max(items.length, 1));
-  const labelW = Math.min(120, w * 0.26);
+  const labelW = Math.min(170, Math.max(120, w * 0.34));
   items.forEach((it, i) => {
     const y = 6 + i * rowH;
     g.font = '10px Inter, sans-serif'; g.textAlign = 'right'; g.fillStyle = c.text;
-    let nm = it.label; if (nm.length > 18) nm = nm.slice(0, 17) + '…';
+    let nm = it.label; if (nm.length > 26) nm = nm.slice(0, 25) + '…';
     g.fillText(nm, labelW - 4, y + rowH / 2 + 3);
     let x = labelW + 4;
     const bws = w - x - 34;
@@ -2769,7 +2779,7 @@ function renderLoginActivity(st) {
 function admRenderPeriodSelect() {
   const sel = $('#admPeriod'); if (!sel) return;
   const opts = [
-    ['30d', 'adm.p.30d'], ['month', 'adm.p.month'], ['quarter', 'adm.p.quarter'],
+    ['24h', 'adm.p.24h'], ['30d', 'adm.p.30d'], ['month', 'adm.p.month'], ['quarter', 'adm.p.quarter'],
     ['year', 'adm.p.year'], ['all', 'adm.p.all'], ['custom', 'adm.p.custom']
   ];
   sel.innerHTML = opts.map(([v, k]) => `<option value="${v}">${escapeHtml(t(k))}</option>`).join('');

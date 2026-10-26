@@ -1198,12 +1198,16 @@ body.light .lg-st-badge.lg-st-breach { color: #b91c1c; background: #fee2e2; bord
 #admPeriodBar .tl-select { min-width: 0; width: 100%; }
 #admPeriodBar .lg-toolbar-right { margin-left: auto; }
 
-/* ── chart grid ── */
+/* ── chart grid ──
+   Fixed 3-per-row: 4 in a line made labels (names, surnames, directions)
+   clip; 3 columns give each card ~33% more width so full names fit. */
 .adm-chart-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
+@media (max-width: 1400px) { .adm-chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 860px) { .adm-chart-grid { grid-template-columns: 1fr; } }
 .adm-chart-card {
   background: var(--panel);
   border: 1px solid var(--border);
