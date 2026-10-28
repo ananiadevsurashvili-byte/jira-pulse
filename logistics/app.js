@@ -1126,21 +1126,18 @@ function lgSlaApplyNative(r, sla) {
   const res = mk(sla.res);
   /* "Resolution: Set" is ALSO a first-response stop on this instance's
      goal — once the task is resolved its response clock cannot run
-     further, and Jira often leaves the response cycle unsettled even on
-     a resolved task. Display rule: a resolved task shows the SAME span
-     in both fields, red when it passes the response goal. */
+     further, and Jira often leaves the response cycle unsettled-or-stuck:
+     missing entirely, or completed but booked 0m while the clock sat
+     paused. Display rule per product: a GENUINE earlier first response
+     (0 < resp.ms <= res.ms) stays as-is; otherwise (missing, 0m, or
+     later than resolution) the response field shows the resolution
+     span — red when that span passes the 2h response goal. */
   const respGoal = ((lgState.slaGoals || {}).respHours || 2) * 3600e3;
-  if (res) {
-    if (resp && resp.ms > res.ms) {
-      resp.ms = res.ms;
-      resp.state = res.ms <= respGoal ? 'in' : 'out';
-      sla.resp = Object.assign({}, sla.resp, { elapsedMs: res.ms, breached: resp.state === 'out' });
-    } else if (!resp) {
-      resp = { ms: res.ms, state: res.ms <= respGoal ? 'in' : 'out' };
-      sla.resp = Object.assign({}, sla.resp || {
-        startMs: sla.res.startMs, stopMs: sla.res.stopMs, goalMs: respGoal
-      }, { completed: true, breached: resp.state === 'out', elapsedMs: res.ms });
-    }
+  if (res && (!resp || resp.ms <= 0 || resp.ms > res.ms)) {
+    resp = { ms: res.ms, state: res.ms <= respGoal ? 'in' : 'out' };
+    sla.resp = Object.assign({}, sla.resp || {
+      startMs: sla.res.startMs, stopMs: sla.res.stopMs, goalMs: respGoal
+    }, { completed: true, breached: resp.state === 'out', elapsedMs: res.ms });
   }
   if (resp) { r.respMs = resp.ms; r.respAtMs = Number(sla.resp.stopMs) || r.respAtMs; r.respState = resp.state; }
   if (res) { r.resMs = res.ms; r.resState = res.state; }
