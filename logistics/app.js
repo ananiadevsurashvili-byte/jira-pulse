@@ -1133,11 +1133,15 @@ function lgSlaApplyNative(r, sla) {
      later than resolution) the response field shows the resolution
      span — red when that span passes the 2h response goal. */
   const respGoal = ((lgState.slaGoals || {}).respHours || 2) * 3600e3;
-  if (res && (!resp || resp.ms <= 0 || resp.ms > res.ms)) {
-    resp = { ms: res.ms, state: res.ms <= respGoal ? 'in' : 'out' };
+  /* the bulk payload often ships the response cycle alone (res cycle
+     missing or still uncompleted) — fall back to the row's own computed
+     created→resolved span so the rule below still applies */
+  const resSpan = (res && res.ms) || r.resMs || 0;
+  if (resSpan && (!resp || resp.ms <= 0 || resp.ms > resSpan)) {
+    resp = { ms: resSpan, state: resSpan <= respGoal ? 'in' : 'out' };
     sla.resp = Object.assign({}, sla.resp || {
-      startMs: sla.res.startMs, stopMs: sla.res.stopMs, goalMs: respGoal
-    }, { completed: true, breached: resp.state === 'out', elapsedMs: res.ms });
+      startMs: sla.res?.startMs, stopMs: sla.res?.stopMs, goalMs: respGoal
+    }, { completed: true, breached: resp.state === 'out', elapsedMs: resSpan });
   }
   if (resp) { r.respMs = resp.ms; r.respAtMs = Number(sla.resp.stopMs) || r.respAtMs; r.respState = resp.state; }
   if (res) { r.resMs = res.ms; r.resState = res.state; }
