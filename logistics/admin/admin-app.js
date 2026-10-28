@@ -645,19 +645,15 @@ function admSlaRow(r) {
        from the comment; no visible reply ⇒ if the settlement was quick it's
        covered by the resolution fallback BELOW; otherwise honest nodata,
        NOT 'out' (native hydration lands later via admSlaApplyNative). */
-    r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : 'nodata';
+    /* Resolution Set is a first-response stop on the JSM goal: once the
+       task is resolved the response clock CANNOT run further — a task
+       resolved at +1m whose last comment lands +1h54m shows BOTH fields
+       at the resolution time (red when it passes the response goal),
+       never the slower comment time. */
+    if (r.resMs && r.respMs > r.resMs) { r.respMs = r.resMs; r.respAtMs = r.resolvedAt || 0; }
+    if (r.resMs && !r.respMs) { r.respMs = r.resMs; r.respAtMs = r.resolvedAt || 0; }
+    r.respState = r.respMs ? (r.respMs <= respGoal ? 'in' : 'out') : 'nodata';
     r.resState = r.resMs ? (r.resMs <= resGoal ? 'in' : 'out') : 'nodata';
-    /* one of the response stops (Resolution Set / status walk to progress)
-       fires AT most right after the resolution stop moment — so when a task
-       settled within the response goal, first response couldn't have
-       breached either. Cover the tail of the nodata bucket with that bound:
-       settled fast ⇒ 'in'; settled slow ⇒ still honest nodata (the stop
-       could ALSO have fired early, we can't see it in the bulk payload). */
-    if (!respAt && r.resState === 'in' && r.resMs <= respGoal) {
-      r.respState = 'in';
-      r.respAtMs = r.resolvedAt || 0;
-      r.respMs = r.resMs;
-    }
   } else {
     /* still open: the working clock keeps running — past goal ⇒ overdue, else pending */
     r.resolvedMs = 0; r.resMs = 0;

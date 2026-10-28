@@ -1169,13 +1169,15 @@ function lgSlaRow(r) {
        In-Progress walk, Resolution Set) — same honesty rule as the admin
        side: with no visible non-reporter reply it stays nodata, except the
        bound below (settled within the response goal ⇒ response was in). */
-    r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : 'nodata';
+    /* Resolution Set is a first-response stop on the JSM goal: once the
+       task is resolved the response clock CANNOT run further — a task
+       resolved at +1m whose last comment lands +1h54m shows BOTH fields
+       at the resolution time (red when it passes the response goal),
+       never the slower comment time. */
+    if (r.resMs && r.respMs > r.resMs) { r.respMs = r.resMs; r.respAtMs = r.resolvedAt || 0; }
+    if (r.resMs && !r.respMs) { r.respMs = r.resMs; r.respAtMs = r.resolvedAt || 0; }
+    r.respState = r.respMs ? (r.respMs <= respGoal ? 'in' : 'out') : 'nodata';
     r.resState = r.resMs ? (r.resMs <= resGoal ? 'in' : 'out') : 'nodata';
-    if (!respAt && r.resState === 'in' && r.resMs <= respGoal) {
-      r.respState = 'in';
-      r.respAtMs = r.resolvedAt || 0;
-      r.respMs = r.resMs;
-    }
   } else {
     r.resMs = 0;
     r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : (r.elapsedMs > respGoal ? 'overdue' : 'pending');
