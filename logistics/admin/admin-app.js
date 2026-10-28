@@ -623,7 +623,12 @@ function admSlaRow(r) {
     if (c.created && (rep ? (au && au !== rep) : !!au)) { respAt = c.created; break; }
   }
   r.respAtMs = respAt || 0;
-  r.respMs = respAt ? whSpanMs(r.createdMs, respAt) : 0;
+  /* zero working-span is a REAL measurement (reply in the same evening /
+     weekend, outside Mon–Fri 02:00–10:00): fall back to the wall-clock
+     span so the response field shows the real elapsed time — e.g. a task
+     answered at resolution time shows the SAME duration in both fields,
+     red when it passes the response goal. */
+  r.respMs = respAt ? (whSpanMs(r.createdMs, respAt) || (respAt - r.createdMs)) : 0;
   r.elapsedMs = whSpanMs(r.createdMs, now);
   if (r.resolved) {
     /* zero working-span is a REAL measurement, not missing data: tasks
