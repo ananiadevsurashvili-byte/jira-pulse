@@ -9017,7 +9017,7 @@ function buildInsights(m) {
    the (sometimes slow) fetch — the user never sees stale data from another board. */
 function showDashLoading(boardName) {
   restoreKpiGrid();   /* compare layout may still own the grid — restore the real KPI cards first */
-  ['kpiTotal', 'kpiCreated', 'kpiBlocked', 'kpiDone', 'kpiCompletion', 'kpiWip'].forEach((id) => ($('#' + id).textContent = '…'));
+  ['kpiTotal', 'kpiCreated', 'kpiBlocked', 'kpiDone', 'kpiCompletion', 'kpiWip'].forEach((id) => { const el = $('#' + id); if (el) el.textContent = '…'; });
   ['kpiTotalSub', 'kpiCreatedSub', 'kpiBlockedSub', 'kpiDoneSub', 'kpiCompletionSub', 'kpiWipSub'].forEach((id) => { const el = $('#' + id); if (el) el.textContent = t('dash.syncing'); });
   $('#issueCountBadge').textContent = isMasterPBoard(state.lastBoard) ? t('master.syncing') : t('dash.syncing');
   $('#slowTableBody').innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:26px"><span class="spinner spinner-sm"></span> ${escapeHtml(tReplace('dash.loadingBoard', { b: boardName || t('dash.thisBoard') }))}…</td></tr>`;
@@ -9037,9 +9037,9 @@ function renderDashboard(board, m) {
      counting window (not "30 days") */
   $('#kpiCreatedLabel').textContent = bwOn ? t('kpi.createdIn') : t('kpi.created');
   $('#kpiTotalLabel').textContent = bwOn ? t('kpi.totalIn') : t('kpi.total');
-  $('#kpiBlockedLabel').textContent = bwOn ? t('kpi.blockedIn') : t('kpi.blocked');
+  const blockedLabelEl = $('#kpiBlockedLabel'); if (blockedLabelEl) blockedLabelEl.textContent = bwOn ? t('kpi.blockedIn') : t('kpi.blocked');
   $('#kpiDoneLabel').textContent = bwOn ? t('kpi.doneIn') : t('kpi.done');
-  $('#kpiCompletionLabel').textContent = bwOn ? t('kpi.completionIn') : t('kpi.completion');
+  const completionLabelEl = $('#kpiCompletionLabel'); if (completionLabelEl) completionLabelEl.textContent = bwOn ? t('kpi.completionIn') : t('kpi.completion');
   $('#kpiWipLabel').textContent = bwOn ? t('kpi.wipIn') : t('kpi.wip');
   /* all counter cards share ONE counting window: rolling 30 days by default,
      the exact board period when a filter is on — so every card answers the
@@ -9052,12 +9052,14 @@ function renderDashboard(board, m) {
   $('#kpiCreatedSub').innerHTML = bwOn
     ? `<span class="muted">${escapeHtml(t('brd.period') + ': ' + fmtBoardWin())}</span>`
     : trendBadge(m.createdPrev30, m.created30, t('dash.vsPrior30d'), 'neutral');
-  animateValue($('#kpiBlocked'), m.blockedIn);
-  $('#kpiBlockedSub').innerHTML = bwOn ? periodSub : t('kpi.blockedSubWin');
+  const kpiBlockedVal = $('#kpiBlocked');
+  if (kpiBlockedVal) animateValue(kpiBlockedVal, m.blockedIn);
+  const blockedSubEl = $('#kpiBlockedSub'); if (blockedSubEl) blockedSubEl.innerHTML = bwOn ? periodSub : t('kpi.blockedSubWin');
   animateValue($('#kpiDone'), m.doneIn);
   $('#kpiDoneSub').innerHTML = bwOn ? periodSub : t('kpi.doneSubWin');
-  animateValue($('#kpiCompletion'), m.doneRateIn, '%');
-  $('#kpiCompletionSub').innerHTML = bwOn ? periodSub : t('kpi.completionSubWin');
+  const kpiCompletionVal = $('#kpiCompletion');
+  if (kpiCompletionVal) animateValue(kpiCompletionVal, m.doneRateIn, '%');
+  const completionSubEl = $('#kpiCompletionSub'); if (completionSubEl) completionSubEl.innerHTML = bwOn ? periodSub : t('kpi.completionSubWin');
   animateValue($('#kpiWip'), m.wipIn);
   $('#kpiWipSub').textContent = tReplace('kpi.wipSub', { n: m.wipIn });
   $('#issueCountBadge').textContent = tReplace('dash.issuesAnalyzed', { n: m.total });
