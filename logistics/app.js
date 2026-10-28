@@ -71,13 +71,21 @@ let lgState = {
   sort: { col: 'created', dir: 'desc' },
   loading: false,
   cardKey: null,       /* task currently open in the detail card */
-  pageSize: 100,       /* rendered-row cap; switchable in the toolbar */
+  pageSize: 200,       /* rendered-row cap; switchable in the toolbar */
   _renderJob: 0,       /* rAF id of an in-flight background row-append */
 };
-const LG_PAGE_SIZES = [50, 100, 200, 500, 1000, 10000];
+const LG_PAGE_SIZES = [100, 200, 500, 1000, 10000];
 const LG_FIRST_CHUNK = 100;    /* rows painted synchronously before yielding */
 const LG_APPEND_CHUNK = 250;   /* rows appended per animation frame afterwards */
+const LG_PAGE_STEP = 200;      /* "Show more" grows the visible page by +200 */
 const LS_PAGE_SIZE = 'jp_lg_page_v1';
+/* page-1 size: the user's saved page-size choice ( LS), floored at the
+   default 200 — a "Show more" that already grew the page must not persist */
+function lgBasePageSize() {
+  let saved = 0;
+  try { saved = parseInt(localStorage.getItem(LS_PAGE_SIZE) || '', 10); } catch (_) {}
+  return LG_PAGE_SIZES.includes(saved) ? Math.max(saved, 200) : 200;
+}
 try {
   const saved = parseInt(localStorage.getItem(LS_PAGE_SIZE) || '', 10);
   if (LG_PAGE_SIZES.includes(saved)) lgState.pageSize = saved;   // eslint-disable-line no-use-before-define
@@ -149,6 +157,7 @@ const I18N = {
     'lg.updatedAt': 'Updated {t}',
     'lg.count': '{n} tasks',
     'lg.showing': 'Showing {n} of {total} — refine filters to see more',
+    'lg.showMore': 'Show more',
     'lg.searchPh': 'Search tasks…',
     'lg.filterAll': 'All',
     'lg.fLabel.status': 'Status',
@@ -259,6 +268,7 @@ const I18N = {
     'lg.updatedAt': 'განახლდა {t}',
     'lg.count': '{n} ამოცანა',
     'lg.showing': 'ნაჩვენებია {n} / {total} — შეავიწროვეთ ფილტრები დანარჩენის სანახავად',
+    'lg.showMore': 'მეტის ჩვენება',
     'lg.searchPh': 'ამოცანების ძებნა…',
     'lg.filterAll': 'ყველა',
     'lg.fLabel.status': 'სტატუსი',
@@ -1429,6 +1439,7 @@ function lgBuildFilterBar() {
   bar.querySelectorAll('select[data-col]').forEach((sel) => {
     sel.addEventListener('change', () => {
       lgState.filters[sel.dataset.col] = sel.value;
+      lgState.pageSize = lgBasePageSize();   /* new filter → back to page 1 */
       lgRenderRows();
     });
   });
@@ -1453,6 +1464,7 @@ function lgBuildFilterBar() {
       lgState.filters.direction = b.dataset.val;
       closeDir();
       lgBuildFilterBar();   /* refresh the trigger caption + active state */
+      lgState.pageSize = lgBasePageSize();   /* new filter → back to page 1 */
       lgRenderRows();
     });
   });
@@ -1490,6 +1502,7 @@ function lgBuildFilterBar() {
   const periodChanged = () => {
     lgSavePeriod();
     lgBuildFilterBar();   /* refresh the button caption + active state */
+    lgState.pageSize = lgBasePageSize();   /* new period → back to page 1 */
     lgLoad(true);   /* re-sync with the narrowed server-side window */
   };
   $('#lgFPeriodBtn').addEventListener('click', () => {
@@ -1809,9 +1822,21 @@ function lgRenderRows(opts) {
   $('#lgCount').textContent = lgState.period.kind !== 'all'
     ? tReplace('lg.countIn', { n: all.length })
     : tReplace('lg.count', { n: all.length });
-  $('#lgShowing').textContent = all.length > rows.length
-    ? tReplace('lg.showing', { n: rows.length, total: all.length })
-    : '';
+  const showMore = $('#lgShowMore');
+  const setShowing = (limited) => {
+    $('#lgShowing').textContent = limited
+      ? tReplace('lg.showing', { n: rows.length, total: all.length })
+      : '';
+    if (showMore) {
+      if (limited) {
+        showMore.textContent = t('lg.showMore') + ' +' + LG_PAGE_STEP;
+        showMore.classList.remove('hidden');
+      } else {
+        showMore.classList.add('hidden');
+      }
+    }
+  };
+  setShowing(all.length > rows.length);
   /* sort carets: whole columns + the split halves inside People/Dates */
   document.querySelectorAll('#lgContent thead th[data-col]').forEach((th) => {
     const active = th.dataset.col === lgState.sort.col;
@@ -2472,17 +2497,31 @@ document.addEventListener('DOMContentLoaded', () => {
   let deb;
   $('#lgSearch').addEventListener('input', (e) => {
     clearTimeout(deb);
-    deb = setTimeout(() => { lgState.q = e.target.value; lgRenderRows(); }, 250);
+    deb = setTimeout(() => {
+      lgState.q = e.target.value;
+      lgState.pageSize = lgBasePageSize();   /* new search → back to page 1 */
+      lgRenderRows();
+    }, 250);
   });
 
-  /* page-size switcher: 50 / 100 / 200 / 500 / 1000 / 10000 rows per page */
+  /* page-size switcher: 100 / 200 / 500 / 1000 / 10000 rows per page */
   lgRenderPageSizeOptions();
   const pageSizeSel = $('#lgPageSize');
   pageSizeSel.addEventListener('change', () => {
-    lgState.pageSize = parseInt(pageSizeSel.value, 10) || 100;
+    lgState.pageSize = parseInt(pageSizeSel.value, 10) || 200;
     try { localStorage.setItem(LS_PAGE_SIZE, String(lgState.pageSize)); } catch (_) {}
     lgRenderRows();
   });
+
+  /* "Show more": grow the visible page by +200 while more rows exist —
+     keeps the first paint small (speed) and reveals the rest on demand */
+  const showMoreBtn = $('#lgShowMore');
+  if (showMoreBtn) {
+    showMoreBtn.addEventListener('click', () => {
+      lgState.pageSize += LG_PAGE_STEP;
+      lgRenderRows();
+    });
+  }
 
   /* click-to-sort headers */
   document.querySelectorAll('#lgContent thead th[data-col]').forEach((th) => {
@@ -2493,6 +2532,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         lgState.sort = { col, dir: (col === 'created' || col === 'updated' || col === 'key') ? 'desc' : 'asc' };
       }
+      lgState.pageSize = lgBasePageSize();   /* new sort → back to page 1 */
       lgRenderRows();
     });
   });
@@ -2507,6 +2547,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         lgState.sort = { col, dir: (col === 'created' || col === 'updated') ? 'desc' : 'asc' };
       }
+      lgState.pageSize = lgBasePageSize();   /* new sort → back to page 1 */
       lgRenderRows();
     });
   });

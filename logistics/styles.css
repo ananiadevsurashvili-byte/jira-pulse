@@ -407,6 +407,20 @@ body.light .lg-period-btn.ghost:hover { background: #eef1f8; }
    for the gradient Apply button (a white 1px ring showed in dark mode) */
 .lg-period-btn.primary { border-color: transparent; }
 
+/* "Show more" pagination button under the desk table (admin's .tl-more twin) */
+.lg-show-more {
+  font-size: 0.76rem;
+  padding: 6px 16px;
+  border-radius: 9px;
+  cursor: pointer;
+  background: #1b1e29;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  color: var(--text, #e9edf8);
+}
+.lg-show-more:hover { background: #242836; border-color: var(--border-strong); }
+body.light .lg-show-more { background: #fff; color: #1e2540; border-color: rgba(15, 23, 42, 0.14); }
+body.light .lg-show-more:hover { background: #eef1f8; }
+
 /* ── period popup: input focus polish ─────────────────────────────────
    Appended after the period popup styles: give the date fields a
    visible focus ring that matches the rest of the panel controls. */
