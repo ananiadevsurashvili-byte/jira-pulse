@@ -1122,11 +1122,30 @@ function lgSlaApplyNative(r, sla) {
     }
     return { ms, state: a.breached ? 'out' : 'in' };
   };
-  const resp = mk(sla.resp);
+  let resp = mk(sla.resp);
   const res = mk(sla.res);
+  /* "Resolution: Set" is ALSO a first-response stop on this instance's
+     goal — once the task is resolved its response clock cannot run
+     further, and Jira often leaves the response cycle unsettled even on
+     a resolved task. Display rule: a resolved task shows the SAME span
+     in both fields, red when it passes the response goal. */
+  const respGoal = ((lgState.slaGoals || {}).respHours || 2) * 3600e3;
+  if (res) {
+    if (resp && resp.ms > res.ms) {
+      resp.ms = res.ms;
+      resp.state = res.ms <= respGoal ? 'in' : 'out';
+      sla.resp = Object.assign({}, sla.resp, { elapsedMs: res.ms, breached: resp.state === 'out' });
+    } else if (!resp) {
+      resp = { ms: res.ms, state: res.ms <= respGoal ? 'in' : 'out' };
+      sla.resp = Object.assign({}, sla.resp || {
+        startMs: sla.res.startMs, stopMs: sla.res.stopMs, goalMs: respGoal
+      }, { completed: true, breached: resp.state === 'out', elapsedMs: res.ms });
+    }
+  }
   if (resp) { r.respMs = resp.ms; r.respAtMs = Number(sla.resp.stopMs) || r.respAtMs; r.respState = resp.state; }
   if (res) { r.resMs = res.ms; r.resState = res.state; }
-  /* keep the native payload so the card can show exact settled times */
+  /* keep the native payload so the card can show exact settled times
+     (nat.resp was patched above, so cells/cards stay consistent) */
   r.slaNative = sla;
 }
 
