@@ -614,15 +614,31 @@ function admSlaApplyNative(r, sla) {
      later than resolution) the response field shows the resolution
      span — red when that span passes the 2h response goal. */
   const respGoal = ((adm.slaGoals || SLA_DEFAULT_GOALS).respHours || 2) * 3600e3;
+  /* NEW_SLA_FORMAT quirk: COMPLETED response cycles are often booked 0m
+     (clock paused the whole cycle) — mk() resurrects the startMs→stopMs
+     sliver into a few-ms "genuine" span, which defeated the 0m rule below
+     and left Done tasks whose first stop was resolution showing the RAW
+     elapsedMs=~0 as an empty "–" first-response chip. A first response is
+     GENUINE only when the RAW elapsed books actual time (0 < raw <= res
+     span): a 0m booked cycle is a paused clock, NOT a first response —
+     the resolution span stands in for it (Resolution-Set stop rule), so
+     "resolved on first response" shows BOTH fields at exactly the same
+     duration — red when that span passes the 2h response goal. */
+  const respRawMs = sla.resp && sla.resp.completed ? (Number(sla.resp.elapsedMs) || 0) : 0;
   /* the bulk payload often ships the response cycle alone (res cycle
      missing or still uncompleted) — fall back to the row's own computed
      created→resolved span so the rule below still applies */
   const resSpan = (res && res.ms) || r.resMs || 0;
-  if (resSpan && (!resp || resp.ms <= 0 || resp.ms > resSpan)) {
+  if (resSpan && (!resp || respRawMs <= 0 || resp.ms > resSpan)) {
+    /* paused/unknown cycles inherit the RESOLUTION window as the effective
+       first-response stop — not the 2-second clock-sliver stop — so popup
+       timestamps and the row's respAtMs point at the real response moment */
+    const effStart = sla.res?.startMs ?? (sla.resp && sla.resp.startMs);
+    const effStop = sla.res?.stopMs ?? (sla.resp && sla.resp.stopMs);
     resp = { ms: resSpan, state: resSpan <= respGoal ? 'in' : 'out' };
     sla.resp = Object.assign({}, sla.resp || {
-      startMs: sla.res?.startMs, stopMs: sla.res?.stopMs, goalMs: respGoal
-    }, { completed: true, breached: resp.state === 'out', elapsedMs: resSpan });
+      startMs: effStart, stopMs: effStop, goalMs: respGoal
+    }, { completed: true, breached: resp.state === 'out', elapsedMs: resSpan, startMs: effStart, stopMs: effStop });
   }
   if (resp) { r.respMs = resp.ms; r.respAtMs = Number(sla.resp.stopMs) || r.respAtMs; r.respState = resp.state; r._natResp = true; }
   if (res) {
