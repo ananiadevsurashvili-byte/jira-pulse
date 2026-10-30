@@ -614,22 +614,27 @@ function admSlaApplyNative(r, sla) {
      later than resolution) the response field shows the resolution
      span — red when that span passes the 2h response goal. */
   const respGoal = ((adm.slaGoals || SLA_DEFAULT_GOALS).respHours || 2) * 3600e3;
-  /* NEW_SLA_FORMAT quirk: COMPLETED response cycles are often booked 0m
-     (clock paused the whole cycle) — mk() resurrects the startMs→stopMs
-     sliver into a few-ms "genuine" span, which defeated the 0m rule below
-     and left Done tasks whose first stop was resolution showing the RAW
-     elapsedMs=~0 as an empty "–" first-response chip. A first response is
-     GENUINE only when the RAW elapsed books actual time (0 < raw <= res
-     span): a 0m booked cycle is a paused clock, NOT a first response —
-     the resolution span stands in for it (Resolution-Set stop rule), so
-     "resolved on first response" shows BOTH fields at exactly the same
-     duration — red when that span passes the 2h response goal. */
+  /* NEW_SLA_FORMAT quirk: COMPLETED response cycles are often booked a
+     PAUSED-CLOCK SLIVER — elapsedMs 0, or a ~2-second cluster (probed:
+     1886/1972/2071/2078/2115/2466/2525/2174 ms) — because the cycle was
+     paused from the start on this instance's goal (first stop is
+     Resolution Set, which stops the response clock at once). Rendering
+     that raw value produced the impossible "0h" first-response chips.
+     Probed truth: NO real first reply on this desk lands under 1 minute —
+     a human cannot answer inside the 2-second artifact band. So a first
+     response counts as GENUINE only when the RAW elapsed books at least
+     1 minute (raw >= RESP_ARTIFACT_MS; below it ⇒ paused artifact): then the
+     resolution span stands in for it (Resolution-Set stop rule) and both
+     fields show exactly the same duration, red when it passes the 2h
+     response goal. */
+  const RESP_ARTIFACT_MS = 60e3;
   const respRawMs = sla.resp && sla.resp.completed ? (Number(sla.resp.elapsedMs) || 0) : 0;
+  const respIsArtifact = respRawMs < RESP_ARTIFACT_MS;
   /* the bulk payload often ships the response cycle alone (res cycle
      missing or still uncompleted) — fall back to the row's own computed
      created→resolved span so the rule below still applies */
   const resSpan = (res && res.ms) || r.resMs || 0;
-  if (resSpan && (!resp || respRawMs <= 0 || resp.ms > resSpan)) {
+  if (resSpan && (!resp || respIsArtifact || resp.ms > resSpan)) {
     /* paused/unknown cycles inherit the RESOLUTION window as the effective
        first-response stop — not the 2-second clock-sliver stop — so popup
        timestamps and the row's respAtMs point at the real response moment */
