@@ -1928,6 +1928,7 @@ const _admSlaCache = new Map();        /* key → { ts, sla } */
 const _admSlaInFlight = new Map();     /* key → Promise (dedupe concurrent) */
 const _admSlaTried = new Set();        /* keys that returned nothing → don't refetch */
 let _admSlaQueue = [];                 /* pending keys for the deferred pump */
+const _admSlaQueued = new Set();       /* keys currently sitting in the queue */
 let _admSlaTimer = null;
 let _admSlaAggrTimer = null;           /* debounced re-aggregate timer */
 
@@ -1973,9 +1974,10 @@ async function admFetchSla(key) {
 /* queue keys whose native SLA is still missing (drilldown + final table) */
 function admSlaQueueMissing(keys) {
   for (const key of keys) {
-    if (_admSlaCache.has(key) || _admSlaTried.has(key) || _admSlaInFlight.has(key)) continue;
+    if (_admSlaCache.has(key) || _admSlaTried.has(key) || _admSlaInFlight.has(key) || _admSlaQueued.has(key)) continue;
     const r = admFindTask(key);
     if (!r || (r.slaNative && !r.slaBulk)) continue;
+    _admSlaQueued.add(key);
     _admSlaQueue.push(key);
   }
   if (_admSlaQueue.length && !_admSlaTimer) {
@@ -1983,11 +1985,35 @@ function admSlaQueueMissing(keys) {
   }
 }
 
-/* deferred pump: a few requests per tick so scrolling never stutter */
+/* Converge the WHOLE period, not just painted rows: the visible-table queue
+   only hydrates whatever happened to be scrolled past, so KPI percentages
+   sat on an arbitrary mixture of native verdicts and comment-clock
+   approximations (Jira pauses the SLA clock waiting on the customer; the
+   approximation does not — approximation rows skew hard to 'out'). This
+   pass re-queues EVERY in-period row still marked slaBulk/unhydrated, and
+   renderAll() runs it on every period change + pump tick, so the aggregates
+   settle onto the full native truth no matter which rows the user saw. */
+function admSlaQueuePeriod() {
+  if (!adm.verified || !adm.rows.length) return;
+  const range = admPeriodRange();
+  const from = range.from.getTime(), to = range.to.getTime();
+  const keys = [];
+  for (const r of adm.rows) {
+    if (r.createdMs < from || r.createdMs > to) continue;
+    if (r.slaNative && !r.slaBulk) continue;
+    keys.push(r.key);
+  }
+  if (keys.length) admSlaQueueMissing(keys);
+}
+
+/* deferred pump: a few requests per tick so scrolling never stutter.
+   6 per 120ms ≈ 50 rows/s — a full-period convergence (up to ~3.4k rows)
+   settles in ~1–2 minutes while the table stays perfectly responsive. */
 function admSlaPump() {
   _admSlaTimer = null;
-  const batch = _admSlaQueue.splice(0, 4);
+  const batch = _admSlaQueue.splice(0, 6);
   if (!batch.length) return;
+  for (const key of batch) _admSlaQueued.delete(key);
   for (const key of batch) {
     admFetchSla(key).then((sla) => {
       if (!sla) return;
@@ -2002,7 +2028,11 @@ function admSlaPump() {
          refresh KPI cards + SLA charts + medians so they carry the SAME
          verdicts the row chips now show (debounced bundle) */
       admSlaRefreshAggregates();
-    }).catch(() => { /* optional garnish — approximation stays */ });
+    }).catch(() => {
+      /* relay/network hiccup — mark tried so the periodic re-scan cannot
+         turn a persistent outage into an endless request-loop */
+      _admSlaTried.add(key);
+    });
   }
   if (_admSlaQueue.length) _admSlaTimer = setTimeout(admSlaPump, 120);
 }
@@ -2876,6 +2906,10 @@ function renderAll() {
   renderKpis(a); renderCharts(a); renderLeaderboards(a);
   admRenderDrilldown();   /* keep an open drill-down in sync with its period */
   admSetFetched(adm.fetchedAt);
+  /* converge native-SLA hydration over the WHOLE period (not just painted
+     rows) — keeps the response/resolution percentages on the full native
+     truth instead of whatever rows happened to be visible */
+  admSlaQueuePeriod();
 }
 function admError(msg) {
   const el = $('#admError'); if (!el) return;
