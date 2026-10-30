@@ -625,7 +625,22 @@ function admSlaApplyNative(r, sla) {
     }, { completed: true, breached: resp.state === 'out', elapsedMs: resSpan });
   }
   if (resp) { r.respMs = resp.ms; r.respAtMs = Number(sla.resp.stopMs) || r.respAtMs; r.respState = resp.state; r._natResp = true; }
-  if (res) { r.resMs = res.ms; r.resolvedMs = res.ms; r.resState = res.state; r._natRes = true; }
+  if (res) {
+    r.resMs = res.ms; r.resolvedMs = res.ms; r.resState = res.state; r._natRes = true;
+    /* res.stopMs is Jira's REAL settlement moment — the bulk `updated`
+       fallback is wrong for period sampling: ANY later comment/edit bumps
+       `updated`, which dragged long-resolved tasks into the "last 24h"
+       resolution sample with multi-day created→updated spans (the card
+       said "2d" in a 24h scale). Patch resolvedAt when truth lands;
+       aggregates re-run debounced so every resolvedAt consumer (KPI
+       "resolved in period" + median, per-day trend, per-user/board
+       resolved counts) picks the real timestamp up. */
+    const natResStop = Number(sla.res.stopMs) || 0;
+    if (natResStop && (!r.createdMs || natResStop >= r.createdMs)) {
+      r.resolvedAt = natResStop;
+      r.rdReal = true;
+    }
+  }
   /* keep the native payload so the popup can show exact settled times
      (nat.resp was patched above, so cells/popups stay consistent) */
   r.slaNative = sla;
@@ -1999,7 +2014,13 @@ function admSlaQueuePeriod() {
   const from = range.from.getTime(), to = range.to.getTime();
   const keys = [];
   for (const r of adm.rows) {
-    if (r.createdMs < from || r.createdMs > to) continue;
+    /* created-in-period OR resolved-in-period — the resolved-in-period
+       sample feeds "resolved · period", the resolution-time median and the
+       trend, so tasks created BEFORE the window but settled inside it also
+       need the native stopMs to replace their `updated` fallback */
+    if (r.createdMs < from || r.createdMs > to) {
+      if (!(r.resolved && r.resolvedAt >= from && r.resolvedAt <= to)) continue;
+    }
     if (r.slaNative && !r.slaBulk) continue;
     keys.push(r.key);
   }
