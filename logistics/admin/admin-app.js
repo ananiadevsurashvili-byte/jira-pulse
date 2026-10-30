@@ -856,6 +856,7 @@ function admNormalize(data) {
   const dirId = adm.fieldIds.direction;
   const issues = (data && data.issues) || [];
   const rows = [];
+  let bulkSlaHits = 0;   /* rows that carried a bulk-native SLA cycle */
   for (const it of issues) {
     const f = it.fields || {};
     const labels = Array.isArray(f.labels) ? f.labels : [];
@@ -931,8 +932,13 @@ function admNormalize(data) {
          mark the row so admSlaQueueMissing still queues it for the full
          per-issue fetch. Cleared by admSlaPump once hydration lands. */
       row.slaBulk = true;
+      bulkSlaHits++;
     }
   }
+  /* bulk native verdicts differ from the approximation on many rows at
+     once — one debounced aggregate refresh renders ALL SLA consumers
+     (KPI cards, charts, medians) straight from the native values */
+  if (bulkSlaHits) admSlaRefreshAggregates();
   return rows;
 }
 /* Direction values are long bilingual strings like
@@ -1692,8 +1698,11 @@ function admDrillHay(r) {
   return r._hay;
 }
 
+/* 'late' = measured breach OR still-open overdue (either metric) — the old
+   bare 'out' option was a strict subset shown under an identical label, so
+   it's gone: one "Out of SLA" entry, the manager view. */
 const ADM_DRILL_SLA_OPTS = [['', 'adm.dl.filterAll'], ['in', 'adm.sla.inSla'], ['late', 'adm.sla.outSla'],
-  ['out', 'adm.sla.outSla'], ['pending', 'adm.sla.pending'], ['overdue', 'adm.sla.overdue'], ['nodata', 'adm.sla.nodata']];
+  ['pending', 'adm.sla.pending'], ['overdue', 'adm.sla.overdue'], ['nodata', 'adm.sla.nodata']];
 const ADM_DRILL_SLA_RANK = { in: 0, pending: 1, nodata: 2, overdue: 3, out: 4 };
 
 function admDrillDistinct(col) {
@@ -1713,8 +1722,8 @@ function admDrillBuildFilterBar() {
       `<select class="input tl-select" data-col="${col}" aria-label="${escapeHtml(t(labelKey))}">` +
       `<option value="">${escapeHtml(t('adm.dl.filterAll'))}</option>` +
       o.map((v) => {
-        const lbl = col === 'sla' ? t(v) : v;
-        return `<option value="${escapeHtml(col === 'sla' ? v : v)}"${adm.dlFilters[col] === v ? ' selected' : ''}>${escapeHtml(lbl)}</option>`;
+        const lbl = col === 'sla' ? t(SLA_LBL[v] || v) : v;
+        return `<option value="${escapeHtml(v)}"${adm.dlFilters[col] === v ? ' selected' : ''}>${escapeHtml(lbl)}</option>`;
       }).join('') + `</select></div>`;
   };
   const SLA_LBL = { in: 'adm.sla.inSla', late: 'adm.sla.outSla', pending: 'adm.sla.pending', overdue: 'adm.sla.overdue', nodata: 'adm.sla.nodata' };
@@ -1723,7 +1732,7 @@ function admDrillBuildFilterBar() {
     mk('reporter', 'adm.dl.fReporter') +
     mk('assignee', 'adm.dl.fAssignee') +
     mk('direction', 'adm.dl.fDirection') +
-    mk('sla', 'adm.dl.fSla', ADM_DRILL_SLA_OPTS.map(([v]) => v).slice(1).map((v) => v === 'late' ? 'late' : v));
+    mk('sla', 'adm.dl.fSla', ADM_DRILL_SLA_OPTS.map(([v]) => v).slice(1));
   bar.querySelectorAll('select[data-col]').forEach((sel) => {
     sel.addEventListener('change', () => {
       adm.dlFilters[sel.dataset.col] = sel.value;
@@ -1909,13 +1918,31 @@ async function admFetchAttachments(key) {
    (Time to first response / Time to resolution) are fetched lazily via
    the relay's ?cmd=deskSla (with the admin auth header when connected)
    and cached in _admSlaCache. Rendering: once a row's SLA lands, ONLY
-   that row's chips are re-painted in place (no full table re-render). */
+   that row's chips are re-painted in place (no full table re-render) —
+   and a DEBOUNCED re-aggregate refreshes KPI cards, the SLA charts and
+   the medians, so they always reflect the settled native values too
+   (bundled per pump tick: hydrating hundreds of rows must not re-run
+   the aggregate per row). */
 const ADM_SLA_TTL = 10 * 60 * 1000;    /* per-session cache: 10 min */
 const _admSlaCache = new Map();        /* key → { ts, sla } */
 const _admSlaInFlight = new Map();     /* key → Promise (dedupe concurrent) */
 const _admSlaTried = new Set();        /* keys that returned nothing → don't refetch */
 let _admSlaQueue = [];                 /* pending keys for the deferred pump */
 let _admSlaTimer = null;
+let _admSlaAggrTimer = null;           /* debounced re-aggregate timer */
+
+/* refresh every SLA consumer (KPI cards, charts, drill-down) once hydration
+   has patched rows. Debounced: the pump lands up to 4 rows per tick, so
+   one aggregate run per 1.5 quiet seconds is plenty and keeps scrolling
+   smooth. renderAll() re-reads adm.rows in place — for an OPEN drill this
+   recomputes with hydrated states; the rows themselves are untouched. */
+function admSlaRefreshAggregates() {
+  if (_admSlaAggrTimer) clearTimeout(_admSlaAggrTimer);
+  _admSlaAggrTimer = setTimeout(() => {
+    _admSlaAggrTimer = null;
+    if (adm.verified && adm.rows.length) renderAll();
+  }, 1500);
+}
 
 /* fetch Jira's own SLA clocks for one task */
 async function admFetchSla(key) {
@@ -1971,6 +1998,10 @@ function admSlaPump() {
       admRepaintRowSla(key);
       /* open popup shows exact settled times once the SLA lands */
       if (adm.cardKey === key) admRenderCard();
+      /* native verdicts differ from the approximation in the general case —
+         refresh KPI cards + SLA charts + medians so they carry the SAME
+         verdicts the row chips now show (debounced bundle) */
+      admSlaRefreshAggregates();
     }).catch(() => { /* optional garnish — approximation stays */ });
   }
   if (_admSlaQueue.length) _admSlaTimer = setTimeout(admSlaPump, 120);
@@ -2165,6 +2196,7 @@ function admRenderCard() {
       if (!sla || adm.cardKey !== r.key) return;
       admSlaApplyNative(r, sla);
       admRenderCard();
+      admSlaRefreshAggregates();   /* hydrated native verdicts → keep KPIs/charts in sync */
     }).catch(() => { /* SLA chips stay approximate */ });
   }
 }
