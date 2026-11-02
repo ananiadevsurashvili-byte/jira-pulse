@@ -1118,17 +1118,23 @@ function lgsWhSpanMs(fromMs, toMs) {
    re-estimate: JSM's clock is the exact one the agent view shows. */
 function lgSlaApplyNative(r, sla) {
   if (!sla || typeof sla !== 'object') return;
-  /* Jira's NEW_SLA_FORMAT quirk: completed cycles often report
-     elapsedTime "0m" even though startTime/stopTime hold the real
-     settlement window — recompute the working-clock span then (wall-clock
-     fallback for settlements outside working hours). Verdict stays Jira's
-     own breached flag either way. */
+  /* Jira's NEW_SLA_FORMAT quirk (probed on this instance): COMPLETED cycles
+     are often booked a PAUSED-CLOCK SLIVER — elapsedMs 0 or a ~2-second
+     cluster (probed 1886/1972/2100/2338/2387/2441 ms) — while startMs/
+     stopMs hold the real settlement window. Probed truth: NO real first
+     reply on this desk lands under 1 minute, so any completed cycle booked
+     under 1 minute is suspect and its real startMs→stopMs window is
+     preferred (working-clock span first, wall-clock fallback for
+     settlements outside Mon–Fri 02:00–10:00). Verdict stays Jira's own
+     breached flag either way. */
+  const ARTIFACT_MS = 60e3;
   const mk = (a) => {
     if (!a || !a.completed) return null;
     let ms = Number(a.elapsedMs) || 0;
-    if (!ms && a.stopMs && a.startMs) {
-      ms = lgsWhSpanMs(Number(a.startMs), Number(a.stopMs)) ||
+    if (ms < ARTIFACT_MS && a.stopMs && a.startMs) {
+      const w = lgsWhSpanMs(Number(a.startMs), Number(a.stopMs)) ||
         (Number(a.stopMs) - Number(a.startMs));
+      if (w > ms) ms = w;
     }
     return { ms, state: a.breached ? 'out' : 'in' };
   };
@@ -1137,24 +1143,46 @@ function lgSlaApplyNative(r, sla) {
   /* "Resolution: Set" is ALSO a first-response stop on this instance's
      goal — once the task is resolved its response clock cannot run
      further, and Jira often leaves the response cycle unsettled-or-stuck:
-     missing entirely, or completed but booked 0m while the clock sat
-     paused. Display rule per product: a GENUINE earlier first response
-     (0 < resp.ms <= res.ms) stays as-is; otherwise (missing, 0m, or
-     later than resolution) the response field shows the resolution
-     span — red when that span passes the 2h response goal. */
+     missing entirely, or completed while the clock sat paused.
+     Display rule per product: a GENUINE earlier first response
+     (>= 1m and <= resolution span) stays as-is; otherwise (missing,
+     sub-minute artifact, or later than resolution) the response field
+     shows the resolution span — red when it passes the 2h goal — so a
+     task settled on first response shows BOTH fields identical. */
   const respGoal = ((lgState.slaGoals || {}).respHours || 2) * 3600e3;
   /* the bulk payload often ships the response cycle alone (res cycle
      missing or still uncompleted) — fall back to the row's own computed
      created→resolved span so the rule below still applies */
   const resSpan = (res && res.ms) || r.resMs || 0;
-  if (resSpan && (!resp || resp.ms <= 0 || resp.ms > resSpan)) {
+  if (resSpan && (!resp || resp.ms < ARTIFACT_MS || resp.ms > resSpan)) {
+    /* paused/unknown cycles inherit the RESOLUTION window as the effective
+       first-response stop — not the 2-second clock-sliver stop — so the
+       row's respAtMs points at the real response moment */
+    const effStart = sla.res?.startMs ?? (sla.resp && sla.resp.startMs);
+    const effStop = sla.res?.stopMs ?? (sla.resp && sla.resp.stopMs);
     resp = { ms: resSpan, state: resSpan <= respGoal ? 'in' : 'out' };
     sla.resp = Object.assign({}, sla.resp || {
-      startMs: sla.res?.startMs, stopMs: sla.res?.stopMs, goalMs: respGoal
-    }, { completed: true, breached: resp.state === 'out', elapsedMs: resSpan });
+      startMs: effStart, stopMs: effStop, goalMs: respGoal
+    }, { completed: true, breached: resp.state === 'out', elapsedMs: resSpan, startMs: effStart, stopMs: effStop });
+  } else if (resp && resp.ms < ARTIFACT_MS && !resSpan) {
+    /* artifact sliver on a NOT-yet-resolved row: the sliver tells nothing —
+       unset the fake completion so the chips fall back to the comment
+       clock / live working clock instead of an impossible "0h" */
+    sla.resp = Object.assign({}, sla.resp, { completed: false, elapsedMs: 0 });
+    resp = null;
   }
   if (resp) { r.respMs = resp.ms; r.respAtMs = Number(sla.resp.stopMs) || r.respAtMs; r.respState = resp.state; }
-  if (res) { r.resMs = res.ms; r.resState = res.state; }
+  if (res) {
+    r.resMs = res.ms; r.resState = res.state;
+    /* mirror of the resp quirk: the cell/card render the RAW payload —
+       patch it whenever mk() recovered a DIFFERENT span (raw 0m over a
+       real window, or a longer window under a sub-minute raw) so every
+       native consumer shows the real span (a task resolved on first
+       response then shows BOTH fields identical). */
+    if ((Number(sla.res.elapsedMs) || 0) !== res.ms) {
+      sla.res = Object.assign({}, sla.res, { elapsedMs: res.ms });
+    }
+  }
   /* keep the native payload so the card can show exact settled times
      (nat.resp was patched above, so cells/cards stay consistent) */
   r.slaNative = sla;
@@ -1229,9 +1257,20 @@ function lgSlaCellHtml(r) {
   const resp = natResp
     ? lgSlaChip(natResp.breached ? 'out' : 'in', lgFmtSla(natResp.elapsedMs),
         t('lg.sla.respTitle') + ': ' + lgFmtSla(natResp.elapsedMs) + ' / ' + fmtGoalH(natResp.goalMs, g.respHours || 2))
-    : r.respState === 'nodata' || !r.respAtMs
-      ? lgSlaChip('nodata', '–', t('lg.sla.nodata'))
-      : lgSlaChip(r.respState, lgFmtSla(r.respMs), t('lg.sla.respTitle') + ': ' + lgFmtSla(r.respMs) + ' / ' + (g.respHours || 2) + ' working h');
+    : r.resolvedAt && r.resMs > 0
+      /* display guarantee (global): a RESOLVED task always has a first
+         response — "Resolution Set" is a first-response stop on this
+         goal, so the resolution span IS the effective first-response
+         time. When every earlier measurement is missing the response
+         chip falls back to the resolution span (same duration) instead
+         of an impossible "–". Open rows keep the comment clock. */
+      ? r.respMs > 0
+        ? lgSlaChip(r.respState === 'nodata' ? r.resState : r.respState,
+            lgFmtSla(r.respMs), t('lg.sla.respTitle') + ': ' + lgFmtSla(r.respMs) + ' / ' + (g.respHours || 2) + ' working h')
+        : lgSlaChip(r.resState, lgFmtSla(r.resMs), t('lg.sla.respTitle') + ': ' + lgFmtSla(r.resMs) + ' / ' + (g.respHours || 2) + ' working h')
+      : r.respState === 'nodata' || !r.respAtMs
+        ? lgSlaChip('nodata', '–', t('lg.sla.nodata'))
+        : lgSlaChip(r.respState, lgFmtSla(r.respMs), t('lg.sla.respTitle') + ': ' + lgFmtSla(r.respMs) + ' / ' + (g.respHours || 2) + ' working h');
   const res = natRes
     ? lgSlaChip(natRes.breached ? 'out' : 'in', lgFmtSla(natRes.elapsedMs),
         t('lg.sla.resTitle') + ': ' + lgFmtSla(natRes.elapsedMs) + ' / ' + fmtGoalH(natRes.goalMs, g.resHours || 30))
@@ -2175,13 +2214,21 @@ function lgRenderCard() {
      measurement + status WITHOUT the goal, so no misleading 'working h'
      framing is attached to JSM's own calendar rules. */
   const nat = r.slaNative || null;
+  /* display guarantee: a RESOLVED task always has both first response and
+     resolution ("Resolution Set" is a response stop, so the resolution span
+     IS the effective first-response time when no earlier measurement
+     survived) — fall back to the row's own computed spans instead of "–". */
+  const natResp = nat?.resp?.completed ? nat.resp
+    : r.resolvedAt && r.resMs > 0 ? { breached: r.respState === 'out', elapsedMs: r.respMs || r.resMs } : null;
+  const natRes = nat?.res?.completed ? nat.res
+    : r.resolvedAt && r.resMs > 0 ? { breached: r.resState === 'out', elapsedMs: r.resMs } : null;
   const natChip = (a) => a
     ? `<span class="lg-st-badge ${a.breached ? 'lg-st-breach' : 'lg-st-done'}">${escapeHtml(lgFmtSla(a.elapsedMs))}</span>`
     : `<span class="lg-st-badge lg-st-other">–</span>`;
   const slaHtml =
     `<span class="lg-card-sla-wrap" title="${escapeHtml(t('lg.sla.respTitle') + ' / ' + t('lg.sla.resTitle'))}">` +
-    natChip(nat?.resp?.completed ? nat.resp : null) +
-    ' ' + natChip(nat?.res?.completed ? nat.res : null) +
+    natChip(natResp) +
+    ' ' + natChip(natRes) +
     `</span>`;
 
   $('#lgCardBody').innerHTML = `
