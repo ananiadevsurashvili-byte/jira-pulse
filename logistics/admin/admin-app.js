@@ -589,17 +589,28 @@ function whSpanMs(fromMs, toMs) {
    working clock keeps covering open tasks. */
 function admSlaApplyNative(r, sla) {
   if (!sla || typeof sla !== 'object') return;
-  /* Jira's NEW_SLA_FORMAT quirk: completed cycles often report
-     elapsedTime "0m" even though startTime/stopTime hold the real
-     settlement window — recompute the working-clock span then (wall-clock
-     fallback for settlements outside working hours). Verdict stays Jira's
-     own breached flag either way. */
+  /* NEW_SLA_FORMAT quirk (probed on this instance): COMPLETED cycles are
+     often booked a PAUSED-CLOCK SLIVER — elapsedMs 0 or a ~2-second
+     cluster (probed: 1886/1972/2100/2338/2566/2789 ms) — because the
+     goal clock was paused from the start (first stop = Resolution Set
+     stops the response clock at once; the cycle then "completes" while
+     never having run). Rendering the RAW value produced impossible "0h"
+     chips on done rows (LOG-6393/6386/6388) AND pending rows
+     (LOG-6396/6395/6390). Probed truth: NO real first reply on this desk
+     lands under 1 minute — a human cannot answer inside that band. */
+  const ARTIFACT_MS = 60e3;
+  /* any completed cycle booked under 1 minute is suspect: prefer its real
+     startMs→stopMs window when that is longer (probed LOG-6468: res booked
+     0m, window ≈ 17m; working-clock span first, wall-clock fallback for
+     settlements outside Mon–Fri 02:00–10:00). Verdict stays Jira's own
+     breached flag either way. */
   const mk = (a) => {
     if (!a || !a.completed) return null;
     let ms = Number(a.elapsedMs) || 0;
-    if (!ms && a.stopMs && a.startMs) {
-      ms = whSpanMs(Number(a.startMs), Number(a.stopMs)) ||
+    if (ms < ARTIFACT_MS && a.stopMs && a.startMs) {
+      const w = whSpanMs(Number(a.startMs), Number(a.stopMs)) ||
         (Number(a.stopMs) - Number(a.startMs));
+      if (w > ms) ms = w;
     }
     return { ms, state: a.breached ? 'out' : 'in' };
   };
@@ -608,31 +619,17 @@ function admSlaApplyNative(r, sla) {
   /* "Resolution: Set" is ALSO a first-response stop on this instance's
      goal — once the task is resolved its response clock cannot run
      further, and Jira often leaves the response cycle unsettled-or-stuck:
-     missing entirely, or completed but booked 0m while the clock sat
-     paused. Display rule per product: a GENUINE earlier first response
-     (0 < resp.ms <= res.ms) stays as-is; otherwise (missing, 0m, or
-     later than resolution) the response field shows the resolution
-     span — red when that span passes the 2h response goal. */
+     missing entirely, or completed while the clock sat paused.
+     Display rule per product: a GENUINE earlier first response
+     (>= 1m and <= resolution span) stays as-is; otherwise (missing,
+     sub-minute artifact, or later than resolution) the response field
+     shows the resolution span — red when it passes the 2h goal — so a
+     task settled on first response shows BOTH fields identical. */
   const respGoal = ((adm.slaGoals || SLA_DEFAULT_GOALS).respHours || 2) * 3600e3;
-  /* NEW_SLA_FORMAT quirk: COMPLETED response cycles are often booked a
-     PAUSED-CLOCK SLIVER — elapsedMs 0, or a ~2-second cluster (probed:
-     1886/1972/2071/2078/2115/2466/2525/2174 ms) — because the cycle was
-     paused from the start on this instance's goal (first stop is
-     Resolution Set, which stops the response clock at once). Rendering
-     that raw value produced the impossible "0h" first-response chips.
-     Probed truth: NO real first reply on this desk lands under 1 minute —
-     a human cannot answer inside the 2-second artifact band. So a first
-     response counts as GENUINE only when the RAW elapsed books at least
-     1 minute (raw >= RESP_ARTIFACT_MS; below it ⇒ paused artifact): then the
-     resolution span stands in for it (Resolution-Set stop rule) and both
-     fields show exactly the same duration, red when it passes the 2h
-     response goal. */
-  const RESP_ARTIFACT_MS = 60e3;
-  const respRawMs = sla.resp && sla.resp.completed ? (Number(sla.resp.elapsedMs) || 0) : 0;
-  const respIsArtifact = respRawMs < RESP_ARTIFACT_MS;
+  const respIsArtifact = !!resp && resp.ms < ARTIFACT_MS;
   /* the bulk payload often ships the response cycle alone (res cycle
      missing or still uncompleted) — fall back to the row's own computed
-     created→resolved span so the rule below still applies */
+     created→resolved span so the Resolution-Set rule still applies */
   const resSpan = (res && res.ms) || r.resMs || 0;
   if (resSpan && (!resp || respIsArtifact || resp.ms > resSpan)) {
     /* paused/unknown cycles inherit the RESOLUTION window as the effective
@@ -644,18 +641,23 @@ function admSlaApplyNative(r, sla) {
     sla.resp = Object.assign({}, sla.resp || {
       startMs: effStart, stopMs: effStop, goalMs: respGoal
     }, { completed: true, breached: resp.state === 'out', elapsedMs: resSpan, startMs: effStart, stopMs: effStop });
+  } else if (respIsArtifact && !resSpan) {
+    /* artifact sliver on a NOT-yet-resolved row (probed LOG-6396/6395/6390:
+       resp slivers 2789/2091/2566ms, res cycle still uncompleted): the
+       sliver tells nothing — unset the fake completion so the chips fall
+       back to the comment clock / live working clock instead of "0h" */
+    sla.resp = Object.assign({}, sla.resp, { completed: false, elapsedMs: 0 });
+    resp = null;
   }
   if (resp) { r.respMs = resp.ms; r.respAtMs = Number(sla.resp.stopMs) || r.respAtMs; r.respState = resp.state; r._natResp = true; }
   if (res) {
     r.resMs = res.ms; r.resolvedMs = res.ms; r.resState = res.state; r._natRes = true;
-    /* mirror of the resp quirk: a COMPLETED res cycle can also be booked
-       elapsedMs=0 while start/stop hold the REAL settlement window (probed
-       LOG-6468: res booked 0m, window ≈ 17m) — mk() already resurrected
-       res.ms, but the chip/popup render the RAW payload, which showed an
-       impossible "—" next to a populated first-response chip. Patch the
-       raw value too so every native consumer shows the real span (and a
-       task resolved on first response then shows BOTH fields identical). */
-    if (!Number(sla.res.elapsedMs) && Number(sla.res.startMs) && Number(sla.res.stopMs) > Number(sla.res.startMs)) {
+    /* mirror of the resp quirk: the chip/popup render the RAW payload —
+       patch it whenever mk() recovered a DIFFERENT span (raw 0m over a
+       real window, or a longer window under a sub-minute raw) so every
+       native consumer shows the real span (and a task resolved on first
+       response then shows BOTH fields identical). */
+    if ((Number(sla.res.elapsedMs) || 0) !== res.ms) {
       sla.res = Object.assign({}, sla.res, { elapsedMs: res.ms });
     }
     /* res.stopMs is Jira's REAL settlement moment — the bulk `updated`
@@ -1646,9 +1648,11 @@ function admSlaBadgeCell(r) {
   const resp = natResp
     ? chip(natResp.breached ? 'out' : 'in', admFmtSlaHours(natResp.elapsedMs),
         t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(natResp.elapsedMs))
-    : r.respState === 'nodata' || !r.respAtMs
-      ? chip('nodata', '–', t('adm.sla.nodataSub'))
-      : chip(r.respState, admFmtSlaHours(r.respMs), t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(r.respMs));
+    : r.respState === 'pending' || r.respState === 'overdue'
+      ? chip(r.respState, admFmtSlaHours(r.elapsedMs) + ' /', t('adm.sla.resRunning') + ' ' + admFmtSlaHours(r.elapsedMs))
+      : r.respState === 'nodata' || !r.respAtMs
+        ? chip('nodata', '–', t('adm.sla.nodataSub'))
+        : chip(r.respState, admFmtSlaHours(r.respMs), t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(r.respMs));
   const res = natRes
     ? chip(natRes.breached ? 'out' : 'in', admFmtSlaHours(natRes.elapsedMs),
         t('adm.sla.resTitle') + ' · ' + admFmtSlaHours(natRes.elapsedMs))
@@ -2223,15 +2227,28 @@ function admRenderCard() {
         </div>`).join('')
     : `<div class="muted">${escapeHtml(t('lg.card.noComments'))}</div>`;
   /* SLA meta line: exact settled times from Jira's own clocks when the
-     payload has landed (row hydration queues it; popup open re-checks) */
+     payload has landed (row hydration queues it; popup open re-checks).
+     Unsettled cycles fall back to the row's computed state — live working
+     clock for open tasks, comment/derived clock for the rest — so open
+     rows never show an empty "– / –" pair. */
   const nat = r.slaNative || null;
-  const natChip = (a) => a
+  const natChip = (a, fb) => a
     ? `<span class="lg-st-badge ${a.breached ? 'lg-st-breach' : 'lg-st-done'}">${escapeHtml(admFmtSlaHours(a.elapsedMs))}</span>`
-    : `<span class="lg-st-badge lg-st-other">–</span>`;
+    : fb
+      ? `<span class="lg-st-badge ${(SLA_CLS[fb.state] || 'lg-st-other')}" title="${escapeHtml(fb.title)}">${escapeHtml(fb.val)}</span>`
+      : `<span class="lg-st-badge lg-st-other">–</span>`;
+  const fbResp = !nat?.resp?.completed && (r.respState !== 'nodata' && r.respAtMs)
+    ? { state: r.respState, val: admFmtSlaHours(r.respMs), title: t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(r.respMs) }
+    : null;
+  const fbRes = !nat?.res?.completed && (r.resState === 'pending' || r.resState === 'overdue')
+    ? { state: r.resState, val: admFmtSlaHours(r.elapsedMs) + ' /', title: t('adm.sla.resRunning') + ' ' + admFmtSlaHours(r.elapsedMs) }
+    : !nat?.res?.completed && r.resMs > 0
+      ? { state: r.resState, val: admFmtSlaHours(r.resMs), title: t('adm.sla.resTitle') + ' · ' + admFmtSlaHours(r.resMs) }
+      : null;
   const slaHtml =
     `<span class="lg-card-sla-wrap" title="${escapeHtml(t('adm.sla.respTitle') + ' / ' + t('adm.sla.resTitle'))}">` +
-    natChip(nat?.resp?.completed ? nat.resp : null) +
-    ' ' + natChip(nat?.res?.completed ? nat.res : null) +
+    natChip(nat?.resp?.completed ? nat.resp : null, fbResp) +
+    ' ' + natChip(nat?.res?.completed ? nat.res : null, fbRes) +
     `</span>`;
   body.innerHTML = `
     <div class="lg-card-top">${statusPill}<span class="lg-card-key">${escapeHtml(r.key)}</span></div>
