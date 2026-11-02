@@ -648,6 +648,16 @@ function admSlaApplyNative(r, sla) {
   if (resp) { r.respMs = resp.ms; r.respAtMs = Number(sla.resp.stopMs) || r.respAtMs; r.respState = resp.state; r._natResp = true; }
   if (res) {
     r.resMs = res.ms; r.resolvedMs = res.ms; r.resState = res.state; r._natRes = true;
+    /* mirror of the resp quirk: a COMPLETED res cycle can also be booked
+       elapsedMs=0 while start/stop hold the REAL settlement window (probed
+       LOG-6468: res booked 0m, window ≈ 17m) — mk() already resurrected
+       res.ms, but the chip/popup render the RAW payload, which showed an
+       impossible "—" next to a populated first-response chip. Patch the
+       raw value too so every native consumer shows the real span (and a
+       task resolved on first response then shows BOTH fields identical). */
+    if (!Number(sla.res.elapsedMs) && Number(sla.res.startMs) && Number(sla.res.stopMs) > Number(sla.res.startMs)) {
+      sla.res = Object.assign({}, sla.res, { elapsedMs: res.ms });
+    }
     /* res.stopMs is Jira's REAL settlement moment — the bulk `updated`
        fallback is wrong for period sampling: ANY later comment/edit bumps
        `updated`, which dragged long-resolved tasks into the "last 24h"
