@@ -1648,11 +1648,24 @@ function admSlaBadgeCell(r) {
   const resp = natResp
     ? chip(natResp.breached ? 'out' : 'in', admFmtSlaHours(natResp.elapsedMs),
         t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(natResp.elapsedMs))
-    : r.respState === 'pending' || r.respState === 'overdue'
-      ? chip(r.respState, admFmtSlaHours(r.elapsedMs) + ' /', t('adm.sla.resRunning') + ' ' + admFmtSlaHours(r.elapsedMs))
-      : r.respState === 'nodata' || !r.respAtMs
-        ? chip('nodata', '–', t('adm.sla.nodataSub'))
-        : chip(r.respState, admFmtSlaHours(r.respMs), t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(r.respMs));
+    : r.resolved && (r.respMs > 0 || r.resMs > 0)
+      /* display guarantee (global): a RESOLVED task always has a first
+         response — "Resolution Set" is a first-response stop on this
+         goal, so the resolution span IS the effective first-response
+         time. When every earlier measurement is missing the response
+         chip falls back to the resolution span (same duration, red past
+         the 2h goal) instead of an impossible "–". Open rows keep the
+         live working clock below. */
+      ? r.respMs > 0
+        ? chip(r.respState === 'nodata' ? r.resState : r.respState,
+            admFmtSlaHours(r.respMs), t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(r.respMs))
+        : chip(r.resState, admFmtSlaHours(r.resMs),
+            t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(r.resMs))
+      : r.respState === 'pending' || r.respState === 'overdue'
+        ? chip(r.respState, admFmtSlaHours(r.elapsedMs) + ' /', t('adm.sla.resRunning') + ' ' + admFmtSlaHours(r.elapsedMs))
+        : r.respState === 'nodata' || !r.respAtMs
+          ? chip('nodata', '–', t('adm.sla.nodataSub'))
+          : chip(r.respState, admFmtSlaHours(r.respMs), t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(r.respMs));
   const res = natRes
     ? chip(natRes.breached ? 'out' : 'in', admFmtSlaHours(natRes.elapsedMs),
         t('adm.sla.resTitle') + ' · ' + admFmtSlaHours(natRes.elapsedMs))
@@ -2239,7 +2252,11 @@ function admRenderCard() {
       : `<span class="lg-st-badge lg-st-other">–</span>`;
   const fbResp = !nat?.resp?.completed && (r.respState !== 'nodata' && r.respAtMs)
     ? { state: r.respState, val: admFmtSlaHours(r.respMs), title: t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(r.respMs) }
-    : null;
+    : !nat?.resp?.completed && r.resolved && r.resMs > 0
+      /* resolved-row guarantee: same Resolution-Set rule as the table
+         cells — no "–" first response on a settled task, ever */
+      ? { state: r.resState, val: admFmtSlaHours(r.resMs), title: t('adm.sla.respTitle') + ' · ' + admFmtSlaHours(r.resMs) }
+      : null;
   const fbRes = !nat?.res?.completed && (r.resState === 'pending' || r.resState === 'overdue')
     ? { state: r.resState, val: admFmtSlaHours(r.elapsedMs) + ' /', title: t('adm.sla.resRunning') + ' ' + admFmtSlaHours(r.elapsedMs) }
     : !nat?.res?.completed && r.resMs > 0
