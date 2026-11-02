@@ -3925,14 +3925,14 @@ async function renderPubContent() {
             <div class="board-avatar" aria-hidden="true">${initial}</div>
             <div class="board-id-block">
               <h3 title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</h3>
-              <div class="board-meta">
-                ${(b.master || isMasterAll) ? `<span class="chip chip-master">${escapeHtml(t('master.cardChip'))}</span>` : (!pBoard && b.projectName ? `<span class="chip" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : '')}
-              </div>
             </div>
             ${pBoard ? '<span class="chip chip-p board-p-flag" title="[P]">[P]</span>' : ''}
             <div class="board-head-side">
               ${admin && !b.master && !isMasterAll ? `<button class="link-btn board-copy-link" data-copyboard="${b.boardId}" data-i18n-title="pub.copyBoardLink" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>` : ''}
             </div>
+          </div>
+          <div class="board-meta">
+            ${(b.master || isMasterAll) ? `<span class="chip chip-master">${escapeHtml(t('master.cardChip'))}</span>` : (!pBoard && b.projectName ? `<span class="chip" title="${escapeHtml(b.projectName)}">${escapeHtml(b.projectName)}</span>` : '')}
           </div>
           <div class="board-stats" id="pubbstats_${b.boardId}">${boardStatsChipHtml(null)}</div>
           <div class="board-card-foot">
@@ -3980,7 +3980,7 @@ async function renderPubContent() {
       while (pubCursor < boards.length) {
         const b = boards[pubCursor++];
         try {
-          const rec = await pubLoadBoardLive(b.boardId, 'light');
+          const rec = await pubLoadBoardLive(b.boardId, 'full');   /* changelog on — mirrors the inside dashboard numbers */
           const m = rec.metrics;
           const box = document.getElementById('pubbstats_' + b.boardId);
           if (box) box.innerHTML = boardStatsChipHtml({
@@ -4867,11 +4867,11 @@ function boardTypeClass(t) {
 /* ── board-card stats (main page) ──────────────────────────────────
    Every card on the "Choose a board" page gets 4 headline stats — issues,
    done %, WIP and avg cycle time — so the whole org is visible at a glance.
-   Numbers are fetched with a LIGHT search (no changelog expand), cached in
-   localStorage for 30 minutes, and enriched 4 boards at a time in the
+   Numbers are fetched with a changelog-bearing FULL search, cached in
+   localStorage for 10 minutes, and enriched 4 boards at a time in the
    background so the page never blocks or hammers the relay. */
-const LS_BSTATS = 'jp_bstats_v1';
-const BSTATS_TTL = 30 * 60 * 1000;
+const LS_BSTATS = 'jp_bstats_v2';   /* v2: records now computed from changelog-bearing (full) pools */
+const BSTATS_TTL = 10 * 60 * 1000;
 const _bstatsMem = new Map();     // boardId → fresh record this session
 const _bstatsInflight = new Set();// boardIds currently being fetched
 let _bstatsRunning = false;
@@ -4900,7 +4900,11 @@ function saveBoardStats(boardId, rec) {
 }
 
 /* light fetch of one board's headline numbers (reuses the dashboard's own
-   context resolution + metrics computation, minus the changelog weight) */
+   context resolution + metrics computation). Uses the relay's FULL mode so the
+   issue pool carries changelog exactly like the inside dashboard load —
+   [P]-board issues completed as Released/Babysitting/Done Approved have no
+   resolutiondate, so a changelog-less 'light' pool undercounts resolved /
+   NET 30D / %DONE and the outside cards drift from the inside charts. */
 async function fetchBoardStats(board) {
   /* FAST PATH: the publish relay computes the identical metric set server-side
      in ONE call (same fields incl. resolutiondate → same cycle-time quality;
@@ -4908,7 +4912,7 @@ async function fetchBoardStats(board) {
      ~10-15 client round-trips per board into 1. Falls back to the original
      direct-Jira path when the relay is unreachable or returns no data. */
   try {
-    const rec = await pubFetchBoardLive(board.id, 'light');
+    const rec = await pubFetchBoardLive(board.id, 'full');
     if (rec && Array.isArray(rec.issues) && rec.issues.length) {
       const m = computeMetrics(rec.issues);
       rememberDoneStatuses(rec.issues);
@@ -4932,7 +4936,7 @@ async function fetchBoardStats(board) {
     : (ctx.filterJql || null);
   let issues = null;
   if (jql) {
-    try { issues = await searchIssuesByJql(jql, false); } catch (e) {
+    try { issues = await searchIssuesByJql(jql, true); } catch (e) {   /* changelog on — same data quality as the dashboard load */
       logDiag('warn', 'Board stats search failed', { boardId: board.id, status: e?.status, message: e?.message });
     }
   }
@@ -5020,7 +5024,7 @@ function boardStatsChipHtml(rec) {
   const net = (rec.resolved30 || 0) - (rec.created30 || 0);
   const netCls = net > 0 ? 'bc-pos' : net < 0 ? 'bc-neg' : '';
   const netTxt = net > 0 ? `+${net}` : String(net);
-  const pct = Math.max(0, Math.min(100, rec.doneRate || 0));
+  const pct = Math.round(Math.max(0, Math.min(100, rec.doneRate || 0)));
   const h = boardHealth(rec);
   return `
     <div class="bc-grid">
@@ -5062,6 +5066,9 @@ function masterPStats() {
                : c.reduce((a, r) => a + (r.cycleAvg || 0), 0) / c.length;
     })(),
   };
+  /* render-site guarantee: % values shown on cards are always whole numbers
+     (the weighted average above is a float by construction) */
+  if (rec.doneRate != null) rec.doneRate = Math.round(rec.doneRate);
   return rec;
 }
 
@@ -5161,16 +5168,16 @@ function boardCardHTML(b, i) {
         <div class="board-avatar" aria-hidden="true">${initial}</div>
         <div class="board-id-block">
           <h3 title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</h3>
-          <div class="board-meta">
-            ${b.type ? `<span class="${boardTypeClass(b.type)}">${escapeHtml(b.type)}</span>` : ''}
-            ${b.location?.projectKey ? `<span class="chip">${escapeHtml(b.location.projectKey)}</span>` : ''}
-          </div>
         </div>
         ${pBoard ? '<span class="chip chip-p board-p-flag" title="[P]">[P]</span>' : ''}
         <div class="board-head-side">
           ${ADMIN_PANEL ? boardPubStatusHTML(b) : ''}
           <button class="link-btn board-copy-link" data-copyboard="${b.id}" title="${escapeHtml(t('card.copyLinkTitle'))}" aria-label="${escapeHtml(t('card.copyLinkTitle'))}">🔗</button>
         </div>
+      </div>
+      <div class="board-meta">
+        ${b.type ? `<span class="${boardTypeClass(b.type)}">${escapeHtml(b.type)}</span>` : ''}
+        ${b.location?.projectKey ? `<span class="chip">${escapeHtml(b.location.projectKey)}</span>` : ''}
       </div>
       <div class="board-stats" id="bstats_${b.id}">${boardStatsChipHtml(cached)}</div>
       <div class="board-card-foot">
@@ -5193,10 +5200,10 @@ function masterBoardCardHTML(i) {
         <div class="board-avatar" aria-hidden="true">${initial}</div>
         <div class="board-id-block">
           <h3 title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</h3>
-          <div class="board-meta"><span class="chip chip-master">${escapeHtml(t('master.cardChip'))}</span></div>
         </div>
         <span class="chip chip-p board-p-flag" title="[P]">[P]</span>
       </div>
+      <div class="board-meta"><span class="chip chip-master">${escapeHtml(t('master.cardChip'))}</span></div>
       <div class="board-stats" id="bstats_${b.id}">${boardStatsChipHtml(cached)}</div>
       <div class="board-card-foot">
         <span class="board-open">${escapeHtml(t('card.openDash'))}</span>

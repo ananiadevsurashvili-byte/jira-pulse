@@ -237,7 +237,7 @@ body {
 .board-card.master-p-board { border: 1px solid rgba(34, 211, 238, .45); box-shadow: 0 0 0 1px rgba(34, 211, 238, .12); }
 .board-card.master-p-board .board-avatar { background: linear-gradient(135deg, #0891b2, #22d3ee); color: #04222b; }
 .chip.chip-master { background: rgba(34, 211, 238, .14); color: #67e8f9; border: 1px solid rgba(34, 211, 238, .3); font-size: 10px; }
-.board-id-block { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.board-id-block { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .board-id-block h3 {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
@@ -292,7 +292,13 @@ body.light .board-pub-status.st-unpublished { color: #64748b; border-color: rgba
 /* native option list readability across themes */
 .board-pub-status option { background: #161a2b; color: #e2e8f0; }
 body.light .board-pub-status option { background: #ffffff; color: #1e2540; }
-.board-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+/* chips row sits directly under the head (name + avatar), inline horizontally —
+   compact and aligned with the head's left edge for a proportional card */
+.board-meta {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin: 8px 0 0; padding-right: 8px;
+}
+.board-meta:empty { display: none; }
 .board-card-foot {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   margin-top: auto; padding-top: 10px;
