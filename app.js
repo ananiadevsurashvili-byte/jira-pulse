@@ -2445,6 +2445,272 @@ function wireIssueListModal() {
   $('#issueListModal').addEventListener('click', (ev) => { if (ev.target === ev.currentTarget) hide($('#issueListModal')); });
 }
 
+/* ── dashboard drill-down task list (logistics-admin parity) ─────────────
+   Clicking ANY chart data point or ANY KPI card drops a matching task list
+   card at the BOTTOM of the dashboard (under the "Longest sitting" table):
+   search, assignee/status/type filters, sort, "Show more" paging, Excel
+   export and a per-row Jira link — the exact UX the logistics admin got.
+   Chart pools come from the chart's own source slice (ds.__src / ds.__keys),
+   KPI pools mirror the computeMetrics counting window, so card numbers and
+   drill rows can never disagree. One module serves BOTH the user dashboard
+   (index.html) and the admin panel (admin/index.html) — both share app.js
+   and the same #dashScreen markup. */
+
+const DD_PAGE = 50;
+const MASTER_DASH_TAG = '_ddSourceTitle';   /* remembers which drill a row came from */
+const ddData = {
+  title: '', issues: [], m: null, boardPool: [], boardTitle: '',
+  sort: 'updated-desc', assignee: '', status: '', type: '', q: '', page: DD_PAGE,
+};
+
+/* resolve issue keys (or raw issue objects) into raw issue objects, pooling
+   the live board payload + cached pub-board records — same pools
+   resolveIssueRows uses, so drill rows always agree with the modal */
+function ddIssuesFromKeys(keys) {
+  const arr = Array.isArray(keys) ? keys : [];
+  const byKey = new Map();
+  const pools = [];
+  if (state.issues?.length) pools.push(state.issues);
+  if (_pubBoardCache) {
+    for (const c of _pubBoardCache.values()) if (c?.rec?.issues?.length) pools.push(c.rec.issues);
+  }
+  for (const pool of pools) for (const iss of pool) if (iss?.key && !byKey.has(iss.key)) byKey.set(iss.key, iss);
+  return arr.map((k) => (k && typeof k === 'object' ? k : byKey.get(k) || { key: k, fields: {} }));
+}
+
+/* remember the dashboard's current pool so KPI cards can drill without the
+   charts being involved; reset only when the pool really changes */
+function ddRemember(title, issues, metrics) {
+  const m = metrics || null;
+  const sig = `${title}#${issues?.length || 0}#${m ? `${m.dailyAnchor}/${m.spanDays}/${m.totalIn}` : 'x'}`;
+  const changed = ddData.sig !== sig;
+  if (changed) {
+    ddData.sig = sig;
+    ddData.sort = 'updated-desc'; ddData.assignee = ''; ddData.status = ''; ddData.type = ''; ddData.q = ''; ddData.page = DD_PAGE;
+  }
+  /* boardPool is the UNFILTERED render pool — KPI cards always drill from it,
+     even after a previous drill replaced ddData.issues with a narrower slice */
+  ddData.boardTitle = title;
+  ddData.boardPool = Array.isArray(issues) ? issues : [];
+  ddData.m = m;
+}
+
+/* mirror of the computeMetrics KPI rules so each card's drill rows are the
+   exact issues behind the number on it */
+function ddMatchesKpi(iss, kind) {
+  const m = ddData.m || { dailyAnchor: Date.now(), spanDays: 30 };
+  const f = iss.fields || {};
+  const ANCHOR = m.dailyAnchor;
+  const SPAN = Math.max(1, m.spanDays);
+  const created = f.created ? Date.parse(f.created) : null;
+  const resolved = issueCompletedAt(f, iss.changelog);
+  const lastTouch = f.updated ? Date.parse(f.updated) : NaN;
+  const activeTo = resolved || (isFinite(lastTouch) ? lastTouch : created);
+  const winFrom = ANCHOR - SPAN * DAY;
+  const doneCat = f.status?.statusCategory?.key === 'done'
+    || String(f.status?.statusCategory?.name || '').toLowerCase() === 'done';
+  const done = doneCat || isCompletedStatus(f, false);
+  if (kind === 'created') return created != null && isFinite(created) && created <= ANCHOR && created >= winFrom;
+  const inWindow = created != null && isFinite(created) && created <= ANCHOR && activeTo >= winFrom;
+  if (!inWindow) return false;
+  if (kind === 'total') return true;
+  if (kind === 'done' || kind === 'completion') return done;
+  if (kind === 'blocked') return isBlockedStatus(f);
+  return !done && !isBlockedStatus(f);   /* wip */
+}
+
+const DD_KPI_KIND = {
+  kpiCardTotal: 'total', kpiCardCreated: 'created', kpiCardBlocked: 'blocked',
+  kpiCardDone: 'done', kpiCardCompletion: 'completion', kpiCardWip: 'wip',
+};
+
+/* make every KPI card clickable → bottom task list for that metric */
+function ddWireKpis() {
+  document.querySelectorAll('.kpi-grid > .kpi[id^="kpiCard"]').forEach((card) => {
+    if (card._ddWired) return;
+    card._ddWired = true;
+    card.classList.add('dd-kpi');
+    card.addEventListener('click', () => {
+      const kind = DD_KPI_KIND[card.id] || 'total';
+      /* always drill from the FULL board pool — a previous drill may have
+         already replaced ddData.issues with a narrower slice */
+      const pool = ddData.boardPool.length ? ddData.boardPool : state.issues;
+      if (!pool.length) return;
+      /* dashboard charts may not have rendered yet — metrics come from the
+         last render so KPI rows exactly mirror the numbers on the cards */
+      if (!ddData.m && state.lastMetrics) ddData.m = state.lastMetrics;
+      const rows = pool.filter((iss) => ddMatchesKpi(iss, kind));
+      const label = card.querySelector('.kpi-label')?.textContent || kind;
+      ddShowRows(label, rows, false);
+    });
+  });
+}
+
+function ddShowRows(title, pool, keepFilters) {
+  if (!keepFilters) {
+    ddData.sort = 'updated-desc'; ddData.assignee = ''; ddData.status = ''; ddData.type = ''; ddData.q = ''; ddData.page = DD_PAGE;
+  }
+  ddData.title = title;
+  ddData.issues = Array.isArray(pool) ? pool : [];
+  const card = $('#dashDrillCard');
+  $('#ddTitle').textContent = title;
+  $('#ddSub').textContent = tReplace('tl.count', { n: ddData.issues.length });
+  show(card);
+  ddRerender();
+  card.scrollIntoView({ block: 'start', behavior: 'smooth' });   /* bring the bottom task list into view */
+}
+
+function ddHide() {
+  $('#dashDrillCard')?.classList.add('hidden');
+}
+
+/* filter bar: sort (last/oldest updated), assignee, status, type + free-text search
+   (same controls and look as the live board task list) */
+function ddFiltersBar() {
+  const uniq = (arr) => Array.from(new Set(arr)).filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  const all = ddData.issues;
+  const assignees = uniq(all.map((i) => i.fields?.assignee?.displayName || ''));
+  const statuses = uniq(all.map((i) => i.fields?.status?.name || ''));
+  const types = uniq(all.map((i) => i.fields?.issuetype?.name || ''));
+  const opt = (v, label, sel) => `<option value="${escapeHtml(v)}"${sel ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+  const sel = (id, arr, cur) => `<select class="tl-select" id="${id}" title="${escapeHtml(t('tl.filterTitle'))}">${opt('', t('tl.any'), !cur)}${arr.map((v) => opt(v, v, cur === v)).join('')}</select>`;
+  return `
+    <select class="tl-select" id="ddSort" title="${escapeHtml(t('tl.sortTitle'))}">
+      <option value="updated-desc"${ddData.sort === 'updated-desc' ? ' selected' : ''}>${escapeHtml(t('tl.sortLast'))}</option>
+      <option value="updated-asc"${ddData.sort === 'updated-asc' ? ' selected' : ''}>${escapeHtml(t('tl.sortOldest'))}</option>
+    </select>
+    ${sel('ddAssignee', assignees, ddData.assignee)}
+    ${sel('ddStatus', statuses, ddData.status)}
+    ${sel('ddType', types, ddData.type)}
+    <input id="ddSearch" class="tl-search" type="search" placeholder="${escapeHtml(t('tl.searchPh'))}" value="${escapeHtml(ddData.q)}" />`;
+}
+
+/* apply the active filters + sort to the drill pool */
+function ddFiltered() {
+  const q = String(ddData.q || '').trim().toLowerCase();
+  const rows = ddData.issues.filter((i) => {
+    const f = i.fields || {};
+    const assignee = f.assignee?.displayName || '';
+    const status = f.status?.name || '';
+    const type = f.issuetype?.name || '';
+    if (ddData.assignee && assignee !== ddData.assignee) return false;
+    if (ddData.status && status !== ddData.status) return false;
+    if (ddData.type && type !== ddData.type) return false;
+    if (q && !`${i.key || ''} ${f.summary || ''} ${assignee} ${status} ${type}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const ts = (i) => Date.parse(i.fields?.updated || '') || 0;
+  rows.sort((a, b) => (ddData.sort === 'updated-asc' ? ts(a) - ts(b) : ts(b) - ts(a)));
+  return rows;
+}
+
+/* render filter bar + rows + footer; the bar itself is only rebuilt when the
+   pool changes so typing in the search box never loses focus */
+function ddRerender() {
+  const barWrap = $('#ddFilterBar');
+  const poolSig = `${ddData.title}#${ddData.issues.length}`;
+  if (barWrap._sig !== poolSig) {
+    barWrap._sig = poolSig;
+    barWrap.innerHTML = ddFiltersBar();
+    $('#ddSort').addEventListener('change', (e) => { ddData.sort = e.target.value; ddData.page = DD_PAGE; ddRepaintRows(); });
+    [['ddAssignee', 'assignee'], ['ddStatus', 'status'], ['ddType', 'type']].forEach(([id, k]) => {
+      $('#' + id).addEventListener('change', (e) => { ddData[k] = e.target.value; ddData.page = DD_PAGE; ddRepaintRows(); });
+    });
+    let deb;
+    $('#ddSearch').addEventListener('input', (e) => {
+      clearTimeout(deb);
+      deb = setTimeout(() => { ddData.q = e.target.value; ddData.page = DD_PAGE; ddRepaintRows(); }, 250);
+    });
+  }
+  ddRepaintRows();
+}
+
+function ddRepaintRows() {
+  const all = ddFiltered();
+  const shown = all.slice(0, Math.max(DD_PAGE, ddData.page || DD_PAGE));
+  const body = $('#ddBody');
+  body._jpIssues = all;   /* remembered for jpRenderDeskEnrichments re-paints */
+  const base = jiraIssueBase();
+  const link = (k) => base
+    ? `<a href="${escapeHtml(base)}/browse/${encodeURIComponent(k)}" target="_blank" rel="noopener" title="${escapeHtml(t('ilist.openJira'))}">${escapeHtml(k)}</a>`
+    : `<span class="muted">${escapeHtml(k)}</span>`;
+  const html = shown.map((i) => {
+    const f = i.fields || {};
+    /* unified master pools merge several boards' issue objects — remember
+       per-issue which drill/board it came from */
+    if (!i[MASTER_DASH_TAG] && ddData.title) {
+      try { i[MASTER_DASH_TAG] = ddData.title; } catch (_) { /* frozen */ }
+    }
+    const desk = jpDeskRow(i) || null;
+    const attN = desk?.attFiles.length || 0;
+    const titleLine = `<div class="lg-title-line">
+      <div class="lg-task-title"><a class="lg-title-link" href="#" data-jp-open="${escapeHtml(i.key)}" title="${escapeHtml(f.summary || i.key)}">${escapeHtml(f.summary || '—')}</a></div>
+      ${attN ? `<span class="jp-att-badge" data-jp-open="${escapeHtml(i.key)}" title="${escapeHtml(t('card.attachments'))}">📎 ${attN}</span>` : ''}
+    </div>
+    ${(desk?.descOne && desk.descOne !== f.summary) ? `<div class="lg-desc">${escapeHtml(desk.descOne)}</div>` : ''}`;
+    const who = (name) => name ? escapeHtml(name) : `<span class="lg-unassigned">${escapeHtml(t('ilist.unassigned'))}</span>`;
+    const peopleHtml =
+      `<div class="lg-mini-row" title="${escapeHtml(t('th.reporter'))}"><span class="lg-mini-label">${escapeHtml(t('th.reporter'))}</span>` +
+      `<span class="lg-mini-value">${who(desk?.reporter)}</span></div>` +
+      `<div class="lg-mini-row lg-row-asg" title="${escapeHtml(t('th.assignee'))}"><span class="lg-mini-label assignee-chip">${escapeHtml(t('th.assignee'))}</span>` +
+      `<span class="lg-mini-value">${who(f.assignee?.displayName || '')}</span></div>`;
+    const datesHtml =
+      `<div class="lg-mini-row" title="${escapeHtml(t('th.created'))}"><span class="lg-mini-label">${escapeHtml(t('tl.mini.created'))}</span>` +
+      `<span class="lg-mini-value lg-date-cell">${fmtDateLong(f.created)}</span></div>` +
+      `<div class="lg-mini-row" title="${escapeHtml(t('th.updated'))}"><span class="lg-mini-label">${escapeHtml(t('tl.mini.updated'))}</span>` +
+      `<span class="lg-mini-value lg-date-cell">${fmtDateLong(f.updated)}</span></div>`;
+    return `<tr>
+      <td class="lg-nowrap lg-key-cell">${link(i.key)}</td>
+      <td class="lg-title-cell">${titleLine}</td>
+      <td><span class="status-pill ${jpStatusClass(f.status?.name || '')}">${escapeHtml(f.status?.name || '—')}</span></td>
+      <td class="lg-people-cell">${peopleHtml}</td>
+      <td class="lg-dates-cell">${datesHtml}</td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = html
+    || `<tr><td colspan="5" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('tl.empty'))}</td></tr>`;
+  $('#ddFooter').innerHTML = (all.length > shown.length)
+    ? `<div class="tl-footer"><span class="tl-count muted">${escapeHtml(tReplace('tl.pageOf', { a: 1, b: shown.length, n: all.length }))}</span>` +
+      `<button type="button" id="ddMoreBtn" class="btn btn-ghost tl-more" title="${escapeHtml(t('tl.moreTitle'))}">${escapeHtml(t('tl.more'))} (${all.length - shown.length})</button></div>`
+    : `<span class="tl-count muted">${escapeHtml(tReplace('tl.count', { n: all.length }))}</span>`;
+  $('#ddMoreBtn')?.addEventListener('click', () => {
+    ddData.page = Math.max(DD_PAGE, ddData.page || DD_PAGE) + DD_PAGE;
+    ddRepaintRows();
+  });
+  jpEnsureDesk(all);   /* kick the bulk overlay fetch: rows gain previews/badges when it lands */
+}
+
+/* Excel export of ONLY the drill rows (respects the active filters); same
+   workbook layout as exportTaskListExcel so exports never drift apart */
+function ddExportExcel() {
+  try {
+    if (!window.XLSX) throw new Error('XLSX library not loaded');
+    const rows = taskListSheetRows(ddFiltered());
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ [t('th.key')]: t('tl.empty') }]);
+    ws['!cols'] = [{ wch: 16 }, { wch: 60 }, { wch: 18 }, { wch: 22 }, { wch: 22 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 50 }, { wch: 50 }, { wch: 32 }, { wch: 46 }];
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+    XLSX.utils.book_append_sheet(wb, ws, safeSheetName(t('tl.title')));
+    const tag = (ddData.title || 'dashboard').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '_').slice(0, 40) || 'dashboard';
+    XLSX.writeFile(wb, `${tag}_tasks_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    toast(t('brd.exportDone'), 'ok');
+  } catch (e) {
+    toast(t('brd.exportFailed') + ': ' + (e?.message || ''), 'warn');
+  }
+}
+
+/* header bar wiring (Excel button) — static, done once at init */
+function wireDashDrill() {
+  const card = $('#dashDrillCard');
+  if (!card) return;
+  $('#ddHeader').innerHTML =
+    `<button id="ddExportBtn" class="btn btn-ghost btn-excel tl-export" type="button" title="${escapeHtml(t('tl.exportTitle'))}">` +
+    `<svg class="excel-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>` +
+    `<span>${escapeHtml(t('tl.export'))}</span></button>`;
+  $('#ddExportBtn').addEventListener('click', ddExportExcel);
+}
+
 /* ── rich task card popup (logistics-desk parity, in-app) ────────────────
    Opens from any task-list title / key click. The popup renders instantly
    from the live board payload (summary/status/people/dates) and then
@@ -4515,7 +4781,7 @@ async function api(path, options = {}) {
   throw e;
 }
 
-async function fetchPaginated(request, cap = 500, pageSize = 50) {
+async function fetchPaginated(request, cap = 5000, pageSize = 50) {
   const base = typeof request === 'string' ? { path: request, method: 'GET' } : request;
   let startAt = 0;
   const out = [];
@@ -4942,7 +5208,7 @@ async function fetchBoardStats(board) {
   }
   if (!issues) {
     try {
-      issues = await fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}`, 600);
+      issues = await fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}`, 5000);
     } catch (e) {
       logDiag('warn', 'Board stats board-endpoint fallback failed', { boardId: board.id, status: e?.status, message: e?.message });
       return null;
@@ -5335,12 +5601,16 @@ async function searchIssuesByJql(jql, withChangelog = false) {
      resolved/throughput/cycle charts at "No data". We therefore start at a modest page size
      and, if the proxy returns 413 on any page, HALVE the page size and restart the search
      from scratch (Jira's `nextPageToken` cannot resume mid-way). */
-  const MAX_TOTAL = 600;
+  /* cap raised from 600 → 5000 so long ranges ("All time", "Last 2 years", …)
+     show the REAL issue count instead of a truncated 600. The paging loop now
+     runs until Jira reports `isLast`, and the 413 page-shrink loop below keeps
+     every page under the CORS-proxy body limit. */
+  const MAX_TOTAL = 5000;
   const startPage = withChangelog ? 25 : 50;
   let pageSize = startPage;
   let lastErr = null;
 
-  for (let pass = 0; pass < 8; pass++) {
+  for (let pass = 0; pass < 10; pass++) {
     const out = [];
     let nextPageToken = null;
     let ok = true;
@@ -5502,19 +5772,19 @@ async function loadBoardIssues(board) {
     }] : []),
     {
       name: 'agile-changelog',
-      run: () => fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}&expand=changelog`, 600, 25),
+      run: () => fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}&expand=changelog`, 5000, 25),
       onSuccess: () => { state.hasChangelog = true; state.boardLoadMeta = { source: 'Agile board issues + changelog', note: '' }; },
       verify: (issues) => hasChangelogData(issues),
       onVerifyFail: { source: 'Agile board issues (no changelog)', note: 'Changelog expansion returned no history. Trying alternative strategy.' },
     },
     {
       name: 'agile-basic',
-      run: () => fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}`, 600),
+      run: () => fetchPaginated(`/rest/agile/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}`, 5000),
       onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Agile board issues', note: 'Loaded without changelog — status-time charts may be limited.' }; },
     },
     {
       name: 'software-basic',
-      run: () => fetchPaginated(`/rest/software/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}`, 600),
+      run: () => fetchPaginated(`/rest/software/1.0/board/${board.id}/issue?fields=${encodeURIComponent(ISSUE_FIELDS.join(','))}`, 5000),
       onSuccess: () => { state.hasChangelog = false; state.boardLoadMeta = { source: 'Software board issues', note: 'Loaded without changelog — status-time charts may be limited.' }; },
     },
     ...(ctx.filterId ? [{
@@ -8331,6 +8601,7 @@ function chartConfigFor(def, data, theme, canvasId) {
     if (Array.isArray(ds.__keys) && ds.__keys[idx]) issues = ds.__keys[idx];
     const series = data.datasets.length > 1 ? (ds.label || '') : '';
     openIssueListModal(defTitle(def), label, issues, series);
+    ddShowRows(`${defTitle(def)}${series ? ' — ' + series : ''} · ${label || ''}`, ddIssuesFromKeys(issues), false);
   };
   const chartOnHover = (evt, els) => { if (evt.native) evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; };
 
@@ -9029,6 +9300,7 @@ function showDashLoading(boardName) {
   $('#issueCountBadge').textContent = isMasterPBoard(state.lastBoard) ? t('master.syncing') : t('dash.syncing');
   $('#slowTableBody').innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:26px"><span class="spinner spinner-sm"></span> ${escapeHtml(tReplace('dash.loadingBoard', { b: boardName || t('dash.thisBoard') }))}…</td></tr>`;
   hide($('#insightsStrip'));
+  hide($('#dashDrillCard'));
   hide($('#changelogNotice'));
   /* destroy current chart canvases + replace the grid with a loading placeholder */
   Object.values(state.charts).forEach((c) => c && c.destroy());
@@ -9038,6 +9310,11 @@ function showDashLoading(boardName) {
 
 function renderDashboard(board, m) {
   restoreKpiGrid();   /* safety net: never render into the compare layout */
+  /* remember the pool + metrics so KPI cards and charts can drill into the
+     bottom task list (logistics-admin parity) */
+  ddRemember(isMasterPBoard(board) ? t('master.pName') : (board?.name || ''), state.issues, m);
+  ddWireKpis();
+  ddHide();   /* a fresh render starts with no drill card on screen */
   /* KPIs (animated) */
   const bwOn = boardWindowOf();
   /* when a board period filter is on, the cards' labels say the period is the
@@ -9290,6 +9567,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#deleteChartBtn').addEventListener('click', deleteChartFromModal);
   $('#closeChartBtn').addEventListener('click', () => { hide($('#chartModal')); state.chartEditing = null; });
   wireIssueListModal();
+  wireDashDrill();
   if ($('#pubCardOverlay')) wirePubCard();
   $('#chartModal').addEventListener('click', (ev) => {
     if (ev.target === $('#chartModal')) { hide($('#chartModal')); state.chartEditing = null; }

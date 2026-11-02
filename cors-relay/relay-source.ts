@@ -320,7 +320,8 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
   /* ── 2. search: project-wide JQL first (full fields incl. resolutiondate),
         then filter JQL, then the board issue endpoint ── */
   const FIELDS = 'summary,status,resolutiondate,created,updated,issuetype,assignee,priority,labels';
-  const MAX_TOTAL = 600;
+  /* cap raised 600 → 5000: long time ranges must return the REAL issue pool */
+  const MAX_TOTAL = 5000;
   const withChangelog = mode === 'full';
 
   /* discover the "Change Request Complexity" custom field id from the field catalog

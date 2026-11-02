@@ -368,6 +368,13 @@ body.light .board-pub-status option { background: #ffffff; color: #1e2540; }
 }
 .kpi { padding: 16px 18px; transition: transform 0.15s ease, border-color 0.15s ease; }
 .kpi:hover { transform: translateY(-3px); border-color: var(--border-strong); }
+/* drill-down KPI cards: clickable → bottom task list (logistics-admin parity) */
+.kpi.dd-kpi { cursor: pointer; }
+.kpi.dd-kpi::after {
+  content: '⤷'; position: absolute; right: 14px; bottom: 10px;
+  font-size: 0.8rem; color: var(--muted); opacity: 0.6; pointer-events: none;
+}
+.kpi { position: relative; }
 .kpi-top { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
 .kpi-icon {
   width: 30px; height: 30px;
