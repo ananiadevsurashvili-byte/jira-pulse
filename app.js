@@ -2230,9 +2230,14 @@ async function pubMasterAllLoad(mode = 'full') {
       return { name: b.name, issues: [], ok: null };
     }
   }));
+  /* dedupe by issue key (same as the admin side loadMasterAllIssues) — a task
+     may appear in more than one board segment; count it once */
+  const seen = new Set();
   const merged = [];
   for (const r of results) {
     for (const iss of r.issues) {
+      if (!iss || !iss.key || seen.has(iss.key)) continue;
+      seen.add(iss.key);
       try { iss[MASTER_PUB_TAG] = r.name; } catch (_) { /* frozen object — best-effort */ }
       merged.push(iss);
     }
