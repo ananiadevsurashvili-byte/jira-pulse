@@ -2519,8 +2519,7 @@ function ddMatchesKpi(iss, kind) {
   const lastTouch = f.updated ? Date.parse(f.updated) : NaN;
   const activeTo = resolved || (isFinite(lastTouch) ? lastTouch : created);
   const winFrom = ANCHOR - SPAN * DAY;
-  const doneCat = f.status?.statusCategory?.key === 'done'
-    || String(f.status?.statusCategory?.name || '').toLowerCase() === 'done';
+  const doneCat = statusIsDone(f);
   const done = doneCat || isCompletedStatus(f, false);
   if (kind === 'created') return created != null && isFinite(created) && created <= ANCHOR && created >= winFrom;
   const inWindow = created != null && isFinite(created) && created <= ANCHOR && activeTo >= winFrom;
@@ -6501,8 +6500,10 @@ function computeMetrics(issues) {
        completed status (eg Released / Babysitting / Done Approved have no resolutiondate) */
     const resolved = issueCompletedAt(f, iss.changelog);
     const statusName = f.status?.name || 'Unknown';
-    const doneCat = f.status?.statusCategory?.key === 'done'
-      || String(f.status?.statusCategory?.name || '').toLowerCase() === 'done';
+    /* blocked / canceled statuses are NEVER done — a Jira workflow that mirrors
+       them with statusCategory=done (or carries resolutiondate) must not flip
+       them into the Done KPI / Completion rate / throughput */
+    const doneCat = statusIsDone(f) && !isBlockedStatus(f);
 
     if (created && ANCHOR - created >= 0 && ANCHOR - created < SPAN * DAY) {
       m.created30++;
@@ -6528,7 +6529,9 @@ function computeMetrics(issues) {
     /* done = Jira's statusCategory=done OR an org-flow "green" completed status
        (Released / Babysitting / Done Approved… — these carry no resolutiondate on
        [P] boards, so the name check is what recognises them everywhere else).
-       Blocked/Canceled work is neither done nor active — tracked separately. */
+       Blocked/Canceled work is NEVER done — statusIsDone() and issueCompletedAt()
+       already refuse it even when the workflow maps the canceled lane to
+       statusCategory=done / resolutiondate. It is neither done nor active. */
     if (doneCat || isCompletedStatus(f, false)) m.done++;
     else if (!isBlockedStatus(f)) m.wip++;
     /* scoped-to-card-window mirrors: an issue is "in" the counting window
@@ -7833,8 +7836,11 @@ function effectiveCharts() {
 
 /* ── data engine: definition → {labels, datasets, colors, ...} ──── */
 function statusIsDone(f) {
-  return f.status?.statusCategory?.key === 'done'
-    || String(f.status?.statusCategory?.name || '').toLowerCase() === 'done';
+  /* a blocked/canceled status is never "done", even when the canceled lane is
+     configured in Jira with statusCategory=done */
+  return (f.status?.statusCategory?.key === 'done'
+    || String(f.status?.statusCategory?.name || '').toLowerCase() === 'done')
+    && !isBlockedStatus(f);
 }
 
 /* ── status intelligence (org flow) ─────────────────────────────────
@@ -7867,6 +7873,9 @@ function isPBacklogStatus(f) {
    (e.g. "Deployed", "Shipped") — but never blocked/cancelled statuses. */
 function isCompletedStatus(f, allowCategory) {
   const name = String(f?.status?.name || '');
+  /* blocked / canceled / rejected lanes are never a completed delivery — even
+     when the workflow config maps them to statusCategory=done */
+  if (isBlockedStatus(f)) return false;
   if (COMPLETED_STATUSES.includes(name)) return true;
   if (COMPLETED_RE.test(name)) return true;
   if (allowCategory && DONE_STATUS_NAMES.has(name.toLowerCase()) && !isBlockedStatus(f)) return true;
@@ -7897,6 +7906,11 @@ function isBlockedStatus(f) {
    that stay in a done status without one (e.g. "Released"/"Babysitting"), walk the
    changelog for the first transition into a completed status. Returns a ms timestamp or null. */
 function issueCompletedAt(f, changelog) {
+  /* blocked / canceled issues are NEVER a completed delivery — even when the
+     Jira workflow marks the canceled status with statusCategory=done or the
+     issue carries a resolutiondate (orgs often configure canceled lanes that
+     way; counting them as done inflated Done / Completion / throughput) */
+  if (isBlockedStatus(f)) return null;
   if (f?.resolutiondate) return Date.parse(f.resolutiondate);
   const histories = (changelog || {}).histories || [];
   const evts = [];
