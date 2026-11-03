@@ -692,7 +692,9 @@ const I18N = {
     'master.allName': 'All boards united',
     'master.cardChip': 'master view',
     'master.cardDesc': 'All [P] boards united',
+    'master.allCardDesc': 'All non-[P] boards united',
     'master.syncing': 'Loading all [P] boards…',
+    'master.allSyncing': 'Loading all boards united…',
     'master.savedAs': 'Board-scoped charts are not available on the master [P] view',
     'pick.selectedAs': 'Selected as {s} — click to remove',
     'pick.clickPickA': 'Click to pick as A',
@@ -1334,7 +1336,9 @@ const I18N = {
     'master.allName': 'ყველა დაფა გაერთიანებული',
     'master.cardChip': 'გაერთიანებული ხედი',
     'master.cardDesc': 'ყველა [P] დაფა ერთად',
+    'master.allCardDesc': 'ყველა დანარჩენი დაფა ერთად',
     'master.syncing': 'იტვირთება ყველა [P] დაფა…',
+    'master.allSyncing': 'იტვირთება ყველა დაფა გაერთიანებული…',
     'master.savedAs': 'დაფაზე მიბმული გრაფიკები გაერთიანებულ [P] ხედში მიუწვდომელია',
     'pick.selectedAs': 'არჩეულია როგორც {s} — დააჭირეთ მოსაშორებლად',
     'pick.clickPickA': 'აირჩიეთ A-დ',
@@ -4869,7 +4873,9 @@ function enterApp() {
    When we're inside the /admin/ panel, the copy-link must still point to the
    *public* app root (e.g. .../jira-pulse/#/board/1), never .../admin/#/board/1. */
 function boardLink(boardId) {
-  const b = state.boards.find((x) => x.id === boardId) || (boardId === MASTER_P_ID ? masterPBoard() : null);
+  const b = state.boards.find((x) => x.id === boardId)
+    || (boardId === MASTER_P_ID ? masterPBoard() : null)
+    || (boardId === MASTER_ALL_ID ? masterAllBoard() : null);
   return location.origin + publicRootPath() + boardHash(b || { id: boardId });
 }
 
@@ -4884,6 +4890,9 @@ function boardSlugOf(board) {
   /* the synthetic master [P] board gets a fixed thematic slug — its display
      name is translated ("ყველა [P] დაფა"), which would slug to just "p" */
   if (board.id === MASTER_P_ID) return 'all-p-boards';
+  /* the united master gets a fixed slug too — its display name may be
+     translated and would otherwise slug poorly */
+  if (board.id === MASTER_ALL_ID) return 'all-boards-united';
   const nameSlug = String(board.name || '').toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
@@ -5017,9 +5026,14 @@ function route() {
     hide($('#boardsScreen')); show($('#dashScreen'));
     syncHeaderState();
     /* master [P] board deep link (#/board/900000001): boards must be loaded
-       first so the merged pool knows which [P] boards to fetch */
+       first so the merged pool knows which [P] boards to fetch.
+       The united non-[P] master (#/board/900000002) works the same way. */
     if (bid === MASTER_P_ID) {
       loadBoards({ autoOpenLast: false }).then(() => openBoard(masterPBoard())).catch((e) => handleAuthError(e));
+      return;
+    }
+    if (bid === MASTER_ALL_ID) {
+      loadBoards({ autoOpenLast: false }).then(() => openBoard(masterAllBoard())).catch((e) => handleAuthError(e));
       return;
     }
     $('#boardSelect').innerHTML = '<option value="">Loading boards…</option>';
@@ -5251,11 +5265,15 @@ async function enrichBoardStats() {
     await Promise.all(Array.from({ length: Math.min(BSTATS_CONCURRENCY, pending.length) }, worker));
   } finally {
     _bstatsRunning = false;
-    /* the master [P] card aggregates every [P] board's stats — refresh it once
-       the last per-board enrichment lands so it flips from pending to live */
+    /* both master cards aggregate per-board stats — refresh them once the
+       last per-board enrichment lands so they flip from pending to live */
     if (state.boards.some(isPBoard)) {
       const mRec = masterPStats();
       if (mRec) updateBoardStatsDom(MASTER_P_ID, mRec);
+    }
+    if (state.boards.some((b) => !isPBoard(b))) {
+      const aRec = masterAllStats();
+      if (aRec) updateBoardStatsDom(MASTER_ALL_ID, aRec);
     }
   }
 }
@@ -5338,15 +5356,52 @@ function masterPStats() {
   return rec;
 }
 
+/* aggregate card stats for the united (non-[P]) master: the cached per-board
+   records of every non-[P] board, summed — mirrors masterPStats(). */
+function masterAllStats() {
+  const others = state.boards.filter((b) => !isPBoard(b));
+  const recs = others.map((b) => cachedBoardStats(b.id));
+  if (!recs.length || recs.some((r) => !r)) return null;
+  const sum = (k) => recs.reduce((a, r) => a + (r[k] || 0), 0);
+  const totalIssues = sum('total');
+  const rec = {
+    total: totalIssues, done: sum('done'), wip: sum('wip'),
+    created30: sum('created30'), resolved30: sum('resolved30'),
+    doneRate: recs.reduce((a, r) => a + (r.doneRate || 0) * (r.total || 0), 0) / Math.max(1, totalIssues),
+    cycleAvg: (() => {
+      const c = recs.filter((r) => r.cycleAvg != null);
+      if (!c.length) return null;
+      const w = c.reduce((a, r) => a + (r.resolved30 || 0), 0);
+      return w ? c.reduce((a, r) => a + (r.cycleAvg || 0) * (r.resolved30 || 0), 0) / w
+               : c.reduce((a, r) => a + (r.cycleAvg || 0), 0) / c.length;
+    })(),
+  };
+  if (rec.doneRate != null) rec.doneRate = Math.round(rec.doneRate);
+  return rec;
+}
+
+/* render-site guarantee: % values shown on cards are always whole numbers */
+
+/* master [P] card on the boards page: same design as a real [P] board card,
+   with a ∑ avatar and the "master view" chip */
+
 /* ── Master [P] board ──────────────────────────────────────────────
    A synthetic board that merges the issue pools of EVERY [P] org board into
    one dashboard. It is not a real Jira board: the id is reserved, it never
    goes into state.boards, and its issues are fetched per-board via the
    project-wide search (the same strategy single [P] boards prefer). */
 const MASTER_P_ID = 900000001;
+const MASTER_ALL_ID = 900000002;   /* synthetic "All boards united" (every non-[P] board) */
 function isMasterPBoard(b) { return !!b && b.id === MASTER_P_ID; }
 function masterPBoard() {
   return { id: MASTER_P_ID, name: t('master.pName'), type: 'master', location: null };
+}
+/* united non-[P] master: merges every board that is NOT a [P] org board into one
+   dashboard — identical rendering path to the [P] master (same charts, same card) */
+function isMasterAllBoard(b) { return !!b && b.id === MASTER_ALL_ID; }
+function isAnyMasterBoard(b) { return isMasterPBoard(b) || isMasterAllBoard(b); }
+function masterAllBoard() {
+  return { id: MASTER_ALL_ID, name: t('master.allName'), type: 'master', location: null };
 }
 
 /* is this board one of the "[P]" org boards? Its project name (e.g. "[P] Automarket")
@@ -5355,6 +5410,7 @@ function masterPBoard() {
    prefix test alone would miss it — but its charts need the [P] backlog semantics). */
 function isPBoard(b) {
   if (isMasterPBoard(b)) return true;
+  if (isMasterAllBoard(b)) return false;   /* the united master must never fall into the [P] pool */
   return /^\[P\]/i.test(b.location?.projectName || '') || /^\[P\]/i.test(b.name || '');
 }
 
@@ -5478,6 +5534,29 @@ function masterBoardCardHTML(i) {
     </div>`;
 }
 
+/* dedicated card for the united (non-[P]) master board — same ∑ design, minus
+   the [P] flag, heading the "All other boards" group on the boards page */
+function masterAllBoardCardHTML(i) {
+  const b = masterAllBoard();
+  const initial = '∑';
+  const cached = masterAllStats();
+  return `
+    <div class="board-card glass master-p-board master-np-board" data-id="${b.id}" style="animation-delay:${Math.min(i * 35, 400)}ms">
+      <div class="board-card-head">
+        <div class="board-avatar" aria-hidden="true">${initial}</div>
+        <div class="board-id-block">
+          <h3 title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</h3>
+        </div>
+      </div>
+      <div class="board-meta"><span class="chip chip-master">${escapeHtml(t('master.cardChip'))}</span></div>
+      <div class="board-stats" id="bstats_${b.id}">${boardStatsChipHtml(cached)}</div>
+      <div class="board-card-foot">
+        <span class="board-open">${escapeHtml(t('card.openDash'))}</span>
+        <span class="board-proj muted" title="${escapeHtml(t('master.allCardDesc'))}">${escapeHtml(t('master.allCardDesc'))}</span>
+      </div>
+    </div>`;
+}
+
 function renderBoardCards() {
   const grid = $('#boardsGrid');
   const pBoards = state.boards.filter(isPBoard);
@@ -5487,7 +5566,9 @@ function renderBoardCards() {
     html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.orgBoards'))}</span><div class="boards-grid">${masterBoardCardHTML(0)}${pBoards.map((b, ci) => boardCardHTML(b, ci + 1)).join('')}</div></div>`;
   }
   if (otherBoards.length) {
-    html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.otherBoards'))}</span><div class="boards-grid">${otherBoards.map((b, ci) => boardCardHTML(b, ci)).join('')}</div></div>`;
+    /* united "All boards" master sits FIRST in the "All other boards" group —
+       mirrors the [P] master's position at the head of the [P] group */
+    html += `<div class="board-group"><span class="board-group-title">${escapeHtml(t('card.otherBoards'))}</span><div class="boards-grid">${masterAllBoardCardHTML(0)}${otherBoards.map((b, ci) => boardCardHTML(b, ci + 1)).join('')}</div></div>`;
   }
   grid.innerHTML = html;
   /* event wiring is shared for all cards (grouped grids are still DOM children) */
@@ -5503,11 +5584,12 @@ function renderBoardCards() {
   });
   grid.querySelectorAll('.board-card').forEach((card) => {
     card.addEventListener('click', () => {
-      const b = state.boards.find((x) => x.id === parseInt(card.dataset.id, 10));
-      if (!b && !isMasterPBoard({ id: parseInt(card.dataset.id, 10) })) return;
+      const bid = parseInt(card.dataset.id, 10);
+      const b = state.boards.find((x) => x.id === bid);
+      if (!b && !isAnyMasterBoard({ id: bid })) return;
       if (state.pickCompare) { togglePickCompare(b); return; }   // pick mode → cards select instead of open
       $('#boardSelect').value = String(b?.id ?? card.dataset.id);
-      openBoard(b || masterPBoard());
+      openBoard(b || (isMasterAllBoard({ id: bid }) ? masterAllBoard() : masterPBoard()));
     });
   });
   /* kick off the background stats enrichment (cached boards render instantly) */
@@ -5722,6 +5804,58 @@ async function loadMasterPIssues() {
   return merged;
 }
 
+/* master non-[P] loader: same merge strategy as loadMasterPIssues, but over
+   every board that is NOT a [P] org board. Each segment uses the SAME strategy
+   chain a real board uses (loadBoardIssues) so charts get changelog-bearing
+   pools; a board that fails is skipped with a warning. */
+async function loadMasterAllIssues() {
+  const others = state.boards.filter((b) => !isPBoard(b));
+  if (!others.length) throw new Error('No boards found to merge.');
+  await discoverComplexityFieldId();
+
+  const results = await Promise.all(others.map(async (b) => {
+    try {
+      const issues = await loadBoardIssues(b);
+      logDiag('info', 'United master board segment loaded', { boardId: b.id, name: b.name, issues: issues.length });
+      return { board: b, issues, err: null };
+    } catch (e) {
+      logDiag('warn', 'United master board segment failed — skipped', { boardId: b.id, name: b.name, status: e?.status, message: e?.message });
+      return { board: b, issues: [], err: e };
+    }
+  }));
+
+  const ok = results.filter((r) => !r.err);
+  const failed = results.filter((r) => r.err);
+  if (!ok.length) {
+    const e = new Error(`No board could be loaded. Last error: ${failed[0]?.err?.message || 'unknown'}`);
+    e.status = failed[0]?.err?.status || 500;
+    throw e;
+  }
+  /* deduplicate by issue key: a project with several boards would otherwise
+     double-count every issue it shares across those boards */
+  const seen = new Set();
+  const merged = [];
+  for (const r of ok) {
+    for (const iss of r.issues) {
+      const k = iss.key || iss.id;
+      if (k && seen.has(k)) continue;
+      if (k) seen.add(k);
+      try { iss[MASTER_P_TAG] = r.board.name; } catch (_) { /* frozen object — attribution is best-effort */ }
+      merged.push(iss);
+    }
+  }
+  state.hasChangelog = ok.some((r) => hasChangelogData(r.issues));
+  state.boardLoadMeta = {
+    source: `United — ${ok.length} board${ok.length === 1 ? '' : 's'} merged`,
+    note: failed.length
+      ? `${failed.length} board${failed.length === 1 ? '' : 's'} could not be loaded and ${failed.length === 1 ? 'is' : 'are'} excluded.`
+      : '',
+  };
+  rememberDoneStatuses(merged);
+  detectComplexityField(merged);
+  return merged;
+}
+
 async function loadBoardIssues(board) {
   state.hasChangelog = true;
   state.boardLoadMeta = { source: '', note: '' };
@@ -5924,10 +6058,13 @@ async function applyBoardWindow({ refetch = true } = {}) {
     hide($('#compareBar'));
     $('#compareBtn').classList.remove('active');
   }
-  const master = isMasterPBoard(state.lastBoard);
-  const b = master ? masterPBoard() : state.boards.find((x) => x.id === state.boardId);
+  const isMasterAll = isMasterAllBoard(state.lastBoard);
+  const master = isMasterPBoard(state.lastBoard) || isMasterAll;
+  const b = master
+    ? (isMasterAll ? masterAllBoard() : masterPBoard())
+    : state.boards.find((x) => x.id === state.boardId);
   if (!b && !master) return;
-  if (refetch) await selectBoard(b || masterPBoard());
+  if (refetch) await selectBoard(b);
 }
 
 /* reflect the active filter on the header control: button label + badge */
@@ -6206,7 +6343,9 @@ async function selectBoard(board) {
 
   try {
     logDiag('info', 'Board selected', { boardId: board.id, name: board.name, type: board.type, location: board.location || null });
-    const issues = isMasterPBoard(board) ? await loadMasterPIssues() : await loadBoardIssues(board);
+    const issues = isMasterPBoard(board) ? await loadMasterPIssues()
+      : isMasterAllBoard(board) ? await loadMasterAllIssues()
+      : await loadBoardIssues(board);
     /* board-level date filter (session-scoped): restrict the pool the whole
        dashboard (KPIs + insights + charts) is computed from. Reset when the
        user switches to a different board. */
@@ -7619,9 +7758,9 @@ function effectiveCharts() {
     if (c.scope === 'board' && c.boardId !== state.boardId) continue;
     list.push({ ...c, builtin: false });
   }
-  /* the master [P] board is synthetic — board-scoped custom charts made on a
-     real board must not leak into it */
-  if (isMasterPBoard(state.lastBoard)) {
+  /* synthetic masters ([P] + united) are treated the same — board-scoped
+     custom charts made on a real board must not leak into either */
+  if (isAnyMasterBoard(state.lastBoard)) {
     return list.filter((d) => d.builtin || d.scope !== 'board');
   }
   return list;
@@ -8261,7 +8400,7 @@ function currentChartBoardName() {
   if (state.inShareScreen) {
     return pubState.currentBoard?.name || pubState.snapshot?.boardName || '';
   }
-  if (isMasterPBoard(state.lastBoard)) return state.lastBoard.name;   /* master [P] board */
+  if (isAnyMasterBoard(state.lastBoard)) return state.lastBoard.name;   /* synthetic master */
   const b = state.boards.find((x) => x.id === state.boardId);
   return b?.name || '';
 }
@@ -9297,7 +9436,8 @@ function showDashLoading(boardName) {
   restoreKpiGrid();   /* compare layout may still own the grid — restore the real KPI cards first */
   ['kpiTotal', 'kpiCreated', 'kpiBlocked', 'kpiDone', 'kpiCompletion', 'kpiWip'].forEach((id) => { const el = $('#' + id); if (el) el.textContent = '…'; });
   ['kpiTotalSub', 'kpiCreatedSub', 'kpiBlockedSub', 'kpiDoneSub', 'kpiCompletionSub', 'kpiWipSub'].forEach((id) => { const el = $('#' + id); if (el) el.textContent = t('dash.syncing'); });
-  $('#issueCountBadge').textContent = isMasterPBoard(state.lastBoard) ? t('master.syncing') : t('dash.syncing');
+  $('#issueCountBadge').textContent = isMasterPBoard(state.lastBoard) ? t('master.syncing')
+    : isMasterAllBoard(state.lastBoard) ? t('master.allSyncing') : t('dash.syncing');
   $('#slowTableBody').innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:26px"><span class="spinner spinner-sm"></span> ${escapeHtml(tReplace('dash.loadingBoard', { b: boardName || t('dash.thisBoard') }))}…</td></tr>`;
   hide($('#insightsStrip'));
   hide($('#dashDrillCard'));
@@ -9312,7 +9452,9 @@ function renderDashboard(board, m) {
   restoreKpiGrid();   /* safety net: never render into the compare layout */
   /* remember the pool + metrics so KPI cards and charts can drill into the
      bottom task list (logistics-admin parity) */
-  ddRemember(isMasterPBoard(board) ? t('master.pName') : (board?.name || ''), state.issues, m);
+  ddRemember(isMasterPBoard(board) ? t('master.pName')
+    : isMasterAllBoard(board) ? t('master.allName')
+    : (board?.name || ''), state.issues, m);
   ddWireKpis();
   ddHide();   /* a fresh render starts with no drill card on screen */
   /* KPIs (animated) */
@@ -9525,6 +9667,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const b = state.boards.find((x) => x.id === state.boardId);
     if (isMasterPBoard(b) || (!b && isMasterPBoard(state.lastBoard))) {
       selectBoard(masterPBoard()); toast(t('toast.refreshing'));
+    } else if (isMasterAllBoard(b) || (!b && isMasterAllBoard(state.lastBoard))) {
+      selectBoard(masterAllBoard()); toast(t('toast.refreshing'));
     } else if (b) { selectBoard(b); toast(t('toast.refreshing')); }
   });
 
