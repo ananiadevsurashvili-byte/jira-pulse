@@ -128,6 +128,8 @@ const state = {
   lastMetrics: null,   // cached computeMetrics() result for the last board
   boardRange: null,    // board-level date filter { from, to } in ms — null = default view
   boardRangeKey: null, // board id the filter was set on (cleared when switching boards)
+  boardAllTime: false, // true while the "All time" preset is active (win = first-task → today)
+  issuesFull: [],      // UNFILTERED pool of the open board — the "All time" first-task anchor
   inShareScreen: false, // true while the public share overlay (#pubScreen) is open
   compare: null,       // compare mode: { boardId, board, issues, metrics, syncedAt } for board B
   compareC: null,      // compare mode: same shape as `compare` for the optional third board C
@@ -1701,6 +1703,7 @@ let pubState = {
   compare: null,           /* { a, b, c?, nameA, nameB, nameC?, recA, recB, recC? } active pub compare view */
   compareGen: 0,           /* staleness guard for in-flight compare loads */
   boardRange: null,        /* viewer's own board date filter {from,to} — single-board view only */
+  boardAllTime: false,     /* viewer's "All time" preset — window = first task → end of today */
 };
 
 /* ── viewer session persistence (refresh keeps you signed in) ─────────
@@ -3774,6 +3777,7 @@ function fillPubBoardKpis(m) {
    rebuilt through _pubBuildBoardRec, which re-filters the pool). */
 function pubSetBoardFilter({ days = null, from = null, to = null } = {}) {
   let win = null;
+  let allTime = false;
   if (from && to) {
     const fTs = Date.parse(from);
     const tEnd = new Date(to); tEnd.setHours(23, 59, 59, 999);
@@ -3781,10 +3785,13 @@ function pubSetBoardFilter({ days = null, from = null, to = null } = {}) {
     if (!isFinite(fTs) || !isFinite(tTs) || fTs > tTs) { toast(t('brd.invalid'), 'warn'); return false; }
     win = { from: fTs, to: tTs };
   } else if (days != null) {
-    if (days === 0) win = null;
+    /* "All time" is an EXPLICIT window — first task → end of today — at the
+       current issue source, not a silent reversion to the 30-day default */
+    if (days === 0) allTime = true;
     else win = { from: Date.now() - days * DAY, to: Date.now() };
   }
-  pubState.boardRange = win;
+  pubState.boardRange = allTime ? { from: 0, to: endOfTodayMs() } : win;
+  pubState.boardAllTime = allTime;
   pubSyncBoardRangeUI();
   return true;
 }
@@ -3805,9 +3812,11 @@ function pubSyncBoardRangeUI() {
   document.querySelectorAll('#pubBoardRangeMenu .chart-range-opt[data-pdays]').forEach((opt) => opt.classList.remove('active'));
   $('#pubBrdReset')?.classList.remove('active');
   if (win) {
+    /* all-time materializes {from:0} — show the REAL derived window on the inputs */
+    const dispWin = pubState.boardAllTime ? boardWindowOf() : win;
     const fEl = $('#pubBrdFrom'), t2El = $('#pubBrdTo');
-    if (fEl) fEl.value = new Date(win.from).toISOString().slice(0, 10);
-    if (t2El) t2El.value = new Date(win.to).toISOString().slice(0, 10);
+    if (fEl) fEl.value = new Date(dispWin?.from || win.from).toISOString().slice(0, 10);
+    if (t2El) t2El.value = new Date(dispWin?.to || win.to).toISOString().slice(0, 10);
   }
 }
 
@@ -6007,14 +6016,48 @@ function filterIssuesByWindow(issues, from, to) {
   return issues.filter((iss) => issueInBoardWindow(iss.fields || {}, from, to, iss.changelog));
 }
 
+/* ── "All time" window ─────────────────────────────────────────────
+   When the user picks "All time" the board period must cover the REAL
+   history: from the first task on the board to the end of today. The
+   window is derived from the unfiltered pool (state.issuesFull), falling
+   back to a "board existing since forever" sentinel when no pool is
+   loaded yet (e.g. before selectBoard has run). */
+function earliestIssueMs(issues) {
+  let oldest = Infinity;
+  for (const iss of issues || []) {
+    const c = iss.fields?.created ? Date.parse(iss.fields.created) : NaN;
+    if (isFinite(c) && c < oldest) oldest = c;
+  }
+  return isFinite(oldest) ? oldest : null;
+}
+
+function endOfTodayMs() {
+  const d = new Date(); d.setHours(23, 59, 59, 999); return d.getTime();
+}
+
+/* the effective "All time" window of the open board, or null when All time
+   is not active. Kept as a SENSOR — callers re-derive it from the current
+   unfiltered pool so a refetch automatically widens the window. */
+function allTimeWindowOf() {
+  if (!state.boardAllTime) return null;
+  const from = earliestIssueMs(state.issuesFull) ?? (Date.now() - 3650 * DAY);
+  return { from, to: endOfTodayMs() };
+}
+
 /* resolve the active board window: explicit {from,to} in ms, or null.
    On the public share view the viewer's own filter (pubState.boardRange)
    is used instead of the admin's session filter. */
 function boardWindowOf() {
   if (state.inShareScreen) {
+    const at = pubState.boardAllTime === true;
+    if (at) {
+      const from = earliestIssueMs(pubState.issuesRaw && pubState.issuesRaw.length ? pubState.issuesRaw : (state.issuesFull?.length ? state.issuesFull : [])) ?? (Date.now() - 3650 * DAY);
+      return { from, to: endOfTodayMs() };
+    }
     const pw = pubState.boardRange;
     return (pw && pw.from && pw.to) ? pw : null;
   }
+  if (state.boardAllTime) return allTimeWindowOf();
   if (!state.boardRange || !state.boardRange.from || !state.boardRange.to) return null;
   return state.boardRange;
 }
@@ -6023,6 +6066,7 @@ function boardWindowOf() {
    or an explicit from/to ISO date pair from the calendar inputs */
 function setBoardFilter({ days = null, from = null, to = null } = {}) {
   let win = null;
+  let allTime = false;
   if (from && to) {
     const fTs = Date.parse(from);
     /* the end date is inclusive through end-of-day local time */
@@ -6031,19 +6075,24 @@ function setBoardFilter({ days = null, from = null, to = null } = {}) {
     if (!isFinite(fTs) || !isFinite(tTs) || fTs > tTs) { toast(t('brd.invalid'), 'warn'); return false; }
     win = { from: fTs, to: tTs };
   } else if (days != null) {
-    /* preset: "All time" (0) needs no filter at all — the whole pool passes */
-    if (days === 0) win = null;
+    /* preset: "All time" (0) is an EXPLICIT window — first task → end of
+       today — so KPIs/charts count the real history instead of the
+       30-day default view */
+    if (days === 0) allTime = true;
     else win = { from: Date.now() - days * DAY, to: Date.now() };
   }
   state.boardRange = win;
-  state.boardRangeKey = state.boardId;
+  state.boardAllTime = allTime;
+  if (allTime) state.boardRange = allTimeWindowOf();   /* prefer real dates, refetched pools widen it */
+  if (win || allTime) state.boardRangeKey = state.boardId;
   syncBoardRangeUI();
   return true;
 }
 
 function clearBoardFilter() {
   state.boardRange = null;
-  state.boardRangeKey = state.boardId;
+  state.boardAllTime = false;
+  state.boardRangeKey = null;
   syncBoardRangeUI();
 }
 
@@ -6348,13 +6397,20 @@ async function selectBoard(board) {
       : await loadBoardIssues(board);
     /* board-level date filter (session-scoped): restrict the pool the whole
        dashboard (KPIs + insights + charts) is computed from. Reset when the
-       user switches to a different board. */
+       user switches to a different board. The UNFILTERED pool is kept on
+       state.issuesFull so the "All time" window can resolve the board's
+       real first-task date even while a shorter filter is displayed. */
+    state.issuesFull = issues;
+    if (state.boardAllTime && state.boardRangeKey === board.id) {
+      state.boardRange = allTimeWindowOf();   /* re-derive from the fresh pool */
+      syncBoardRangeUI();
+    }
     const win = boardWindowOf();
     if (win && state.boardRangeKey === board.id) {
       state.issues = filterIssuesByWindow(issues, win.from, win.to);
       $('#issueCountBadge').textContent = `${t('brd.active')}: ${state.issues.length}/${issues.length}`;
     } else {
-      if (win && state.boardRangeKey !== board.id) { state.boardRange = null; state.boardRangeKey = null; syncBoardRangeUI(); }
+      if (win && state.boardRangeKey !== board.id) { state.boardRange = null; state.boardRangeKey = null; state.boardAllTime = false; syncBoardRangeUI(); }
       state.issues = issues;
     }
     const m = computeMetrics(state.issues);
@@ -6404,9 +6460,13 @@ function computeMetrics(issues) {
   const bw = boardWindowOf();
   const ANCHOR = bw ? bw.to : Date.now();
   /* When a board period filter is on, the "recent" span stretches to the whole
-     filtered window (capped at 400 days so legacy 30-day consumers stay safe);
-     the prior-window comparison looks at the equally long span before it. */
-  const SPAN = bw ? Math.max(1, Math.min(400, Math.ceil((bw.to - bw.from) / DAY))) : 30;
+     filtered window. The legacy 400-day clamp is dropped for TRUE all-time
+     windows (from = the board's first task) so KPIs/counters cover the whole
+     history — daily[] arrays just get bigger (charts bucket by week/month so
+     bar counts stay sane). */
+  const SPAN = bw
+    ? Math.max(1, Math.ceil((bw.to - bw.from) / DAY))
+    : 30;
   const m = {
     spanDays: SPAN,
     total: issues.length,
@@ -9881,7 +9941,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') $('#boardRangeMenu')?.classList.add('hidden');
   });
-  $('#exportExcelBtn').addEventListener('click', () => {
+  $('#exportExcelBtn')?.addEventListener('click', () => {
     if (!state.lastBoard) { toast(t('toast.noConn'), 'warn'); return; }
     try {
       /* mirror the whole dashboard: build every visible chart's data the same
