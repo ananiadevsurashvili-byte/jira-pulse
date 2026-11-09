@@ -66,6 +66,23 @@ const DESK_CACHE_KEY = "jirapulse_desk_cache_v3";
    changes while making real back-to-back visits INSTANT. */
 const DESK_CACHE_TTL = 15 * 60 * 1000;
 
+/* board response blob-cache for ?cmd=board: one board payload costs a full
+   Jira chain (board context + filter + paginated search with changelog),
+   and the pub master-boards replay it for EVERY published board on every
+   load. Caching the finished payload makes master-all / revisits near-
+   instant; ?fresh=1 bypasses and re-syncs (viewer-controlled freshness). */
+const BOARD_CACHE_KEY = "jirapulse_board_cache_v1";
+/* 10 min keeps hourly-style dashboards honest while collapsing the burst
+   of N+1 synchronous requests a master-all load produces into one chain
+   per board per window. */
+const BOARD_CACHE_TTL = 10 * 60 * 1000;
+
+/* "Change Request Complexity" custom-field id: Jira instance-bound but
+   effectively static, so the expensive /rest/api/3/field catalog scan
+   runs at most once per day instead of on every ?cmd=board hit. */
+const COMPLEXITY_FIELD_KEY = "jirapulse_complexity_field_v1";
+const COMPLEXITY_FIELD_TTL = 24 * 60 * 60 * 1000;
+
 /* ADF (Atlassian Document Format) body → plain text, one line per block.
    media/mediaInline/mediaSingle nodes emit the SAME " 📷 " marker the
    in-app renderer (jpAdfText) emits, so the desk-payload path can paint
@@ -289,14 +306,39 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
     return await fetch(base + path, { method: 'GET', headers: jh, redirect: 'follow' });
   };
 
-  /* ── 1. board context: type/location/config-filter/projects ── */
-  const [boardResp, cfgResp, projectsResp] = await Promise.all([
+  /* ── 0. payload blob-cache: instant replay within the TTL window ── */
+  const forceFresh = u.searchParams.get('fresh') === '1';
+  const boardKey = `${BOARD_CACHE_KEY}:${domain.replace(/^https:\/\//i, '').toLowerCase()}:${bid}:${mode}`;
+  if (!forceFresh) {
+    try {
+      const cached = await blob.getJSON(boardKey) as any;
+      if (cached && cached.data && cached.ts && Date.now() - cached.ts < BOARD_CACHE_TTL) {
+        return json({ ...cached.data, cached: true, cacheAge: Date.now() - cached.ts });
+      }
+    } catch { /* missing/corrupt cache → full sync below */ }
+  }
+
+  /* ── 1. board context: type/location/config-filter/projects (all
+        resolved in one round-trip wave — the filter JQL fetch used to run
+        serially after the config response and stretched every uncached
+        load) ── */
+  const [boardResp, cfgResp, projectsResp, filterJql] = await Promise.all([
     get(`/rest/agile/1.0/board/${bid}`).catch(() => null),
     get(`/rest/agile/1.0/board/${bid}/configuration`).catch(() => null),
     get(`/rest/agile/1.0/board/${bid}/project`).catch(() => null),
+    /* filter JQL: needs cfgResp settled first, so resolved inside the same
+       wave instead of a separate serial wait afterwards */
+    (async () => {
+      let fid: string | null = null;
+      try { fid = (await cfgResp?.json())?.filter?.id || null; } catch { /* ignore */ }
+      if (!fid) return '';
+      try {
+        const fResp = await get(`/rest/api/3/filter/${fid}`);
+        if (fResp.ok) return (await fResp.json())?.jql || '';
+      } catch { /* ignore */ }
+      return '';
+    })(),
   ]);
-  let filterId: string | null = null;
-  try { filterId = (await cfgResp?.json())?.filter?.id || null; } catch { /* ignore */ }
   let projectKeys: string[] = [];
   try {
     const pj = await projectsResp?.json();
@@ -309,13 +351,6 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
       if (loc?.projectKey) projectKeys = [loc.projectKey];
     } catch { /* ignore */ }
   }
-  let filterJql = '';
-  if (filterId) {
-    try {
-      const fResp = await get(`/rest/api/3/filter/${filterId}`);
-      if (fResp.ok) filterJql = (await fResp.json())?.jql || '';
-    } catch { /* ignore */ }
-  }
 
   /* ── 2. search: project-wide JQL first (full fields incl. resolutiondate),
         then filter JQL, then the board issue endpoint ── */
@@ -326,17 +361,32 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
 
   /* discover the "Change Request Complexity" custom field id from the field catalog
      (ids differ per Jira instance and unknown ids are silently dropped from `fields`)
-     so the complexity distribution charts work for public viewers too */
+     so the complexity distribution charts work for public viewers too.
+     The catalog scan costs a full /rest/api/3/field round trip, so the result
+     is blob-cached for a day and only re-discovered live when missing/expired. */
   let complexityFieldId = '';
+  let complexityFromCache = false;
   try {
-    const fResp = await get('/rest/api/3/field');
-    if (fResp.ok) {
-      const catalog: any[] = await fResp.json();
-      const wanted = catalog.find((f) => f && f.custom && /change request complexity/i.test(f.name || ''))
-        || catalog.find((f) => f && f.custom && /complexity/i.test(f.name || ''));
-      if (wanted?.id) complexityFieldId = String(wanted.id);
+    const cfCached = await blob.getJSON(COMPLEXITY_FIELD_KEY) as any;
+    if (cfCached && cfCached.id && cfCached.ts && Date.now() - cfCached.ts < COMPLEXITY_FIELD_TTL) {
+      complexityFieldId = String(cfCached.id);
+      complexityFromCache = true;
     }
-  } catch { /* best-effort — charts just show "no data" without it */ }
+  } catch { /* missing/corrupt cache → live discovery below */ }
+  if (!complexityFromCache) {
+    try {
+      const fResp = await get('/rest/api/3/field');
+      if (fResp.ok) {
+        const catalog: any[] = await fResp.json();
+        const wanted = catalog.find((f) => f && f.custom && /change request complexity/i.test(f.name || ''))
+          || catalog.find((f) => f && f.custom && /complexity/i.test(f.name || ''));
+        if (wanted?.id) {
+          complexityFieldId = String(wanted.id);
+          blob.setJSON(COMPLEXITY_FIELD_KEY, { ts: Date.now(), id: complexityFieldId }).catch(() => { /* best-effort */ });
+        }
+      }
+    } catch { /* best-effort — charts just show "no data" without it */ }
+  }
   const SEARCH_FIELDS = complexityFieldId ? `${FIELDS},${complexityFieldId}` : FIELDS;
 
   async function searchJql(jql: string): Promise<any[] | null> {
@@ -413,7 +463,7 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
 
   const hasChangelog = issues.some((i) => i?.changelog?.histories?.length);
 
-  return json({
+  const payload = {
     ok: true,
     boardId: bid,
     source,
@@ -422,7 +472,11 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
     count: issues.length,
     fetchedAt: Date.now(),
     issues,
-  });
+  };
+  /* store the finished payload (best-effort — a failed write just means the
+     next request pays the full chain again) */
+  try { await blob.setJSON(boardKey, { ts: Date.now(), data: payload }); } catch { /* ignore */ }
+  return json(payload);
 }
 
 /* ─────────────── live Service Desk fetch for the Logistics page ───────────────

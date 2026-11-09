@@ -1634,10 +1634,11 @@ async function pubCredsSet(conn) {
    Asks the relay for one board's issues. When the viewer has their own Jira
    connection the Authorization header is forwarded (their creds, zero stored
    secrets); otherwise the relay falls back to the admin's stored creds. */
-async function pubFetchBoardLive(boardId, mode = 'full') {
+async function pubFetchBoardLive(boardId, mode = 'full', { fresh = false } = {}) {
   const domain = state.conn?.domain ? String(state.conn.domain).replace(/^https?:\/\//, '') : '';
   const url = PUB_RELAY + '?cmd=board&bid=' + encodeURIComponent(boardId) + '&mode=' + encodeURIComponent(mode) +
-    (domain ? '&domain=' + encodeURIComponent(domain) : '');
+    (domain ? '&domain=' + encodeURIComponent(domain) : '') +
+    (fresh ? '&fresh=1' : '');   /* relay-side 10 min blob-cache bypass (hard refresh) */
   const headers = { 'Accept': 'application/json' };
   if (state.conn) headers['Authorization'] = 'Basic ' + btoa(state.conn.email + ':' + state.conn.token);
   const controller = new AbortController();
@@ -2116,8 +2117,15 @@ function pubVerifyCode() {
    The publish snapshot only carries the config (which boards, chart defs).
    Every render fetches fresh Jira data through the relay and computes the
    charts on the spot, so viewers always see real-time numbers. */
-const _pubBoardCache = new Map();   /* boardId:mode → { rec, ts } per-session memo (30 s) */
+const _pubBoardCache = new Map();   /* boardId:mode → { rec, ts } per-session memo */
 const PUB_LIVE_TTL = 30 * 1000;
+/* heavy synthetic masters (all-[P] merge, all-non-[P] merge) replay the full
+   pool computationally on every hit; longer slots keep the all-boards /
+   master-all views instant across a browsing session */
+const PUB_MASTER_TTL = 10 * 60 * 1000;
+function pubCacheTtlFor(boardId) {
+  return (parseInt(boardId, 10) >= PUB_MASTER_ID) ? PUB_MASTER_TTL : PUB_LIVE_TTL;
+}
 
 /* true while the pub viewer is looking at a single board (not the all-boards
    grid / compare view) — the board date filter only applies there */
@@ -2163,7 +2171,7 @@ async function pubLoadBoardLive(boardId, mode = 'full') {
   if (isPubMasterAllId(boardId)) return pubMasterAllLoad(mode);
   const memoKey = boardId + ':' + mode;
   const memo = _pubBoardCache.get(memoKey);
-  if (memo && Date.now() - memo.ts < PUB_LIVE_TTL) {
+  if (memo && Date.now() - memo.ts < pubCacheTtlFor(boardId)) {
     /* cache hit: the RAW fetch is memoized, but the chart set is rebuilt with
        the current language (dataset labels/subtitles/empty messages are
        translated at build time — a cached copy would mix languages). */
@@ -2180,7 +2188,7 @@ async function pubLoadBoardLive(boardId, mode = 'full') {
 async function pubMasterLoad(mode = 'full') {
   const memoKey = PUB_MASTER_ID + ':' + mode;
   const memo = _pubBoardCache.get(memoKey);
-  if (memo && Date.now() - memo.ts < PUB_LIVE_TTL) return _pubBuildBoardRec(memo.rec, PUB_MASTER_ID);
+  if (memo && Date.now() - memo.ts < pubCacheTtlFor(PUB_MASTER_ID)) return _pubBuildBoardRec(memo.rec, PUB_MASTER_ID);
   const cfg = await pubConfigGet({ force: true });
   const pBoards = pubPBoards(cfg);
   if (!pBoards.length) throw new Error('No [P] boards published.');
@@ -2216,7 +2224,7 @@ async function pubMasterLoad(mode = 'full') {
 async function pubMasterAllLoad(mode = 'full') {
   const memoKey = PUB_MASTER_ALL_ID + ':' + mode;
   const memo = _pubBoardCache.get(memoKey);
-  if (memo && Date.now() - memo.ts < PUB_LIVE_TTL) return _pubBuildBoardRec(memo.rec, PUB_MASTER_ALL_ID);
+  if (memo && Date.now() - memo.ts < pubCacheTtlFor(PUB_MASTER_ALL_ID)) return _pubBuildBoardRec(memo.rec, PUB_MASTER_ALL_ID);
   const cfg = await pubConfigGet({ force: true });
   const oBoards = pubOtherBoards(cfg);
   if (!oBoards.length) throw new Error('No non-[P] boards published.');
