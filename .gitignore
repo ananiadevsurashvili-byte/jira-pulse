@@ -1,0 +1,26 @@
+# Local-only helper files — never publish.
+# NOTE: _deploy.ps1 contains the Val Town API token and MUST stay off GitHub.
+.trae-html-share-packages/
+.trae/
+cors-relay/_deploy.ps1
+cors-relay/_session_seed.html
+cors-relay/_validate.html
+fix-proof-popup.png
+fix-proof-tasklist.png
+validation-fix-proof.png
+logistics/admin/desk-inspect.ps1
+logistics/admin/kpi24h-check.ps1
+logistics/admin/live-admin-v36.js
+logistics/admin/sla-hydrate-check.ps1
+logistics/admin/live-admin-v36.js
+logistics/admin/sla-probe-24h.ps1
+logistics/admin/sla-probe-resp.ps1
+logistics/admin/sla-probe-shape.ps1
+logistics/admin/sla-sim-periods.ps1
+logistics/admin/sla-sim-periods.mjs
+logistics/admin/sla-sim.mjs
+logistics/admin/sla-sim2.mjs
+logistics/admin/sla-sim3.mjs
+logistics/admin/sla-wave6-guestprobe.ps1
+logistics/admin/sla-wave6-probe.ps1
+logistics/admin/sla-wave7-lgsim.ps1
