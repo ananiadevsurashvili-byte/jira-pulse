@@ -15,17 +15,17 @@ const LS_LAST_BOARD = 'jp_last_board_v1';
    Browsers cannot call the Jira Cloud REST API directly from a GitHub Pages
    site (Jira sends no CORS headers), so requests must pass through a relay.
    The FIRST relay is JiraPulse's OWN hosted relay — a free Val Town HTTP val
-   (100,000 requests/day, forwards the Authorization header verbatim, accepts
-   only https://*.atlassian.net targets, stores nothing). It is tried before
-   anything else; the public keyless relays below and a final direct attempt
-   serve as fallbacks. A relay configured in Settings is always tried first. */
+   (100,000 requests/day). It forwards the Authorization header verbatim,
+   accepts only https://*.atlassian.net targets, and scopes anonymous reads
+   to the PUBLISHED board/desk data. Third-party public CORS proxies were
+   REMOVED on purpose: every request sent to them (including the
+   Authorization header) leaves our control. A relay configured in Settings
+   (your own deployment) is always tried first; the direct call stays last
+   as a future-proof escape hatch for hosts that proxy /rest/* server-side. */
 const OWN_RELAY = 'https://gensweaty--65df49bca6d911f19f231607ee4eb77e.web.val.run/?url=';
 const RELAYS = [
-  /* { key, build, keyless } — corsproxy.io also accepts a user-supplied API key */
+  /* { key, build, keyless } — only our own hosted relay is built in */
   { key: 'own', build: (url) => OWN_RELAY + encodeURIComponent(url), keyless: true },
-  { key: 'cors.lol', build: (url) => 'https://api.cors.lol/?url=' + encodeURIComponent(url), keyless: true },
-  { key: 'corsproxy', build: (url, conn) =>
-      'https://corsproxy.io/?' + (conn?.proxyApiKey ? 'key=' + encodeURIComponent(conn.proxyApiKey) + '&' : '') + 'url=' + encodeURIComponent(url), keyless: false },
 ];
 const ISSUE_FIELDS = ['summary', 'status', 'resolutiondate', 'created', 'updated', 'issuetype', 'assignee', 'priority', 'labels'];
 
@@ -2791,6 +2791,9 @@ async function pubFetchDetail(key) {
       body: jpAdfText(c.body),
       mediaIds: jpCollectMediaIds(c.body),   /* images pasted INTO this comment */
       mediaNodes: jpCollectMediaNodes(c.body),  /* id + alt (filename) pairs */
+      /* relay-redacted restricted comments (anonymous reads only): keep the
+         array position (deskAttach commentIndex alignment) but never render */
+      redacted: c.redacted === true,
       _idx: idx,
     }));
   /* images pasted inside comments are attachments linked via mediaId — map
@@ -2976,8 +2979,13 @@ function jpFetchAttachments(key) {
   return promise;
 }
 
+/* attachment binaries go through the plain proxy WITH the parent issue key
+   (jpKey): the relay proves the issue is published and actually references
+   this attachment before it serves the file anonymously. Viewers with their
+   own Jira connection are unaffected (their Authorization header is used). */
 function jpAttachProxyUrl(contentUrl) {
-  return PUB_RELAY + '?url=' + encodeURIComponent(contentUrl);
+  return PUB_RELAY + '?url=' + encodeURIComponent(contentUrl) +
+    (jpCardKey ? '&jpKey=' + encodeURIComponent(jpCardKey) : '');
 }
 
 function jpIsImageMime(mime, filename) {
@@ -3607,7 +3615,7 @@ async function enRichCard(key) {
   if (!cmEl) return;
   cmEl.innerHTML = detail.comments.length
     ? detail.comments.map((c) =>
-        `<div class="lg-card-comment">
+        `<div class="lg-card-comment"${c.redacted ? ' style="display:none"' : ''}>
           <div class="lg-card-comment-head">
             <span class="lg-comment-author">${escapeHtml(c.author || '—')}</span>
             <span class="lg-card-comment-date">${jpFmtDateTime(c.created)}</span>
@@ -4742,16 +4750,12 @@ async function api(path, options = {}) {
     url: r.build(url, c),
     relay: r.key,
     /* relay responses are identifiable by their error payload shape.
-       - own (Val Town): {error:"..."} JSON for app-level rejections; the Val
-         Town platform itself answers 500 {message:"..."} when the val is down.
-       - corsproxy: {error:"..."} mentioning api key / invalid or inactive.
-       - cors.lol: plain-text 429 rate-limit bodies. */
+       own (Val Town): {error:"..."} JSON for app-level rejections; the Val
+       Town platform itself answers 500 {message:"..."} when the val is down. */
     isRelayErr: r.key === 'own'
       ? (s, b) => (s === 500 && typeof b?.message === 'string' && /not found/i.test(b.message))
         || (s === 502 && typeof b?.error === 'string' && /upstream/i.test(b.error))
-      : r.key === 'corsproxy'
-        ? (s, b) => (s === 401 || s === 403) && typeof b?.error === 'string' && /api key|invalid or inactive/i.test(b.error)
-        : (s, b) => s === 429 && typeof b === 'string' && /rate limit/i.test(b),
+      : null,
   });
   if (c.proxyUrl) {
     /* custom relay template with {url} placeholder (falls back to suffix style) */

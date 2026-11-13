@@ -37,13 +37,14 @@
  *   https://www.val.town/x/gensweaty/jira-relay/code/
  */
 import { blob } from "https://esm.town/v/std/blob";
+import { CORS_HEADERS, CREDS_KEY, DESK_PROJECTS, json } from "./shared.ts";
+import { handleDeskAttachCmd, handleDeskCmd, handleDeskSlaCmd } from "./desk.ts";
 
 const ALLOWED_HOST = /(^|\.)atlassian\.net$/i;
 
 /* blob keys (Val Town blobs are account-scoped, so prefix for safety) */
 const PUB_KEY = "jirapulse_publish_v1";
 const ADMIN_KEY = "jirapulse_publish_admin_v1";
-const CREDS_KEY = "jirapulse_creds_v1";
 /* SLA goals shared by the logistics admin dashboard + public desk task list.
    Admin sets them once (?cmd=sla:set, x-jp-admin guarded); both surfaces read
    ?cmd=sla:get so the computed in/out-of-SLA numbers always match. No blobs →
@@ -51,25 +52,6 @@ const CREDS_KEY = "jirapulse_creds_v1";
 const SLA_KEY = "jirapulse_sla_goals_v1";
 const DEFAULT_SLA_GOALS = { respHours: 2, resHours: 30 };
 
-/* ── Logistics viewer page (?cmd=desk) ── */
-const DESK_EXCLUDE_LABEL = "Internal";
-const DESK_FIELDS_BASE = "summary,description,status,resolution,resolutiondate,created,updated,assignee,reporter,labels,attachment,comment";
-
-/* desk response blob-cache: one full LOG sync costs ~40 sequential Jira
-   pages; caching the finished result (even very briefly) makes page
-   revisits and multi-viewer bursts near-instant. Freshness remains
-   viewer-controlled: ?fresh=1 bypasses and re-syncs. */
-const DESK_CACHE_KEY = "jirapulse_desk_cache_v3";
-/* Anonymous (viewer-without-creds) desk-family reads are restricted to these
-   project keys — the stored read-only creds must not become a loophole for
-   enumerating other Jira/JSМ projects. The logistics desk and its admin both
-   hardcode DESK_PROJECT = 'LOG'; add a key here if a second desk goes live. */
-const DESK_PROJECTS = new Set(["LOG"]);
-/* 60s made every incognito visit pay the full multi-minute desk sync
-   (viewer almost always arrived after the slot expired) → boards looked
-   permanently empty. 15 min keeps the payload fresh enough for status
-   changes while making real back-to-back visits INSTANT. */
-const DESK_CACHE_TTL = 15 * 60 * 1000;
 
 /* board response blob-cache for ?cmd=board: one board payload costs a full
    Jira chain (board context + filter + paginated search with changelog),
@@ -88,61 +70,12 @@ const BOARD_CACHE_TTL = 10 * 60 * 1000;
 const COMPLEXITY_FIELD_KEY = "jirapulse_complexity_field_v1";
 const COMPLEXITY_FIELD_TTL = 24 * 60 * 60 * 1000;
 
-/* ADF (Atlassian Document Format) body → plain text, one line per block.
-   media/mediaInline/mediaSingle nodes emit the SAME " 📷 " marker the
-   in-app renderer (jpAdfText) emits, so the desk-payload path can paint
-   image placeholders exactly like the per-issue detail path does. */
-function adfToText(doc: any): string {
-  if (doc == null) return "";
-  if (typeof doc === "string") return doc;
-  if (Array.isArray(doc)) return doc.map(adfToText).filter(Boolean).join("\n");
-  if (typeof doc !== "object") return "";
-  if (doc.type === "media" || doc.type === "mediaInline") return " 📷 ";
-  let text = "";
-  if (Array.isArray(doc.content)) text = adfToText(doc.content);
-  else if (doc.text != null) text = String(doc.text);
-  const blocks = ["paragraph", "heading", "bulletList", "orderedList", "codeBlock", "blockquote", "mediaSingle"];
-  if (blocks.includes(doc.type)) return text ? text + "\n" : "";
-  return text;
-}
+/* Admin auth: the shared secret lives ONLY in blob storage (ADMIN_KEY) — it is
+   never hardcoded in this source and never shipped to browsers. When the blob
+   holds no token the relay FAILS CLOSED: every admin-gated command returns 401
+   until an operator seeds a token (first-time seeding is done in the Val Town
+   editor; rotation happens via ?cmd=admin:rotate with the current token). */
 
-/* ordered media entries of an ADF body (media UUID + alt filename) —
-   the desk payload attaches these lists so the client can slot the
-   matching attachment (resolved later via ?cmd=deskAttach) into every
-   📷 marker it paints. Same shape the per-issue detail path builds. */
-function adfMediaNodes(doc: any): { id: string; alt: string }[] {
-  const list: { id: string; alt: string }[] = [];
-  const walk = (n: any): void => {
-    if (n == null) return;
-    if (Array.isArray(n)) { for (const c of n) walk(c); return; }
-    if (typeof n !== "object") return;
-    if (n.type === "media" || n.type === "mediaInline") {
-      /* the bare media node carries the real UUID+alt; wrappers like
-         mediaSingle do NOT — descend into them instead of recording
-         an empty entry (desc images all resolved as id:"" before) */
-      list.push({
-        id: n?.attrs?.id != null ? String(n.attrs.id) : "",
-        alt: n?.attrs?.alt != null ? String(n.attrs.alt) : "",
-      });
-      return;
-    }
-    if (Array.isArray(n.content)) walk(n.content);
-    if (n.body && typeof n.body === "object") walk(n.body);
-  };
-  walk(doc);
-  return list;
-}
-
-/* admin token: static shared secret minted at first deploy. It only guards
-   WHICH config is written; the Jira data itself stays behind Jira auth. */
-const DEFAULT_ADMIN_TOKEN = "jp_k9R2vTq7Lm4wXy8Zp3nB6dF1sH5jC";
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept, x-jp-admin',
-  'Access-Control-Max-Age': '86400',
-};
 
 /* constant-time admin-token comparison: both sides are hashed and the digests
    compared byte-by-byte, so response timing never leaks how many leading
@@ -160,11 +93,100 @@ async function tokenMatches(given: string, stored: string): Promise<boolean> {
   return diff === 0;
 }
 
+/* Admin check: the stored token is the ONLY source of truth. A missing or
+   empty stored token fails closed (never compares against an empty string,
+   which would let a header-less request match). */
+async function adminAuthed(request: Request): Promise<boolean> {
+  let stored = "";
+  try { stored = String((await blob.getJSON(ADMIN_KEY)) || ""); } catch { stored = ""; }
+  if (!stored) return false;
+  const token = request.headers.get('x-jp-admin') || '';
+  return await tokenMatches(token, stored);
+}
+
+/* ── CORS: approved frontend origins only ─────────────────────────────
+   Browsers on any other origin get no Access-Control-Allow-Origin header,
+   so their response is blocked. Non-browser clients are not affected by
+   CORS at all — it is a browser policy, NOT authentication; every
+   sensitive command enforces its own auth regardless. Add the
+   organization's own domain(s) here when the app moves onto company
+   hosting (GitLab Pages / Kubernetes ingress). */
+const APPROVED_ORIGIN_RE = new RegExp(
+  '^https://(ananiadevsurashvili-byte\\.github\\.io|anania\\.devsurashvili\\.gitlab\\.io)$' +
+  '|^https?://(localhost|127\\.0\\.0\\.1)(:\\d+)?$', 'i');
+
+function applyCors(request: Request, resp: Response): Response {
+  const origin = request.headers.get('origin') || '';
+  const h = new Headers(resp.headers);
+  h.delete('access-control-allow-origin');
+  if (origin && APPROVED_ORIGIN_RE.test(origin)) {
+    h.set('Access-Control-Allow-Origin', origin);
+    h.append('Vary', 'Origin');
+  }
+  return new Response(resp.body, { status: resp.status, statusText: resp.statusText, headers: h });
+}
+
+/* ── per-client rate limiting (plain in-memory buckets) ───────────────
+   Best-effort: counters live per val isolate and reset on restart, so
+   this blunts floods and runaway loops rather than being a hard global
+   quota. Read scopes get generous budgets so normal page loads (a
+   master-all refresh fans out one request per board) never trip them. */
+const RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
+  proxy: { limit: 240, windowMs: 60_000 },
+  board: { limit: 120, windowMs: 60_000 },
+  desk: { limit: 60, windowMs: 60_000 },
+  deskAttach: { limit: 240, windowMs: 60_000 },
+  deskSla: { limit: 240, windowMs: 60_000 },
+  lgPing: { limit: 20, windowMs: 60_000 },
+  lgStats: { limit: 60, windowMs: 60_000 },
+  write: { limit: 20, windowMs: 60_000 },
+  read: { limit: 120, windowMs: 60_000 },
+};
+const WRITE_CMDS = new Set(['publish:set', 'publish:clear', 'creds:set', 'sla:set', 'admin:rotate']);
+const rateBuckets = new Map<string, { n: number; resetAt: number }>();
+
+function rateLimit(request: Request): boolean {
+  const u = new URL(request.url);
+  const cmd = u.searchParams.get('cmd') || '';
+  const scope = cmd
+    ? (WRITE_CMDS.has(cmd) ? 'write'
+      : cmd === 'board' ? 'board'
+      : cmd === 'desk' ? 'desk'
+      : cmd === 'deskAttach' ? 'deskAttach'
+      : cmd === 'deskSla' ? 'deskSla'
+      : cmd === 'lgPing' ? 'lgPing'
+      : cmd === 'lgStats' ? 'lgStats'
+      : 'read')
+    : 'proxy';
+  const cfg = RATE_LIMITS[scope];
+  if (!cfg) return false;
+  const ip = (request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown').split(',')[0].trim();
+  const now = Date.now();
+  if (rateBuckets.size > 10_000) {
+    for (const [k, b] of rateBuckets) if (b.resetAt <= now) rateBuckets.delete(k);
+    if (rateBuckets.size > 10_000) rateBuckets.clear();
+  }
+  const key = ip + '|' + scope;
+  const b = rateBuckets.get(key);
+  if (!b || b.resetAt <= now) {
+    rateBuckets.set(key, { n: 1, resetAt: now + cfg.windowMs });
+    return false;
+  }
+  b.n += 1;
+  return b.n > cfg.limit;
+}
+
 /* ────────────────────────── entrypoint ────────────────────────── */
 async function handler(request: Request): Promise<Response> {
+  const resp = await route(request);
+  return applyCors(request, resp);
+}
+
+async function route(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
+  if (rateLimit(request)) return json({ error: 'too many requests' }, 429);
   const u = new URL(request.url);
 
   /* ── publish backend commands ── */
@@ -179,29 +201,29 @@ async function handler(request: Request): Promise<Response> {
       }
 
       if (cmd === 'publish:set') {
-        const stored = (await blob.getJSON(ADMIN_KEY)) || DEFAULT_ADMIN_TOKEN;
-        const token = request.headers.get('x-jp-admin') || '';
-        if (!(await tokenMatches(token, stored))) return json({ error: 'admin auth required' }, 401);
+        if (!(await adminAuthed(request))) return json({ error: 'admin auth required' }, 401);
         let body: unknown;
         try { body = await request.json(); } catch { return json({ error: 'invalid JSON body' }, 400); }
         if (!body || typeof body !== 'object') return json({ error: 'config must be an object' }, 400);
-        await blob.setJSON(ADMIN_KEY, stored);          // make sure the key exists
         await blob.setJSON(PUB_KEY, body);
+        /* anonymous proxy reads scope themselves against the published
+           boards — rebuild the derived project allowlist in the background */
+        publishedProjects(true).catch(() => { /* best-effort */ });
         return json({ ok: true, savedAt: Date.now() });
       }
 
       if (cmd === 'publish:clear') {
-        const stored = (await blob.getJSON(ADMIN_KEY)) || DEFAULT_ADMIN_TOKEN;
-        const token = request.headers.get('x-jp-admin') || '';
-        if (!(await tokenMatches(token, stored))) return json({ error: 'admin auth required' }, 401);
+        if (!(await adminAuthed(request))) return json({ error: 'admin auth required' }, 401);
         await blob.setJSON(PUB_KEY, null);
+        /* nothing is published anymore → anonymous reads shrink to the desk
+           projects immediately (both the in-memory copy and the stale-fallback blob) */
+        _pubProjectsCache = { set: new Set(DESK_PROJECTS), freshUntil: Date.now() + PUB_PROJECTS_TTL, lastFailAt: 0 };
+        blob.setJSON(PUB_PROJECTS_KEY, { ts: Date.now(), projects: [...DESK_PROJECTS] }).catch(() => { /* best-effort */ });
         return json({ ok: true });
       }
 
       if (cmd === 'creds:set') {
-        const stored = (await blob.getJSON(ADMIN_KEY)) || DEFAULT_ADMIN_TOKEN;
-        const token = request.headers.get('x-jp-admin') || '';
-        if (!(await tokenMatches(token, stored))) return json({ error: 'admin auth required' }, 401);
+        if (!(await adminAuthed(request))) return json({ error: 'admin auth required' }, 401);
         const body = await request.json().catch(() => null);
         if (!body?.domain || !body?.email || !body?.token) return json({ error: 'domain, email and token required' }, 400);
         await blob.setJSON(CREDS_KEY, {
@@ -247,7 +269,7 @@ async function handler(request: Request): Promise<Response> {
         return await handleLgPing(request);
       }
       if (cmd === 'lgStats') {
-        return await handleLgStats();
+        return await handleLgStats(request);
       }
 
       /* ── SLA goals (logistics desk) ──
@@ -258,9 +280,7 @@ async function handler(request: Request): Promise<Response> {
         return json({ ok: true, goals: goals ?? DEFAULT_SLA_GOALS });
       }
       if (cmd === 'sla:set') {
-        const stored = (await blob.getJSON(ADMIN_KEY)) || DEFAULT_ADMIN_TOKEN;
-        const token = request.headers.get('x-jp-admin') || '';
-        if (!(await tokenMatches(token, stored))) return json({ error: 'admin auth required' }, 401);
+        if (!(await adminAuthed(request))) return json({ error: 'admin auth required' }, 401);
         const body = await request.json().catch(() => null);
         const rh = Number(body?.respHours), sh = Number(body?.resHours);
         if (!isFinite(rh) || rh <= 0 || rh > 24 * 30 || !isFinite(sh) || sh <= 0 || sh > 24 * 180) {
@@ -275,9 +295,7 @@ async function handler(request: Request): Promise<Response> {
          x-jp-admin plus { newToken } in the JSON body. Use it whenever the
          shared secret may have leaked (it is never shipped in the app bundle). */
       if (cmd === 'admin:rotate') {
-        const stored = (await blob.getJSON(ADMIN_KEY)) || DEFAULT_ADMIN_TOKEN;
-        const token = request.headers.get('x-jp-admin') || '';
-        if (!(await tokenMatches(token, stored))) return json({ error: 'admin auth required' }, 401);
+        if (!(await adminAuthed(request))) return json({ error: 'admin auth required' }, 401);
         const body = await request.json().catch(() => null);
         const next = String(body?.newToken || '');
         if (!/^[A-Za-z0-9_\-]{24,96}$/.test(next)) {
@@ -307,6 +325,10 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
   if (!bid || bid < 1) return json({ error: 'invalid bid' }, 400);
   const mode = u.searchParams.get('mode') === 'full' ? 'full' : 'light';
   const domainParam = (u.searchParams.get('domain') || '').trim();
+  /* captured before the creds block reassigns authHeader — viewers bringing
+     their own Authorization get live fetches that must NOT pollute the
+     shared blob cache (it is served to every other caller) */
+  const hadViewerAuth = !!request.headers.get('authorization');
 
   /* credentials: viewer's own Authorization header wins; else admin's stored creds */
   let authHeader = request.headers.get('authorization') || '';
@@ -440,7 +462,10 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
       }
     } catch { /* best-effort — charts just show "no data" without it */ }
   }
-  const SEARCH_FIELDS = complexityFieldId ? `${FIELDS},${complexityFieldId}` : FIELDS;
+  /* anonymous payloads additionally carry the security field so restricted
+     issues can be dropped below (logged-in viewers keep their own scope) */
+  const SEARCH_FIELDS = (complexityFieldId ? `${FIELDS},${complexityFieldId}` : FIELDS) +
+    (hadViewerAuth ? '' : ',security');
 
   async function searchJql(jql: string): Promise<any[] | null> {
     const out: any[] = [];
@@ -514,6 +539,13 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
   }
   if (!issues) return json({ error: 'could not load board issues from Jira' }, 502);
 
+  /* anonymous viewers must not see security-restricted issues even on a
+     published board (the stored read-only integration identity can see
+     them — the anonymous human must not) */
+  if (!hadViewerAuth) {
+    issues = issues.filter((i) => i?.fields?.security == null);
+  }
+
   const hasChangelog = issues.some((i) => i?.changelog?.histories?.length);
 
   const payload = {
@@ -527,753 +559,15 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
     issues,
   };
   /* store the finished payload (best-effort — a failed write just means the
-     next request pays the full chain again) */
-  try { await blob.setJSON(boardKey, { ts: Date.now(), data: payload }); } catch { /* ignore */ }
+     next request pays the full chain again). Only stored-cred fetches may
+     feed the SHARED cache: a viewer-cred fetch reflects that one viewer's
+     Jira scope and would leak it to every other caller. */
+  if (!hadViewerAuth) {
+    try { await blob.setJSON(boardKey, { ts: Date.now(), data: payload }); } catch { /* ignore */ }
+  }
   return json(payload);
 }
 
-/* ─────────────── live Service Desk fetch for the Logistics page ───────────────
-   Sibling of handleBoardCmd for Service Desk projects that have no agile board.
-   ?cmd=desk&project=<KEY>&domain=<host>&directionField=<id>&titleField=<id>
-   Returns ALL project issues EXCLUDING label "Internal" (Jira's NOT IN on the
-   multi-value labels field has "any value" edge semantics, so we re-filter the
-   results server-side too — the viewer page filters a third time client-side).
-   Credentials: viewer's own Authorization header wins; else the admin's stored
-   read-only Jira credentials (same rules as ?cmd=board). */
-/* compact SLA aspect from a BULK search custom field (desk payload).
-   Response picks the earliest completed cycle (first agent reply, JSM can
-   accumulate), falling back to the ongoing one; resolution picks the last
-   completed cycle (actual settlement), falling back to ongoing. Only the
-   numbers the client needs are kept — wire-size friendly at ~4k issues. */
-function bulkSlaAspect(cf: any, isResp: boolean) {
-  if (!cf || typeof cf !== 'object') return null;
-  const completed: any[] = Array.isArray(cf.completedCycles) ? cf.completedCycles : [];
-  const ongoing: any = cf.ongoingCycle || null;
-  let pick: any = null;
-  if (isResp) {
-    for (const c of completed) {
-      const s = Number(c?.stopTime?.epochMillis) || 0;
-      if (!pick || s < pick.s) pick = { c, s, done: true };
-    }
-    if (!pick && ongoing) pick = { c: ongoing, s: 0, done: false };
-  } else {
-    if (completed.length) pick = { c: completed[completed.length - 1], s: 0, done: true };
-    else if (ongoing) pick = { c: ongoing, s: 0, done: false };
-  }
-  if (!pick) return null;
-  const c = pick.c;
-  return {
-    elapsedMs: Number(c?.elapsedTime?.millis) || 0,
-    goalMs: Number(c?.goalDuration?.millis) || 0,
-    breached: c?.breached === true || String(c?.breached) === 'true',
-    completed: pick.done,
-    startMs: Number(c?.startTime?.epochMillis) || 0,
-    stopMs: Number(c?.stopTime?.epochMillis) || 0,
-  };
-}
-
-async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
-  const project = (u.searchParams.get('project') || '').trim().toUpperCase();
-  if (!/^[A-Z][A-Z0-9_]{0,9}$/.test(project)) {
-    return json({ error: 'invalid project' }, 400);
-  }
-  const domainParam = (u.searchParams.get('domain') || '').trim();
-  const forceFresh = u.searchParams.get('fresh') === '1';
-
-  /* ── period filter (server-side, carried into the JQL itself) ──
-     from/to are absolute ISO-8601 datetimes with an explicit UTC offset
-     (yyyy-MM-dd'T'HH:mm:ss.SSS±ZZZZ) computed by the client. Absolute +
-     self-describing timezone means the window is exact no matter where
-     the client, this relay or Jira's server sit. Expanded server-side
-     the "last 30 days" view downloads a few hundred issues instead of
-     the whole ~4k project — that's the fast default. */
-  const TS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{4}$/;
-  const fromQ = (u.searchParams.get('from') || '').trim();
-  const toQ = (u.searchParams.get('to') || '').trim();
-  if ((fromQ && !TS_RE.test(fromQ)) || (toQ && !TS_RE.test(toQ))) {
-    return json({ error: 'invalid from/to (expected ISO-8601 with UTC offset)' }, 400);
-  }
-  /* anonymous reads may only touch published desk projects (see DESK_PROJECTS);
-     viewers bringing their own Authorization header are unrestricted */
-  if (!request.headers.get('authorization') && !DESK_PROJECTS.has(project)) {
-    return json({ error: 'project not published' }, 403);
-  }
-  /* each project+window gets its own short-TTL cache slot: the cache key
-     MUST include the project — without it a LOG sync overwrote the single
-     slot and every other project's viewer read the wrong project's issues
-     (boards rendered with an empty description/comments/reporter overlay) */
-  const deskKey = DESK_CACHE_KEY + ':' + project +
-    ((fromQ || toQ) ? ':' + fromQ + '..' + toQ : '');
-
-  /* short-lived response cache: another viewer (or a revisit within the
-     TTL) gets the last synced payload immediately instead of paying the
-     ~40-page Jira sync again */
-  if (!forceFresh) {
-    try {
-      const cached = await blob.getJSON(deskKey) as any;
-      if (cached && cached.data && cached.ts && Date.now() - cached.ts < DESK_CACHE_TTL) {
-        return json({ ...cached.data, cached: true, cacheAge: Date.now() - cached.ts });
-      }
-    } catch { /* cache miss — fall through to the live sync */ }
-  }
-
-  /* credentials: identical rules to handleBoardCmd */
-  let authHeader = request.headers.get('authorization') || '';
-  let domain = '';
-  const stored = await blob.getJSON(CREDS_KEY);
-  if (authHeader) {
-    if (domainParam && /(^|\.)atlassian\.net$/i.test(domainParam)) {
-      domain = domainParam;
-    } else {
-      domain = stored?.domain || '';
-    }
-  }
-  if (!authHeader) {
-    if (!stored?.domain || !stored?.email || !stored?.token) {
-      return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
-    }
-    authHeader = 'Basic ' + btoa(stored.email + ':' + stored.token);
-    domain = stored.domain;
-  }
-  /* normalize scheme: app may send scheme-less "x.atlassian.net" */
-  if (domain && !/^https:\/\//i.test(domain)) domain = 'https://' + domain;
-  if (!domain || !/^https:\/\/[a-z0-9.-]+\.atlassian\.net$/i.test(domain)) {
-    return json({ error: 'no usable Jira domain' }, 401);
-  }
-  const base = domain.replace(/\/+$/, '');
-
-  const jh: Record<string, string> = {
-    'Authorization': authHeader,
-    'Accept': 'application/json',
-    'User-Agent': 'JiraPulse-Relay/1.0',
-  };
-  const get = async (path: string): Promise<Response> => {
-    return await fetch(base + path, { method: 'GET', headers: jh, redirect: 'follow' });
-  };
-
-  /* ── custom field discovery: "Logistics direction" + "Title" ──
-     (ids differ per instance; overridable via query params) */
-  let directionFieldId = (u.searchParams.get('directionField') || '').trim();
-  let titleFieldId = (u.searchParams.get('titleField') || '').trim();
-  let slaRespFieldId = (u.searchParams.get('slaRespField') || '').trim();
-  let slaResFieldId = (u.searchParams.get('slaResField') || '').trim();
-  let directionFieldName = '';
-  let titleFieldName = '';
-  let titleCandidates: { id: string; name: string }[] = [];
-  try {
-    const fResp = await get('/rest/api/3/field');
-    if (fResp.ok) {
-      const catalog: any[] = await fResp.json();
-      if (!slaRespFieldId) {
-        const fr = catalog.find((f) => f && f.custom && /^time to first response$/i.test(f.name || ''));
-        if (fr?.id) slaRespFieldId = String(fr.id);
-      }
-      if (!slaResFieldId) {
-        const rs = catalog.find((f) => f && f.custom && /^time to resolution$/i.test(f.name || ''));
-        if (rs?.id) slaResFieldId = String(rs.id);
-      }
-      if (!directionFieldId) {
-        const dir = catalog.find((f) => f && f.custom && /^logistics direction$/i.test(f.name || ''))
-          || catalog.find((f) => f && f.custom && /logistics/i.test(f.name || ''));
-        if (dir?.id) { directionFieldId = String(dir.id); directionFieldName = String(dir.name || ''); }
-      }
-      if (!titleFieldId) {
-        /* strict auto-match only (exact names); anything else that merely
-           CONTAINS "title" is reported as a candidate list instead, so a
-           wrong look-alike field (e.g. "Problem Title Reminder Red") can
-           never hijack the column */
-        const ttl = catalog.find((f) => f && f.custom && /^title$/i.test(f.name || ''))
-          || catalog.find((f) => f && f.custom && /^request title$/i.test(f.name || ''));
-        if (ttl?.id) { titleFieldId = String(ttl.id); titleFieldName = String(ttl.name || ''); }
-        titleCandidates = catalog
-          .filter((f) => f && f.custom && /title/i.test(f.name || ''))
-          .slice(0, 12)
-          .map((f) => ({ id: String(f.id), name: String(f.name) }));
-      }
-    }
-  } catch { /* best-effort — columns just come back empty without it */ }
-
-  const SEARCH_FIELDS = [DESK_FIELDS_BASE, directionFieldId, titleFieldId, slaRespFieldId, slaResFieldId]
-    .filter(Boolean).join(',');
-
-  /* paged search — same shape as handleBoardCmd.searchJql (no changelog here).
-     MAX_TOTAL 8000 with two full re-fetch passes: effectively syncs ALL LOG
-     tasks (currently ~4k, headroom to grow). jqlTotal + truncated report
-     how many issues Jira actually matched, so truncation is visible.
-     (Phase R: raised from 4000 because the real count had reached the cap
-     and the user needs the TRUE total in All-time mode.) */
-  const MAX_TOTAL = 8000;
-  let jqlTotal = 0;
-  let jqlTruncated = false;
-  async function searchJql(jql: string): Promise<any[] | null> {
-    const out: any[] = [];
-    /* start optimistic: /search/jql takes maxResults up to ~1000 — that cuts
-       a full LOG sync from ~40 sequential pages to ~4, which is most of the
-       first-load wait. On 413 the shrink-and-retry below stays safe. */
-    let pageSize = 1000;
-    for (let pass = 0; pass < 4; pass++) {
-      /* pass 1: read the first page just to learn `total` (and honor 413) */
-      out.length = 0;   /* a shrink-retry pass must restart clean */
-      const qp0 = new URLSearchParams();
-      qp0.set('jql', jql);
-      qp0.set('fields', SEARCH_FIELDS);
-      qp0.set('maxResults', String(pageSize));
-      let firstPage: any;
-      try {
-        const resp = await get(`/rest/api/3/search/jql?${qp0.toString()}`);
-        if (resp.status === 413 && pageSize > 1) { pageSize = Math.max(1, Math.floor(pageSize / 2)); continue; }
-        if (resp.status === 410 || resp.status === 400) return null;
-        if (!resp.ok) return null;
-        firstPage = await resp.json();
-      } catch { return null; }
-      if (typeof firstPage.total === 'number') jqlTotal = firstPage.total;
-      if (Array.isArray(firstPage.issues)) out.push(...firstPage.issues);
-      let nextPageToken: string | null = firstPage.nextPageToken || null;
-      while (nextPageToken && out.length < MAX_TOTAL) {
-        const qp = new URLSearchParams();
-        qp.set('jql', jql);
-        qp.set('fields', SEARCH_FIELDS);
-        qp.set('maxResults', String(pageSize));
-        qp.set('nextPageToken', nextPageToken);
-        let resp: Response;
-        try { resp = await get(`/rest/api/3/search/jql?${qp.toString()}`); } catch { return null; }
-        if (resp.status === 413 && pageSize > 1) { pageSize = Math.max(1, Math.floor(pageSize / 2)); continue; }
-        if (resp.status === 410 || resp.status === 400) return null;
-        if (!resp.ok) return null;
-        let page: any;
-        try { page = await resp.json(); } catch { return null; }
-        if (typeof page.total === 'number') jqlTotal = page.total;
-        if (Array.isArray(page.issues)) out.push(...page.issues);
-        if (page.isLast === true || !page.nextPageToken) break;
-        nextPageToken = page.nextPageToken;
-      }
-      jqlTruncated = out.length < (jqlTotal || out.length) || out.length >= MAX_TOTAL;
-      return out.slice(0, MAX_TOTAL);
-    }
-    return null;
-  }
-
-  /* period window narrows the JQL itself — Jira only returns (and we only
-     download) the issues inside the requested range.
-     NOTE: this Jira instance's `created` comparisons only match with plain
-     date strings ("2026-09-10") — a full ISO stamp with ".000+0400" silently
-     matches NOTHING even though the query returns 200. So we normalize the
-     incoming ISO stamps to date-only bounds: from = inclusive day, to =
-     exclusive next-day (`created < "yyyy-mm-dd"` covers the whole end day). */
-  const periodParts: string[] = [];
-  if (fromQ) periodParts.push(`created >= "${fromQ.slice(0, 10)}"`);
-  if (toQ) {
-    /* bump the end date by one day so the entire "to" day is included */
-    const dEnd = new Date(toQ.slice(0, 10) + 'T00:00:00Z');
-    dEnd.setUTCDate(dEnd.getUTCDate() + 1);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const nextDay = `${dEnd.getUTCFullYear()}-${pad(dEnd.getUTCMonth() + 1)}-${pad(dEnd.getUTCDate())}`;
-    periodParts.push(`created < "${nextDay}"`);
-  }
-  const periodJql = periodParts.length ? ' AND ' + periodParts.join(' AND ') : '';
-
-  const jql = `project in ("${project}") AND (labels is EMPTY OR labels NOT IN ("${DESK_EXCLUDE_LABEL}"))${periodJql} ORDER BY created DESC`;
-  let issues = await searchJql(jql);
-  if (!issues) return json({ error: 'could not load project issues from Jira' }, 502);
-
-  /* server-side re-filter: JQL NOT IN on multi-value fields can still match
-     issues that carry the excluded label among others */
-  issues = issues.filter((i) => !((i.fields?.labels || []) as string[])
-    .some((l: unknown) => String(l).toLowerCase() === DESK_EXCLUDE_LABEL.toLowerCase()));
-
-  /* slim comments: keep only the LAST 10 public ones per issue, flattened
-     to plain text — keeps the payload small (description ADF is already
-     dropped by the API when "comment" is requested as a list of bodies).
-     Internal notes (Jira "internal" flag / JSM jsdPublic=false) are dropped
-     server-side: this payload goes to the public page, so those must never
-     leave the relay. 10 instead of 3: the task-list comments column reads
-     ONLY this payload, so an earlier comment that carries inline images
-     (e.g. a 6th comment holding screenshots) must still be shipped. */
-  const DESK_COMMENTS_MAX = 10;
-  for (const iss of issues) {
-    const comments = iss.fields?.comment?.comments;
-    if (Array.isArray(comments) && comments.length) {
-      /* idx = the comment's position in Jira's FULL comment list —
-         deskAttach reports comment attachments against the full list, so
-         the client needs this anchor to place images inside the right
-         comment even though only the last N are transmitted. */
-      const visible = (comments as any[])
-        .map((c: any, i: number) => ({ c, i }))
-        .filter(({ c }) => !(c?.internal === true || c?.jsdPublic === false));
-      iss.fields.comment = visible.slice(-DESK_COMMENTS_MAX).map(({ c, i }) => ({
-        idx: i,
-        author: String(c?.author?.displayName || ''),
-        created: String(c?.created || ''),
-        body: adfToText(c?.body),
-        /* media nodes pasted INTO this comment (UUID + alt filename) —
-           the client maps them against ?cmd=deskAttach results to slot
-           inline images under THIS comment (same as the detail path) */
-        media: adfMediaNodes(c?.body),
-      }));
-      if (!iss.fields.comment.length) delete iss.fields.comment;
-    } else {
-      delete iss.fields.comment;
-    }
-  }
-
-  /* ── slim the wire format (big download win) ──
-     The viewer only reads: key, summary, status.name, created, updated,
-     assignee.displayName, reporter.displayName, labels, the direction
-     custom field, description (plain text) and comment. Everything else
-     per issue (expand, self, id, avatar URLs inside users, the direction
-     object's self/id links, per-comment created string, ADF document)
-     was dead weight — ADF alone is hundreds of bytes per issue when the
-     client's own renderer already handles plain text fine. */
-  const slimIssues = issues.map((iss: any) => {
-    const f = iss.fields || {};
-    const directionVal = directionFieldId ? f[directionFieldId] : undefined;
-    const dirTxt = directionVal && typeof directionVal === 'object'
-      ? [directionVal.value, directionVal.child?.value].filter(Boolean).join(' / ')
-      : (directionVal == null ? '' : String(directionVal));
-    const out: any = {
-      key: String(iss.key || ''),
-      fields: {
-        summary: String(f.summary || ''),
-        status: { name: String(f.status?.name || '') },
-        resolution: f.resolution ? { name: String(f.resolution.name || '') } : null,
-        resolutiondate: f.resolutiondate ? String(f.resolutiondate) : null,
-        created: String(f.created || ''),
-        updated: String(f.updated || ''),
-        assignee: f.assignee ? { displayName: String(f.assignee.displayName || '') } : null,
-        reporter: f.reporter ? { displayName: String(f.reporter.displayName || '') } : null,
-        labels: Array.isArray(f.labels) ? f.labels.map(String) : [],
-        comment: Array.isArray(f.comment) ? f.comment : [],
-        /* just file counts + tiny mime info — enough for a 📎 badge on the
-           table row; binaries are never fetched here */
-        attachment: Array.isArray(f.attachment)
-          ? f.attachment.map((a: any) => ({
-              filename: String(a?.filename || ''),
-              mimeType: String(a?.mimeType || ''),
-            }))
-          : [],
-        /* Jira's OWN SLA clocks (same data the agent view shows) — one
-           compact settled-cycle per aspect so every chart/KPI/list chip can
-           aggregate from Jira's verdict instead of a client approximation.
-           Completed cycles often report elapsedTime "0m" (NEW_SLA_FORMAT),
-           but start/stop hold the real settlement window — the client
-           recomputes from those when needed. */
-        sla: bulkSlaAspect(f[slaRespFieldId], true) || undefined,
-        slaRes: bulkSlaAspect(f[slaResFieldId], false) || undefined,
-      },
-    };
-    if (directionFieldId) {
-      out.fields[directionFieldId] = dirTxt;   /* plain text — lgNormCustom passes strings through */
-    }
-    if (f.description != null) {
-      out.fields.description = adfToText(f.description);  /* plain text; client renders both */
-    }
-    /* ordered description media (media UUID + alt filename) — the client
-       paints one placeholder slot per 📷 marker in the description text
-       and slots the matching ?cmd=deskAttach attachment into each */
-    out.fields.descMedia = adfMediaNodes(f.description);
-    return out;
-  });
-  issues = null as any;   /* let the raw ADF copy be GC-able before stringifying */
-
-  const result: any = {
-    ok: true,
-    cmd: 'desk',
-    project,
-    count: slimIssues.length,
-    jqlTotal: jqlTotal || slimIssues.length,
-    truncated: jqlTruncated || jqlTotal > slimIssues.length,
-    fetchedAt: Date.now(),
-    period: { from: fromQ || null, to: toQ || null },
-    fieldIds: { direction: directionFieldId || null, title: titleFieldId || null },
-    fieldNames: { direction: directionFieldName, title: titleFieldName },
-    slaFieldIds: { resp: slaRespFieldId || null, res: slaResFieldId || null },
-    titleCandidates,
-    issues: slimIssues,
-  };
-
-  /* publish the finished payload to the short-TTL blob cache (best-effort) */
-  try {
-    await blob.setJSON(deskKey, { ts: Date.now(), data: result });
-  } catch { /* non-fatal */ }
-
-  return json(result);
-}
-
-/* ─────────── attachments for ONE issue (?cmd=deskAttach) ────────────────
-   `?cmd=desk` intentionally leaves attachments OUT of the bulk payload —
-   adding metadata for ~4k issues would balloon the sync and slow the
-   download. Instead, when the logistics task card opens, the client asks
-   for exactly ONE issue here. Everything it might show is resolved in a
-   single Jira call:
-
-   - GET /rest/api/3/issue/{key}?fields=attachment,comment
-     → task-level attachments (fields.attachment[])
-     → FULL ADF comment bodies, walked for `media` nodes. Pasted-in
-       comments carry media UUIDs (attrs.id), which are mapped to real
-       attachment ids via fields.attachment[].mediaId (Jira links them) —
-       so images shown INLINE in a comment are surfaced as that comment's
-       attachments, not just listed at the issue level.
-
-   Response (json):
-     { ok, cmd:'deskAttach', key, attachments: [ { id, filename, mimeType,
-       size, created, author, contentUrl, commentIndex | null } ],
-     commentCount }
-
-   Binary file bodies are NOT proxied from here — the client previews via
-   the plain CORS proxy (`?url=<contentUrl>`) it already knows how to use. */
-async function handleDeskAttachCmd(u: URL, request: Request): Promise<Response> {
-  const key = (u.searchParams.get('key') || '').trim().toUpperCase();
-  if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(key)) {
-    return json({ error: 'invalid key' }, 400);
-  }
-  const domainParam = (u.searchParams.get('domain') || '').trim();
-
-  /* credentials: identical rules to handleDeskCmd (viewer-first, then storing creds) */
-  let authHeader = request.headers.get('authorization') || '';
-  let domain = '';
-  const stored = await blob.getJSON(CREDS_KEY);
-  if (authHeader) {
-    if (domainParam && /(^|\.)atlassian\.net$/i.test(domainParam)) {
-      domain = domainParam;
-    } else {
-      domain = stored?.domain || '';
-    }
-  }
-  if (!authHeader) {
-    if (!stored?.domain || !stored?.email || !stored?.token) {
-      return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
-    }
-    /* anonymous reads stay inside the published desk projects (DESK_PROJECTS) */
-    if (!DESK_PROJECTS.has(key.split('-')[0])) {
-      return json({ error: 'issue not in a published desk project' }, 403);
-    }
-    authHeader = 'Basic ' + btoa(stored.email + ':' + stored.token);
-    domain = stored.domain;
-  }
-  /* normalize scheme: app may send scheme-less "x.atlassian.net" */
-  if (domain && !/^https:\/\//i.test(domain)) domain = 'https://' + domain;
-  if (!domain || !/^https:\/\/[a-z0-9.-]+\.atlassian\.net$/i.test(domain)) {
-    return json({ error: 'no usable Jira domain' }, 400);
-  }
-  const base = domain.replace(/\/+$/, '');
-
-  const resp = await fetch(base + '/rest/api/3/issue/' + encodeURIComponent(key) +
-    '?fields=attachment,comment', {
-    method: 'GET',
-    headers: {
-      'Authorization': authHeader,
-      'Accept': 'application/json',
-      'User-Agent': 'JiraPulse-Relay/1.0',
-    },
-    redirect: 'follow',
-  });
-  if (!resp.ok) {
-    return json({ error: `Jira fetch failed (HTTP ${resp.status})` }, resp.status === 404 ? 404 : 502);
-  }
-  const issue = await resp.json();
-  const f = issue?.fields || {};
-
-  /* media UUID → attachment id map. For attachments Jira stores
-     fields.attachment[].mediaId which IS the ADF media attrs.id. */
-  const mediaToAttach = new Map<string, any>();
-  const attachList: any[] = Array.isArray(f.attachment) ? f.attachment : [];
-  for (const a of attachList) {
-    if (a && a.mediaId && a.id) mediaToAttach.set(String(a.mediaId), a);
-  }
-
-  /* walk FULL ADF comment bodies for media nodes: a media node's attrs.id
-     is a media UUID — map it via mediaToAttach (Jira sets mediaId on the
-     matching attachment). Anything referenced but missing from the map
-     (e.g. cross-issue media) is skipped. attrs.alt (when present) is the
-     FILENAME of the embedded media — this matters because on this Jira
-     instance image attachments often come back with an EMPTY mediaId, so
-     the UUID map alone matches nothing and inline comment images would
-     never slot into their comment. We keep both signals. */
-  const mediaInComments: { id: string; alt: string; commentIndex: number }[] = [];
-  const walkAdf = (node: any, ci: number) => {
-    if (node == null) return;
-    if (Array.isArray(node)) { for (const n of node) walkAdf(n, ci); return; }
-    if (typeof node !== 'object') return;
-    if (node.type === 'media' || node.type === 'mediaInline' || node.type === 'mediaSingle') {
-      const mid = node?.attrs?.id != null ? String(node.attrs.id) : '';
-      /* ADF alt for media nodes is the original filename, e.g.
-         "image-20260727-094602.png" */
-      const alt = node?.attrs?.alt != null ? String(node.attrs.alt) : '';
-      if (mid || alt) mediaInComments.push({ id: mid, alt, commentIndex: ci });
-    }
-    /* ADF containers descend via .content (document bodies nest under .body) */
-    if (Array.isArray(node.content)) walkAdf(node.content, ci);
-    if (node.body && typeof node.body === 'object') walkAdf(node.body, ci);
-  };
-  /* EVERY top-level comment is walked with its OWN index — the old single
-     walk over the whole `comments` array kept ci=0 for every comment, so
-     every inline image mapped to comment 0 and images inside later
-     comments never slotted into their own comment bubble. */
-  const commentList: any[] = Array.isArray(f.comment?.comments) ? f.comment.comments : [];
-  commentList.forEach((c: any, ci: number) => walkAdf(c?.body, ci));
-
-  const commentAttachByIndex = new Map<number, Set<string>>();  /* mediaId → indices */
-  for (const { id, commentIndex } of mediaInComments) {
-    if (!commentAttachByIndex.has(commentIndex)) commentAttachByIndex.set(commentIndex, new Set());
-    commentAttachByIndex.get(commentIndex)!.add(id);
-  }
-  /* filename(lowercased) → comment index — for empty-mediaId attachments */
-  const commentFileByIndex = new Map<number, Set<string>>();
-  for (const { alt, commentIndex } of mediaInComments) {
-    const fn = (alt || '').trim().toLowerCase();
-    if (!fn) continue;
-    if (!commentFileByIndex.has(commentIndex)) commentFileByIndex.set(commentIndex, new Set());
-    commentFileByIndex.get(commentIndex)!.add(fn);
-  }
-
-  const attachments = attachList
-    .filter((a) => a && a.id)
-    .map((a) => {
-      const content = String(a.content || '');
-      /* Jira returns an api.?? subdomain — normalize it to this domain so
-         the client can pass it through the CORS proxy cleanly */
-      const contentUrl = content.startsWith('https://')
-        ? content
-        : new URL(`/rest/api/3/attachment/content/${a.id}`, base).toString();
-      /* which comment (if any) embeds this attachment's media inline.
-         Primary: mediaId UUID match. Fallback: attachment filename vs the
-         ADF media attrs.alt (filename) — needed because on this instance
-         image attachments routinely return an EMPTY mediaId. */
-      let commentIndex: number | null = null;
-      const mid = a.mediaId ? String(a.mediaId) : '';
-      if (mid) {
-        for (const [ci, set] of commentAttachByIndex) {
-          if (set.has(mid)) { commentIndex = ci; break; }
-        }
-      }
-      if (commentIndex === null) {
-        const fn = String(a.filename || '').trim().toLowerCase();
-        if (fn) {
-          for (const [ci, set] of commentFileByIndex) {
-            if (set.has(fn)) { commentIndex = ci; break; }
-          }
-        }
-      }
-      return {
-        id: String(a.id),
-        filename: String(a.filename || ''),
-        mimeType: String(a.mimeType || ''),
-        size: Number(a.size || 0),
-        created: String(a.created || ''),
-        author: String(a.author?.displayName || ''),
-        mediaId: mid,
-        contentUrl,
-        commentIndex,
-      };
-    });
-
-  const commentCount = Array.isArray(f.comment?.comments) ? f.comment.comments.length : 0;
-  return json({
-    ok: true,
-    cmd: 'deskAttach',
-    key,
-    commentCount,
-    attachments,
-  });
-}
-
-/* ───────────── JSM-native SLA for ONE issue (?cmd=deskSla) ────────────────
-   The logistics task lists previously APPROXIMATED first-response and
-   resolution SLAs in client-side working-hours math. That is wrong whenever
-   JSM itself has measured cycles (it pauses on status changes, knows the
-   actual goals, carries the REAL breach verdict, and reports the exact
-   settlement times). This endpoint returns Jira's OWN SLA clock for one
-   request so the client can show exactly what the agent view shows.
-
-   Data sources (first that works wins):
-   1. GET /rest/api/3/issue/{key}?fields=customfield_10041
-      → {"Time to resolution": { completedCycles, ongoingCycle, ... }}
-      (SLA custom fields appear on /issue when the API token has JSM perms)
-   2. GET /rest/servicedeskapi/request/{key}/sla  (SDE API fallback)
-
-   Response:
-     { ok, cmd:'deskSla', key, sla: {
-         resp: { elapsedMs, goalMs, breached, completed, startMs, stopMs, breachMs } | null,
-         res:  { ...same } | null,
-         source: 'issue-field' | 'sde-api' | 'none',
-     } }
-   elapsedMs is WALL-CLOCK JSM-time (already respects JSM's calendar + pause
-   rules); the client treats goalMs/breached verbatim. */
-type DeskSlaCycle = {
-  elapsedMs: number; goalMs: number; breached: boolean;
-  completed: boolean; startMs: number; stopMs: number; breachMs: number;
-};
-type DeskSlaAspect = { elapsedMs: number; goalMs: number; breached: boolean; completed: boolean; startMs: number; stopMs: number; breachMs: number } | null;
-
-function deskSlaCycle(c: any, completed: boolean): DeskSlaCycle {
-  return {
-    elapsedMs: Number(c?.elapsedTime?.millis) || 0,
-    goalMs: Number(c?.goalDuration?.millis) || 0,
-    breached: c?.breached === true || String(c?.breached) === 'true',
-    completed,
-    startMs: Number(c?.startTime?.epochMillis) || 0,
-    stopMs: Number(c?.stopTime?.epochMillis) || 0,
-    breachMs: Number(c?.breachTime?.epochMillis) || 0,
-  };
-}
-
-function deskSlaGoalOverride(a: DeskSlaAspect, fallbackHours: number): DeskSlaAspect {
-  if (!a || a.goalMs > 0) return a;
-  const goalMs = Math.round(fallbackHours * 3600e3);
-  return a ? { ...a, goalMs } : a;
-}
-
-/* JSM can ACCUMULATE cycles (goal missed → clock restarts). For FIRST
-   RESPONSE the settled measurement is the earliest completed cycle (the
-   first agent reply); for RESOLUTION it is the last completed cycle (the
-   actual settlement). Ongoing cycles: response prefers the earliest (the
-   clock JSM started for the FIRST reply), resolution the current one. */
-function deskSlaRespCycle(cf: any): DeskSlaAspect | null {
-  const completed: any[] = Array.isArray(cf?.completedCycles) ? cf.completedCycles : [];
-  const ongoing: any = cf?.ongoingCycle || null;
-  let pick: any = null;
-  for (const c of completed) {
-    if (!pick || deskSlaCycle(c, true).stopMs < pick.stopMs) pick = deskSlaCycle(c, true);
-  }
-  if (!pick && ongoing) pick = deskSlaCycle(ongoing, false);
-  return pick;
-}
-function deskSlaResCycle(cf: any): DeskSlaAspect | null {
-  const completed: any[] = Array.isArray(cf?.completedCycles) ? cf.completedCycles : [];
-  const ongoing: any = cf?.ongoingCycle || null;
-  if (completed.length) return deskSlaCycle(completed[completed.length - 1], true);
-  if (ongoing) return deskSlaCycle(ongoing, false);
-  return null;
-}
-
-function deskSlaFromField(cf: any, isResp: boolean): DeskSlaAspect | null {
-  if (!cf || typeof cf !== 'object') return null;
-  return isResp ? deskSlaRespCycle(cf) : deskSlaResCycle(cf);
-}
-
-/* the /issue payload names each SLA custom field; JSM ships "Time to first
-   response" and "Time to resolution" under names like customfield_10041 —
-   match by the issue's names/base fields to pick them apart. */
-function deskSlaAspectsFromIssue(issue: any): { resp: DeskSlaAspect; res: DeskSlaAspect } | null {
-  const f = issue?.fields || {};
-  const names = issue?.names || {};
-  let resp: DeskSlaAspect = null;
-  let res: DeskSlaAspect = null;
-  for (const k of Object.keys(f)) {
-    if (!/^customfield_\d+$/.test(k)) continue;
-    const nm = String(names[k] || '');
-    const cf = f[k];
-    if (!cf || typeof cf !== 'object') continue;
-    if (/first response/i.test(nm)) {
-      const a = deskSlaFromField(cf, true);
-      if (a) resp = deskSlaGoalOverride(a, 2);
-    } else if (/resolution/i.test(nm)) {
-      const a = deskSlaFromField(cf, false);
-      if (a) res = deskSlaGoalOverride(a, 30);
-    }
-  }
-  return (resp || res) ? { resp, res } : null;
-}
-
-function deskSlaFromSde(values: any): { resp: DeskSlaAspect; res: DeskSlaAspect } | null {
-  if (!Array.isArray(values) || !values.length) return null;
-  let resp: DeskSlaAspect = null;
-  let res: DeskSlaAspect = null;
-  for (const s of values) {
-    const active = deskSlaFromField(s, /first response/i.test(String(s?.name || '')));
-    if (!active) continue;
-    if (/first response/i.test(String(s?.name || ''))) resp = deskSlaGoalOverride(active, 2);
-    else if (/resolution/i.test(String(s?.name || ''))) res = deskSlaGoalOverride(active, 30);
-  }
-  return (resp || res) ? { resp, res } : null;
-}
-
-async function handleDeskSlaCmd(u: URL, request: Request): Promise<Response> {
-  const key = (u.searchParams.get('key') || '').trim().toUpperCase();
-  if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(key)) {
-    return json({ error: 'invalid key' }, 400);
-  }
-  const domainParam = (u.searchParams.get('domain') || '').trim();
-
-  /* credentials: identical rules to handleDeskAttachCmd */
-  let authHeader = request.headers.get('authorization') || '';
-  let domain = '';
-  const stored = await blob.getJSON(CREDS_KEY);
-  if (authHeader) {
-    if (domainParam && /(^|\.)atlassian\.net$/i.test(domainParam)) {
-      domain = domainParam;
-    } else {
-      domain = stored?.domain || '';
-    }
-  }
-  if (!authHeader) {
-    if (!stored?.domain || !stored?.email || !stored?.token) {
-      return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
-    }
-    /* anonymous reads stay inside the published desk projects (DESK_PROJECTS) */
-    if (!DESK_PROJECTS.has(key.split('-')[0])) {
-      return json({ error: 'issue not in a published desk project' }, 403);
-    }
-    authHeader = 'Basic ' + btoa(stored.email + ':' + stored.token);
-    domain = stored.domain;
-  }
-  if (domain && !/^https:\/\//i.test(domain)) domain = 'https://' + domain;
-  if (!domain || !/^https:\/\/[a-z0-9.-]+\.atlassian\.net$/i.test(domain)) {
-    return json({ error: 'no usable Jira domain' }, 400);
-  }
-  const base = domain.replace(/\/+$/, '');
-  const jh: Record<string, string> = {
-    'Authorization': authHeader,
-    'Accept': 'application/json',
-    'User-Agent': 'JiraPulse-Relay/1.0',
-  };
-
-  /* MERGE both sources instead of "first that works wins": on this Jira
-     instance the /search + /issue GET NEVER carry "Time to first response"
-     (the field comes back empty for all 5,496 LOG requests) — the settled
-     response cycles only surface through the servicedeskapi endpoint. So
-     take resolution from the issue field and response from the SDE API,
-     whichever each source can supply. */
-  let best: { resp: DeskSlaAspect; res: DeskSlaAspect } | null = null;
-  let source = 'none';
-
-  /* 1st: /issue with names expansion → get ALL SLA custom fields. */
-  try {
-    const r1 = await fetch(base + '/rest/api/3/issue/' + encodeURIComponent(key) +
-      '?fields=*nocommon&expand=names', { method: 'GET', headers: jh, redirect: 'follow' });
-    if (r1.ok) {
-      const issue = await r1.json();
-      const aspects = deskSlaAspectsFromIssue(issue);
-      if (aspects && (aspects.resp || aspects.res)) {
-        best = { resp: aspects.resp, res: aspects.res };
-        source = 'issue-field';
-      }
-    }
-  } catch { /* fall through to SDE API */ }
-
-  /* 2nd: service desk API (only for JSM project requests) */
-  try {
-    const r2 = await fetch(base + '/rest/servicedeskapi/request/' + encodeURIComponent(key) + '/sla', {
-      method: 'GET', headers: jh, redirect: 'follow',
-    });
-    if (r2.ok) {
-      const j = await r2.json();
-      const aspects = deskSlaFromSde(j?.values);
-      if (aspects && (aspects.resp || aspects.res)) {
-        best = best
-          ? { resp: best.resp || aspects.resp, res: best.res || aspects.res }
-          : { resp: aspects.resp, res: aspects.res };
-        source = source === 'issue-field' ? 'issue-field+sde-api' : 'sde-api';
-      }
-    }
-  } catch { /* fall through to the none response */ }
-
-  if (best && (best.resp || best.res)) {
-    return json({ ok: true, cmd: 'deskSla', key, sla: { ...best, source } });
-  }
-
-  return json({ ok: true, cmd: 'deskSla', key, sla: { resp: null, res: null, source: 'none' } });
-}
 
 /* ───────────────── login-activity tracking (admin dashboard) ──────────
    One blob record per viewer email per surface: desk | admin.
@@ -1358,7 +652,10 @@ async function lgStatsFor(bucket: Record<string, any> | undefined): Promise<any>
   };
 }
 
-async function handleLgStats(): Promise<Response> {
+async function handleLgStats(request: Request): Promise<Response> {
+  /* Login-activity stats expose visitor emails and user agents → the
+     response is restricted to the relay admin (x-jp-admin token). */
+  if (!(await adminAuthed(request))) return json({ error: 'admin auth required' }, 401);
   /* v2 = per-surface { desk, admin }; fall back to v1 (legacy union) when empty */
   const v2 = (await blob.getJSON(LG_LOGINS_V2_KEY)) || null;
   const now = Date.now();
@@ -1376,6 +673,85 @@ async function handleLgStats(): Promise<Response> {
   const map = (await blob.getJSON(LG_LOGINS_KEY)) || {};
   const stats = await lgStatsFor(map);
   return json({ ok: true, cmd: 'lgStats', now, desk: stats, ...stats });
+}
+
+/* ───────────── derived allowlist of PUBLISHED projects ─────────────────
+   Anonymous ?url= reads must never touch data outside what the admin has
+   actually published. The allowlist = every published agile board's project
+   keys ∪ the desk projects (DESK_PROJECTS). It is resolved with the stored
+   read-only creds, blob-cached (24 h TTL), and rebuilt in the background
+   after every publish:set / publish:clear. Fail-closed behaviour: when the
+   allowlist cannot be rebuilt, the last cached copy is used; with no cache
+   at all only the desk projects are allowed. */
+const PUB_PROJECTS_KEY = "jirapulse_pub_projects_v1";
+const PUB_PROJECTS_TTL = 24 * 60 * 60 * 1000;
+let _pubProjectsCache: { set: Set<string>; freshUntil: number; lastFailAt: number } = {
+  set: new Set<string>(DESK_PROJECTS), freshUntil: 0, lastFailAt: 0,
+};
+
+async function publishedProjects(force = false): Promise<Set<string>> {
+  const now = Date.now();
+  if (!force && now < _pubProjectsCache.freshUntil) return _pubProjectsCache.set;
+  /* after a failed rebuild, back off for a minute so a Jira outage cannot
+     turn every anonymous read into a burst of Jira calls */
+  if (!force && now - _pubProjectsCache.lastFailAt < 60_000) return _pubProjectsCache.set;
+  const out = new Set<string>(DESK_PROJECTS);
+  let fresh: string[] | null = null;
+  try {
+    const cfg = (await blob.getJSON(PUB_KEY)) as any;
+    const bids = ((cfg && Array.isArray(cfg.boards)) ? cfg.boards : [])
+      .filter((b: any) => b && b.published !== false)
+      .map((b: any) => parseInt(b.boardId, 10))
+      .filter((n: number) => Number.isFinite(n) && n > 0);
+    const stored = await blob.getJSON(CREDS_KEY);
+    if (stored?.domain && stored?.email && stored?.token && bids.length) {
+      const base = String(stored.domain).replace(/^https?:\/\//, '').replace(/\/+$/, '');
+      const jh: Record<string, string> = {
+        'Authorization': 'Basic ' + btoa(stored.email + ':' + stored.token),
+        'Accept': 'application/json',
+        'User-Agent': 'JiraPulse-Relay/1.0',
+      };
+      /* per board: project list first, then the board itself (single-project
+         boards carry location.projectKey) — a board that fails BOTH marks the
+         whole rebuild incomplete so the previous copy stays authoritative */
+      const resolved = await Promise.all(bids.map(async (bid: number): Promise<string[] | null> => {
+        try {
+          const pr = await fetch(`https://${base}/rest/agile/1.0/board/${bid}/project`, { headers: jh, redirect: 'follow', signal: AbortSignal.timeout(20_000) });
+          if (pr.ok) {
+            const pj = await pr.json();
+            const vals = pj?.values || (Array.isArray(pj) ? pj : []);
+            const keys = (Array.isArray(vals) ? vals : []).map((p: any) => String(p?.key || '')).filter(Boolean);
+            if (keys.length) return keys;
+          }
+          const br = await fetch(`https://${base}/rest/agile/1.0/board/${bid}`, { headers: jh, redirect: 'follow', signal: AbortSignal.timeout(20_000) });
+          if (br.ok) {
+            const loc = (await br.json())?.location;
+            return loc?.projectKey ? [String(loc.projectKey)] : [];
+          }
+        } catch { /* single-board failure → rebuild marked incomplete */ }
+        return null;
+      }));
+      if (resolved.every((r) => r !== null)) {
+        for (const ks of resolved as string[][]) for (const k of ks) out.add(k);
+        fresh = [...out];
+      }
+    }
+  } catch { /* rebuild failed — fall back to the stale copy below */ }
+  if (fresh) {
+    _pubProjectsCache = { set: new Set<string>(fresh), freshUntil: now + PUB_PROJECTS_TTL, lastFailAt: 0 };
+    blob.setJSON(PUB_PROJECTS_KEY, { ts: now, projects: fresh }).catch(() => { /* best-effort */ });
+    return _pubProjectsCache.set;
+  }
+  _pubProjectsCache.lastFailAt = now;
+  /* stale copy beats nothing: keeps already-published reads alive across a
+     short Jira hiccup instead of failing closed on every popup */
+  try {
+    const cached = await blob.getJSON(PUB_PROJECTS_KEY) as any;
+    if (cached && Array.isArray(cached.projects) && cached.projects.length) {
+      _pubProjectsCache.set = new Set<string>(cached.projects.map(String));
+    }
+  } catch { /* ignore */ }
+  return _pubProjectsCache.set;
 }
 
 /* ────────────────────────── plain CORS proxy ────────────────────────── */
@@ -1403,24 +779,26 @@ async function handleProxy(request: Request, u: URL): Promise<Response> {
     if (v) headers.set(h, v);
   }
 
-  /* Missing caller auth on attachment-content GETs would go to Jira
-     anonymously and get a 403 → broken image previews for viewers who
-     never connected their own Jira account. Same story for single-issue
-     GETs (/rest/api/3/issue/{key}?fields=…) — the card popup's only
-     detail source. Fall back to the stored admin read-only creds — but
-     ONLY when the stored domain matches the target host, and only for
-     safe GET reads (never for writes or other endpoints). */
-  if (!headers.get('authorization') && request.method === 'GET' &&
-      (/^\/rest\/api\/3\/attachment\/content\//.test(targetUrl.pathname) ||
-       /^\/rest\/api\/3\/issue\/[A-Z][A-Z0-9_]*-\d+$/.test(targetUrl.pathname))) {
-    try {
-      const stored = await blob.getJSON(CREDS_KEY);
-      const storedHost = stored?.domain ? String(stored.domain).replace(/^https?:\/\//, '').replace(/\/+$/, '') : '';
-      if (storedHost && stored?.email && stored?.token &&
-          storedHost.toLowerCase() === targetUrl.hostname.toLowerCase()) {
-        headers.set('authorization', 'Basic ' + btoa(stored.email + ':' + stored.token));
+  /* ── anonymous reads are scoped to PUBLISHED data ──────────────────────
+     Without a viewer Authorization header the stored read-only creds are
+     used ONLY for two narrow, published-scope GETs (single-issue detail for
+     the card popup, and attachment content for its previews — both proven
+     against the derived published-project allowlist first). Every other
+     anonymous request goes to Jira without credentials, so Jira itself
+     refuses it with 401. Viewers with their own Authorization header are
+     unaffected (their creds, their own Jira scope). */
+  if (!headers.get('authorization') && request.method === 'GET') {
+    let m: RegExpMatchArray | null;
+    if ((m = targetUrl.pathname.match(/^\/rest\/api\/3\/issue\/([A-Z][A-Z0-9_]*-\d+)$/))) {
+      return await anonIssueGet(targetUrl, m[1]);
+    }
+    if ((m = targetUrl.pathname.match(/^\/rest\/api\/3\/attachment\/content\/(\d+)$/))) {
+      const jpKey = (u.searchParams.get('jpKey') || '').trim().toUpperCase();
+      if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(jpKey)) {
+        return json({ error: 'attachment reads require jpKey (the parent issue key)' }, 400);
       }
-    } catch { /* non-fatal — fall through unauthenticated */ }
+      return await anonAttachmentGet(targetUrl, jpKey, m[1]);
+    }
   }
 
   let upstream: Response;
@@ -1432,12 +810,13 @@ async function handleProxy(request: Request, u: URL): Promise<Response> {
         ? undefined
         : await request.arrayBuffer(),
       redirect: 'follow',
+      signal: AbortSignal.timeout(45_000),
     });
   } catch (e) {
     return json({ error: 'Upstream fetch failed', detail: String(e) }, 502);
   }
 
-  // Relay Jira's response back, with CORS headers added
+  // Relay Jira's response back, with CORS headers added by applyCors()
   const out = new Headers();
   for (const [k, v] of upstream.headers) {
     const lk = k.toLowerCase();
@@ -1445,18 +824,124 @@ async function handleProxy(request: Request, u: URL): Promise<Response> {
       'content-security-policy', 'x-frame-options'].includes(lk)) continue;
     out.set(k, v);
   }
-  out.set('Access-Control-Allow-Origin', '*');
   out.set('Access-Control-Allow-Headers', 'Authorization, Content-Type, Accept');
+  return new Response(upstream.body, { status: upstream.status, headers: out });
+}
+
+/* Stored read-only credentials, already matched against the target host.
+   Shared by both anonymous read paths; 401 when they are absent/mismatched. */
+async function storedCredsForHost(host: string): Promise<{ auth: string; base: string } | null> {
+  try {
+    const stored = await blob.getJSON(CREDS_KEY);
+    const storedHost = stored?.domain ? String(stored.domain).replace(/^https?:\/\//, '').replace(/\/+$/, '') : '';
+    if (storedHost && stored?.email && stored?.token &&
+        storedHost.toLowerCase() === host.toLowerCase()) {
+      return { auth: 'Basic ' + btoa(stored.email + ':' + stored.token), base: 'https://' + storedHost };
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+/* anonymous single-issue GET (?url=…/rest/api/3/issue/{key}?fields=…):
+   served with the stored read-only creds ONLY when the issue lives in a
+   published project, carries no security level, and its restricted
+   comments (visibility-limited / JSM internal) are stripped. Position
+   placeholders keep the comment array aligned with ?cmd=deskAttach, whose
+   commentIndex values refer to Jira's FULL comment list. */
+async function anonIssueGet(targetUrl: URL, key: string): Promise<Response> {
+  const [creds, allowed] = await Promise.all([storedCredsForHost(targetUrl.hostname), publishedProjects()]);
+  if (!creds) return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
+  /* the caller's field list may omit "security" — force it in so the
+     security-restriction check below actually sees the value */
+  const up = new URL(targetUrl.toString());
+  const fl = (up.searchParams.get('fields') || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!fl.includes('security')) fl.push('security');
+  up.searchParams.set('fields', fl.join(','));
+  let resp: Response;
+  try {
+    resp = await fetch(up.toString(), {
+      method: 'GET',
+      headers: { 'authorization': creds.auth, 'accept': 'application/json', 'user-agent': 'JiraPulse-Relay/1.0' },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (e) {
+    return json({ error: 'Upstream fetch failed', detail: String(e) }, 502);
+  }
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    return new Response(text || JSON.stringify({ error: `Jira responded with HTTP ${resp.status}` }), {
+      status: resp.status,
+      headers: { 'Content-Type': resp.headers.get('content-type') || 'application/json' },
+    });
+  }
+  const text = await resp.text();
+  let data: any;
+  try { data = JSON.parse(text); } catch { return json({ error: 'unexpected upstream payload' }, 502); }
+  const proj = String(data?.fields?.project?.key || '');
+  if (!proj || !allowed.has(proj)) return json({ error: 'issue not published' }, 403);
+  if (data?.fields?.security != null) return json({ error: 'issue is security-restricted' }, 403);
+  const cs = data?.fields?.comment?.comments;
+  if (Array.isArray(cs)) {
+    /* redact IN PLACE (empty stub) so array positions — and therefore
+       attachment commentIndex alignment — stay identical for the client */
+    data.fields.comment.comments = cs.map((c: any) =>
+      (c?.visibility != null || c?.internal === true || c?.jsdPublic === false)
+        ? { id: c?.id, redacted: true, author: {}, body: { type: 'doc', version: 1, content: [] } }
+        : c);
+  }
+  return new Response(JSON.stringify(data), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
+}
+
+/* anonymous attachment-content GET (?url=…/rest/api/3/attachment/content/{id}
+   &jpKey=<parent issue>): the parent issue must live in a published project,
+   carry no security level, and actually reference this attachment id — only
+   then is the binary streamed with the stored read-only creds. */
+async function anonAttachmentGet(targetUrl: URL, jpKey: string, attId: string): Promise<Response> {
+  const [creds, allowed] = await Promise.all([storedCredsForHost(targetUrl.hostname), publishedProjects()]);
+  if (!creds) return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
+  const jh = { 'authorization': creds.auth, 'accept': 'application/json', 'user-agent': 'JiraPulse-Relay/1.0' };
+  let resp: Response;
+  try {
+    resp = await fetch(`${creds.base}/rest/api/3/issue/${encodeURIComponent(jpKey)}?fields=project,security,attachment`, {
+      method: 'GET', headers: jh, redirect: 'follow', signal: AbortSignal.timeout(30_000),
+    });
+  } catch (e) {
+    return json({ error: 'Upstream fetch failed', detail: String(e) }, 502);
+  }
+  if (!resp.ok) {
+    return json({ error: `parent issue lookup failed (HTTP ${resp.status})` }, resp.status === 404 ? 404 : 502);
+  }
+  let issue: any;
+  try { issue = await resp.json(); } catch { return json({ error: 'unexpected upstream payload' }, 502); }
+  const proj = String(issue?.fields?.project?.key || '');
+  if (!proj || !allowed.has(proj)) return json({ error: 'issue not published' }, 403);
+  if (issue?.fields?.security != null) return json({ error: 'issue is security-restricted' }, 403);
+  const list: any[] = Array.isArray(issue?.fields?.attachment) ? issue.fields.attachment : [];
+  if (!list.some((a: any) => String(a?.id || '') === attId)) {
+    return json({ error: 'attachment does not belong to this issue' }, 403);
+  }
+  let upstream: Response;
+  try {
+    upstream = await fetch(targetUrl.toString(), {
+      method: 'GET', headers: jh, redirect: 'follow', signal: AbortSignal.timeout(60_000),
+    });
+  } catch (e) {
+    return json({ error: 'Upstream fetch failed', detail: String(e) }, 502);
+  }
+  const out = new Headers();
+  for (const [k, v] of upstream.headers) {
+    const lk = k.toLowerCase();
+    if (['content-encoding', 'content-length', 'transfer-encoding',
+      'content-security-policy', 'x-frame-options'].includes(lk)) continue;
+    out.set(k, v);
+  }
   return new Response(upstream.body, { status: upstream.status, headers: out });
 }
 
 // Val Town HTTP val entrypoint: the platform invokes the default export
 // per-request — do NOT call Deno.serve here.
 export default handler;
-
-function json(obj: unknown, status: number): Response {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-  });
-}

@@ -7,7 +7,7 @@ Enter your Jira site, email and API token — JiraPulse syncs your boards and tu
 
 ## ✨ Features
 
-- 🔐 **Connect with a Jira API token** — credentials are stored *only* in your browser's local storage and sent directly to your Jira site over HTTPS.
+- 🔐 **Connect with a Jira API token** — credentials are stored only in your browser's local storage. Requests to Jira go over HTTPS through JiraPulse's own relay (see Privacy below) — never through third-party proxies.
 - 📋 **Automatic board sync** — lists every scrum / kanban / team-managed board you have access to.
 - 📊 **Delivery metrics per board**
   - Issues analyzed (full board scope, up to 600 recent issues with full change history)
@@ -42,4 +42,12 @@ A companion mini-app at [/logistics/](https://ananiadevsurashvili-byte.github.io
 
 ## 🔒 Privacy
 
-Everything runs in your browser. There is no backend — nothing is logged or stored anywhere except your own browser's local storage. Clear it anytime via **Settings → Clear local data**.
+Your Jira credentials are stored only in your browser's local storage (clear them anytime via **Settings → Clear local data**). Browser-side calls to Jira pass through **JiraPulse's own relay** (a Val Town endpoint we control) because Jira's API sends no CORS headers to static sites — no third-party proxy services are used.
+
+The relay is a small backend, and it does store some data:
+- the **publish configuration** (which boards are published and their chart layout) and the **SLA goals**,
+- a set of **read-only Jira credentials** the admin stored once so anonymous viewers of published boards can see live data,
+- short-lived **response caches** for published boards and the logistics desk (10–15 minutes) and a derived allowlist of published projects,
+- **logistics login-activity counters** (email, timestamps, user agent; readable only with the admin token).
+
+Board analytics data is fetched live from Jira at view time and never archived. All admin write operations require a shared admin token that is never shipped in the app bundle (rotate it any time via the relay's `?cmd=admin:rotate`).

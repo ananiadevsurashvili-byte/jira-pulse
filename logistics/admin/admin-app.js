@@ -28,8 +28,20 @@ const ADM_LIVE_TTL = 30 * 1000;
    the admin keeps the last-fetched copy locally so charts render instantly. */
 const SLA_DEFAULT_GOALS = { respHours: 2, resHours: 30 };
 
-/* Admin token for relay write commands (sla:set) — mirrors app.js */
-const PUB_ADMIN_TOKEN = 'jp_k9R2vTq7Lm4wXy8Zp3nB6dF1sH5jC';
+/* Relay admin token for the admin-gated commands (sla:set, lgStats) — NEVER
+   bundled: a hardcoded token in this public file would let anyone rewrite the
+   relay's stored config/credentials or read login activity. The admin pastes
+   it once in the SLA card and it lives only in this browser's localStorage.
+   Same secret as Jira Pulse (same relay) and same browser origin, so the SAME
+   localStorage entry the Jira Pulse Publish dialog uses is reused here —
+   pasting it in either app unlocks both. Rotate via relay ?cmd=admin:rotate. */
+const LS_PUB_ADMIN_TOKEN = 'jpPubAdminToken';
+function pubAdminToken() {
+  try { return (localStorage.getItem(LS_PUB_ADMIN_TOKEN) || '').trim(); } catch (_) { return ''; }
+}
+function savePubAdminToken(tok) {
+  try { localStorage.setItem(LS_PUB_ADMIN_TOKEN, String(tok || '').trim()); } catch (_) { /* non-fatal */ }
+}
 
 const adm = {
   email: '', verified: false, codeSent: false,
@@ -154,6 +166,12 @@ const I18N = {
     'adm.sla.saved': 'SLA goals saved: first response {rh} working h · resolution {sh} working h',
     'adm.sla.saveFail': 'Could not save SLA goals:',
     'adm.sla.invalid': 'SLA goals must be positive hours',
+    /* relay admin token (paste-once; same secret as Jira Pulse) */
+    'adm.sla.adminToken': 'Relay admin token',
+    'adm.sla.adminTokenSave': 'Save token',
+    'adm.sla.adminTokenNeeded': 'Paste the relay admin token in the SLA card first (same secret as Jira Pulse)',
+    'adm.sla.adminTokenSaved': 'Admin token saved in this browser',
+    'adm.sla.adminTokenBad': 'Admin token rejected — paste the current token (rotate via relay ?cmd=admin:rotate)',
     'adm.sla.legend': 'Dashed line = SLA goal · green = inside SLA, red = out of SLA',
     'adm.sla.schedule': 'Working clock ticks Mon–Fri, 02:00–10:00 (Tbilisi) · goals are WORKING hours, not calendar hours',
     'adm.sla.respKpi': 'First response · SLA status',
@@ -239,6 +257,11 @@ const I18N = {
     'adm.sla.saved': 'SLA მიზნები შენახულია: პირველი პასუხი {rh} სამუშაო სთ · გადაწყვეტა {sh} სამუშაო სთ',
     'adm.sla.saveFail': 'SLA მიზნების შენახვა ვერ მოხდა:',
     'adm.sla.invalid': 'SLA მიზნები უნდა იყოს დადებითი საათები',
+    'adm.sla.adminToken': 'რელეის ადმინ ტოკენი',
+    'adm.sla.adminTokenSave': 'ტოკენის შენახვა',
+    'adm.sla.adminTokenNeeded': 'ჯერ ჩასვით რელეის ადმინ ტოკენი SLA ბარათში (იგივე საიდუმლო, რაც Jira Pulse-ში)',
+    'adm.sla.adminTokenSaved': 'ადმინ ტოკენი შენახულია ამ ბრაუზერში',
+    'adm.sla.adminTokenBad': 'ადმინ ტოკენი უარყოფილია — ჩასვით მოქმედი ტოკენი',
     'adm.sla.legend': 'ტაშტირებული ხაზი = SLA მიზანი · მწვანე = SLA-ში, წითელი = SLA-გარე',
     'adm.sla.schedule': 'სამუშაო საათი ითვლება ორშ–პარ, 02:00–10:00 (თბილისი) · მიზნები სამუშაო საათებშია, არა კალენდარულში',
     'adm.sla.respKpi': 'პირველი პასუხი · SLA სტატუსი',
@@ -504,7 +527,11 @@ async function lgSendAdmPing(email) {
 }
 async function fetchAdmStats() {
   try {
-    const r = await fetch(PUB_RELAY + '?cmd=lgStats');
+    /* lgStats is admin-gated on the relay (it lists visitor emails) */
+    const headers = { 'Accept': 'application/json' };
+    const tk = pubAdminToken();
+    if (tk) headers['x-jp-admin'] = tk;
+    const r = await fetch(PUB_RELAY + '?cmd=lgStats', { headers });
     if (!r.ok) return null;
     const j = await r.json();
     return (j && j.ok) ? j : null;
@@ -534,13 +561,17 @@ async function fetchAdmSlaGoals() {
   return adm.slaGoals;
 }
 async function admSaveSlaGoals(rh, sh) {
+  const tk = pubAdminToken();
+  if (!tk) throw new Error(t('adm.sla.adminTokenNeeded'));
   const r = await fetch(PUB_RELAY + '?cmd=sla:set', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-jp-admin': PUB_ADMIN_TOKEN },
+    headers: { 'Content-Type': 'application/json', 'x-jp-admin': tk },
     body: JSON.stringify({ respHours: rh, resHours: sh })
   });
   const j = await r.json().catch(() => null);
-  if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+  if (!r.ok || !j || !j.ok) {
+    throw new Error(r.status === 401 ? t('adm.sla.adminTokenBad') : ((j && j.error) || ('HTTP ' + r.status)));
+  }
   adm.slaGoals = { respHours: j.goals.respHours, resHours: j.goals.resHours };
   try { localStorage.setItem(LS_ADM_SLA_GOALS, JSON.stringify(adm.slaGoals)); } catch (e) {}
   return adm.slaGoals;
@@ -1948,7 +1979,14 @@ const ADM_ATTACH_TTL = 10 * 60 * 1000;
 const _admAttachCache = new Map();      /* key → { ts, attachments } */
 const _admBlobCache = new Map();        /* attachId → objectURL */
 
-function admAttachProxyUrl(contentUrl) { return PUB_RELAY + '?url=' + encodeURIComponent(contentUrl); }
+/* attachment binaries go through the plain proxy WITH the parent issue key
+   (jpKey): the relay proves the issue belongs to a published desk project
+   and actually references this attachment before it serves the file
+   anonymously. Viewers with their own Jira connection are unaffected. */
+function admAttachProxyUrl(contentUrl) {
+  return PUB_RELAY + '?url=' + encodeURIComponent(contentUrl) +
+    (adm.cardKey ? '&jpKey=' + encodeURIComponent(adm.cardKey) : '');
+}
 function admIsImageMime(mime, filename) {
   if (/^image\//i.test(mime || '')) return true;
   /* broader raster list — Jira clients paste tiff/heic/avif screenshots too */
@@ -3009,6 +3047,16 @@ function admRenderSlaCard() {
   const g = adm.slaGoals || SLA_DEFAULT_GOALS;
   $('#admSlaResp').value = g.respHours;
   $('#admSlaRes').value = g.resHours;
+  /* token field: prefill from localStorage (never while the user edits it) */
+  const tok = $('#admSlaToken');
+  if (tok && document.activeElement !== tok) tok.value = pubAdminToken();
+}
+function admOnTokenSave() {
+  const inp = $('#admSlaToken'); if (!inp) return;
+  const v = inp.value.trim();
+  if (!v) { toast(t('adm.sla.adminTokenNeeded')); return; }
+  savePubAdminToken(v);
+  toast(t('adm.sla.adminTokenSaved'));
 }
 async function admOnSlaSave() {
   if (adm.slaSaving) return;
@@ -3086,6 +3134,7 @@ async function admRefresh() {
   const rb = $('#admRefreshBtn'); if (rb) rb.addEventListener('click', admRefresh);
   const ps = $('#admPeriod'); if (ps) ps.addEventListener('change', admOnPeriodChange);
   const slaSave = $('#admSlaSaveBtn'); if (slaSave) slaSave.addEventListener('click', admOnSlaSave);
+  const tokSave = $('#admSlaTokenSave'); if (tokSave) tokSave.addEventListener('click', admOnTokenSave);
   const dlClose = $('#admDrillClose');
   if (dlClose) dlClose.addEventListener('click', admCloseDrilldown);
   /* drill-list search box (free-text, mirrors #lgSearch) */

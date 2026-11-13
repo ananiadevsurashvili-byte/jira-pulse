@@ -157,6 +157,11 @@
           <label class="lg-filter-label" data-i18n="adm.sla.resGoal">Resolution within (h)</label>
           <input id="admSlaRes" class="input tl-select" type="number" min="1" step="1" style="width:76px" />
         </span>
+        <span class="lg-filter-item" style="display:inline-flex;align-items:center;gap:6px">
+          <label class="lg-filter-label" data-i18n="adm.sla.adminToken">Relay admin token</label>
+          <input id="admSlaToken" class="input tl-select" type="password" autocomplete="off" style="width:200px" placeholder="jp_…" />
+        </span>
+        <button id="admSlaTokenSave" class="btn btn-ghost" type="button" data-i18n="adm.sla.adminTokenSave">Save token</button>
         <button id="admSlaSaveBtn" class="btn btn-ghost" type="button" data-i18n="adm.sla.save">Save goals</button>
       </div>
       <p class="muted small" style="margin:0 0 10px" data-i18n="adm.sla.schedule">Working clock ticks Mon–Fri, 02:00–10:00 (Tbilisi) · goals are WORKING hours, not calendar hours</p>
@@ -288,6 +293,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="admin-app.js?v=38"></script>
+<script src="admin-app.js?v=39"></script>
 </body>
 </html>
