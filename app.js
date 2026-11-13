@@ -347,6 +347,12 @@ const I18N = {
     'pub.scopeBoard': 'This board',
     'pub.board': 'Board',
     'pub.create': 'Create snapshot',
+    'pub.adminToken': 'Publish admin token',
+    'pub.adminTokenPh': 'Paste once — stored only in this browser',
+    'pub.adminTokenSave': 'Save token',
+    'pub.adminTokenSaved': 'Publish token saved in this browser',
+    'pub.adminTokenNeeded': 'Publish admin token is not set — open the Publish dialog and paste it once.',
+    'pub.adminTokenBad': 'Publish admin token was rejected (401). Open the Publish dialog and paste the current token.',
     'pub.list': 'Published snapshots',
     'th.board': 'Board', 'th.scope': 'Scope', 'th.created': 'Created', 'th.token': 'Token', 'th.actions': 'Actions',
     'pub.title': 'Published stats',
@@ -993,6 +999,12 @@ const I18N = {
     'pub.scopeBoard': 'ეს დაფა',
     'pub.board': 'დაფა',
     'pub.create': 'სნაპშოტის შექმნა',
+    'pub.adminToken': 'გამოქვეყნების ადმინ ტოკენი',
+    'pub.adminTokenPh': 'ჩასვით ერთხელ — ინახება მხოლოდ ამ ბრაუზერში',
+    'pub.adminTokenSave': 'ტოკენის შენახვა',
+    'pub.adminTokenSaved': 'გამოქვეყნების ტოკენი შეინახა ამ ბრაუზერში',
+    'pub.adminTokenNeeded': 'გამოქვეყნების ადმინ ტოკენი დაყენებული არ არის — გახსენით Publish ფანჯარა და ჩასვით ერთხელ.',
+    'pub.adminTokenBad': 'გამოქვეყნების ადმინ ტოკენი უარყოფილია (401). გახსენით Publish ფანჯარა და ჩასვით მიმდინარე ტოკენი.',
     'pub.list': 'გამოქვეყნებული სნაპშოტები',
     'th.board': 'დაფა', 'th.scope': 'მოცულობა', 'th.created': 'შექმნის თარიღი', 'th.token': 'ტოკენი', 'th.actions': 'მოქმედებები',
     'pub.title': 'გამოქვეყნებული სტატისტიკა',
@@ -1560,13 +1572,28 @@ function publicRootPath() {
    therefore only carries configuration changes (chart types, board show/
    hide) — numbers are always real-time by design. */
 const PUB_RELAY = 'https://gensweaty--65df49bca6d911f19f231607ee4eb77e.web.val.run/';
-const PUB_ADMIN_TOKEN = 'jp_k9R2vTq7Lm4wXy8Zp3nB6dF1sH5jC';   /* shared admin secret (x-jp-admin) */
+/* The publish-admin secret is NEVER bundled: a token hardcoded in this public
+   file would let anyone rewrite the published config or swap the relay's
+   stored Jira creds. The admin pastes it once in the Publish dialog and it
+   lives only in this browser's localStorage. Rotate it via the relay's
+   ?cmd=admin:rotate (requires the current token). */
+const LS_PUB_ADMIN_TOKEN = 'jpPubAdminToken';
+function pubAdminToken() {
+  try { return (localStorage.getItem(LS_PUB_ADMIN_TOKEN) || '').trim(); } catch (_) { return ''; }
+}
+function savePubAdminToken(tok) {
+  try { localStorage.setItem(LS_PUB_ADMIN_TOKEN, String(tok || '').trim()); } catch (_) { /* non-fatal */ }
+}
 
 /* call a relay publish command. admin=true adds the x-jp-admin header (writes). */
 async function pubCmd(cmd, { method = 'GET', body = null, admin = false, timeoutMs = 25000 } = {}) {
   const url = PUB_RELAY + '?cmd=' + encodeURIComponent(cmd);
   const headers = { 'Accept': 'application/json' };
-  if (admin) headers['x-jp-admin'] = PUB_ADMIN_TOKEN;
+  if (admin) {
+    const tk = pubAdminToken();
+    if (!tk) throw new Error(t('pub.adminTokenNeeded'));
+    headers['x-jp-admin'] = tk;
+  }
   if (body != null) headers['Content-Type'] = 'application/json';
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -1583,6 +1610,7 @@ async function pubCmd(cmd, { method = 'GET', body = null, admin = false, timeout
     if (!res.ok) {
       const err = new Error((data && (data.error || data.detail)) || `Relay command failed (HTTP ${res.status})`);
       err.status = res.status;
+      if (res.status === 401 && admin) err.message = t('pub.adminTokenBad');
       logDiag('warn', 'Publish relay command failed', { cmd, status: res.status, data });
       throw err;
     }
@@ -4455,6 +4483,10 @@ async function openPublishModal() {
   /* hide the "create" area when not connected (admins can still copy the link) */
   const createWrap = $('#pubCreateWrap');
   if (createWrap) createWrap.style.display = connected ? '' : 'none';
+
+  /* prefill the publish-admin token field (masked; stored only in this browser) */
+  const tokInput = $('#pubAdminTokenInput');
+  if (tokInput) tokInput.value = pubAdminToken();
 
   if (connected) {
     $('#pubBoardSelect').innerHTML = state.boards.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
@@ -9614,9 +9646,9 @@ function renderDashboard(board, m) {
     const cls = r.age > 14 * DAY ? 'age-hot' : r.age > 5 * DAY ? 'age-warm' : '';
     const barColor = r.age > 14 * DAY ? '#f87171' : r.age > 5 * DAY ? '#fbbf24' : '#34d399';
     const barPct = Math.min(100, Math.round(r.age / (30 * DAY) * 100));
-    const link = state.conn ? `${state.conn.domain}/browse/${r.key}` : '#';
+    const link = state.conn ? `${state.conn.domain}/browse/${encodeURIComponent(r.key)}` : '#';
     return `<tr>
-      <td><a href="${link}" target="_blank" rel="noopener">${r.key}</a></td>
+      <td><a href="${escapeHtml(link)}" target="_blank" rel="noopener">${escapeHtml(r.key)}</a></td>
       <td>${escapeHtml(r.summary)}</td>
       <td><span class="status-pill">${escapeHtml(r.status)}</span></td>
       <td class="${cls}">${fmtDuration(r.age)}<div class="age-bar"><i style="width:${barPct}%;background:${barColor}"></i></div></td>
@@ -9833,6 +9865,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (allBtn) allBtn.click();
   });
   $('#closePubBtn').addEventListener('click', () => hide($( '#pubModal')));
+  const pubTokSave = $('#pubAdminTokenSave');
+  if (pubTokSave) {
+    pubTokSave.addEventListener('click', () => {
+      const inp = $('#pubAdminTokenInput');
+      if (!inp) return;
+      savePubAdminToken(inp.value);
+      inp.value = pubAdminToken();
+      toast(pubAdminToken() ? t('pub.adminTokenSaved') : t('pub.adminTokenNeeded'), pubAdminToken() ? 'ok' : 'warn');
+    });
+  }
   $('#pubModal').addEventListener('click', (ev) => {
     if (ev.target === $( '#pubModal')) hide($( '#pubModal'));
   });

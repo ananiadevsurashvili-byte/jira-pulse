@@ -139,6 +139,22 @@ const CORS_HEADERS = {
   'Access-Control-Max-Age': '86400',
 };
 
+/* constant-time admin-token comparison: both sides are hashed and the digests
+   compared byte-by-byte, so response timing never leaks how many leading
+   characters of a guessed token were correct. */
+async function tokenMatches(given: string, stored: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(String(given || ''))),
+    crypto.subtle.digest('SHA-256', enc.encode(String(stored || ''))),
+  ]);
+  const av = new Uint8Array(a);
+  const bv = new Uint8Array(b);
+  let diff = 0;
+  for (let i = 0; i < av.length; i++) diff |= av[i] ^ bv[i];
+  return diff === 0;
+}
+
 /* ────────────────────────── entrypoint ────────────────────────── */
 async function handler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
@@ -160,7 +176,7 @@ async function handler(request: Request): Promise<Response> {
       if (cmd === 'publish:set') {
         const stored = (await blob.getJSON(ADMIN_KEY)) || DEFAULT_ADMIN_TOKEN;
         const token = request.headers.get('x-jp-admin') || '';
-        if (!token || token !== stored) return json({ error: 'admin auth required' }, 401);
+        if (!(await tokenMatches(token, stored))) return json({ error: 'admin auth required' }, 401);
         let body: unknown;
         try { body = await request.json(); } catch { return json({ error: 'invalid JSON body' }, 400); }
         if (!body || typeof body !== 'object') return json({ error: 'config must be an object' }, 400);
@@ -172,7 +188,7 @@ async function handler(request: Request): Promise<Response> {
       if (cmd === 'publish:clear') {
         const stored = (await blob.getJSON(ADMIN_KEY)) || DEFAULT_ADMIN_TOKEN;
         const token = request.headers.get('x-jp-admin') || '';
-        if (!token || token !== stored) return json({ error: 'admin auth required' }, 401);
+        if (!(await tokenMatches(token, stored))) return json({ error: 'admin auth required' }, 401);
         await blob.setJSON(PUB_KEY, null);
         return json({ ok: true });
       }
@@ -180,7 +196,7 @@ async function handler(request: Request): Promise<Response> {
       if (cmd === 'creds:set') {
         const stored = (await blob.getJSON(ADMIN_KEY)) || DEFAULT_ADMIN_TOKEN;
         const token = request.headers.get('x-jp-admin') || '';
-        if (!token || token !== stored) return json({ error: 'admin auth required' }, 401);
+        if (!(await tokenMatches(token, stored))) return json({ error: 'admin auth required' }, 401);
         const body = await request.json().catch(() => null);
         if (!body?.domain || !body?.email || !body?.token) return json({ error: 'domain, email and token required' }, 400);
         await blob.setJSON(CREDS_KEY, {
@@ -239,7 +255,7 @@ async function handler(request: Request): Promise<Response> {
       if (cmd === 'sla:set') {
         const stored = (await blob.getJSON(ADMIN_KEY)) || DEFAULT_ADMIN_TOKEN;
         const token = request.headers.get('x-jp-admin') || '';
-        if (!token || token !== stored) return json({ error: 'admin auth required' }, 401);
+        if (!(await tokenMatches(token, stored))) return json({ error: 'admin auth required' }, 401);
         const body = await request.json().catch(() => null);
         const rh = Number(body?.respHours), sh = Number(body?.resHours);
         if (!isFinite(rh) || rh <= 0 || rh > 24 * 30 || !isFinite(sh) || sh <= 0 || sh > 24 * 180) {
@@ -248,6 +264,22 @@ async function handler(request: Request): Promise<Response> {
         const goals = { respHours: rh, resHours: sh, savedAt: Date.now() };
         await blob.setJSON(SLA_KEY, goals);
         return json({ ok: true, goals });
+      }
+
+      /* rotate the publish-admin token: requires the CURRENT valid token in
+         x-jp-admin plus { newToken } in the JSON body. Use it whenever the
+         shared secret may have leaked (it is never shipped in the app bundle). */
+      if (cmd === 'admin:rotate') {
+        const stored = (await blob.getJSON(ADMIN_KEY)) || DEFAULT_ADMIN_TOKEN;
+        const token = request.headers.get('x-jp-admin') || '';
+        if (!(await tokenMatches(token, stored))) return json({ error: 'admin auth required' }, 401);
+        const body = await request.json().catch(() => null);
+        const next = String(body?.newToken || '');
+        if (!/^[A-Za-z0-9_\-]{24,96}$/.test(next)) {
+          return json({ error: 'newToken must be 24-96 chars of [A-Za-z0-9_-]' }, 400);
+        }
+        await blob.setJSON(ADMIN_KEY, next);
+        return json({ ok: true, rotatedAt: Date.now() });
       }
 
       return json({ error: 'unknown cmd: ' + cmd }, 400);
@@ -286,6 +318,22 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
     if (!stored?.domain || !stored?.email || !stored?.token) {
       return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
     }
+    /* published-board allowlist: an ANONYMOUS read may only touch boards the
+       admin actually published — the stored read-only creds must never become
+       a loophole for enumerating every board in the Jira site. Viewers who
+       bring their own Authorization header are unaffected (their creds, their
+       own Jira scope). */
+    let allowed: Set<number>;
+    try {
+      const cfg = (await blob.getJSON(PUB_KEY)) as any;
+      allowed = new Set<number>(((cfg && Array.isArray(cfg.boards)) ? cfg.boards : [])
+        .filter((b: any) => b && b.published !== false)
+        .map((b: any) => parseInt(b.boardId, 10))
+        .filter((n: number) => Number.isFinite(n) && n > 0));
+    } catch {
+      allowed = new Set<number>();   /* config unreadable → fail closed */
+    }
+    if (!allowed.has(bid)) return json({ error: 'board not published' }, 403);
     authHeader = 'Basic ' + btoa(stored.email + ':' + stored.token);
     domain = stored.domain;
   }
