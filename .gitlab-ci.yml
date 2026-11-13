@@ -3,3 +3,7 @@ include:
   - project: root/DevOps
     ref: 'feature/vault'
     file: 'pipeline-templates/gitlab-ci-frontend-template.yml'
+
+variables:
+  INGRESS_HOST_TEST: "jirapulse-test.caucasusauto.com"
+  INGRESS_HOST_PRODUCTION: "jirapulse.caucasusauto.com"
