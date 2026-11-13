@@ -13,6 +13,7 @@ logistics/admin/kpi24h-check.ps1
 logistics/admin/live-admin-v36.js
 logistics/admin/sla-hydrate-check.ps1
 logistics/admin/live-admin-v36.js
+logistics/admin/sla-live-sim.mjs
 logistics/admin/sla-probe-24h.ps1
 logistics/admin/sla-probe-resp.ps1
 logistics/admin/sla-probe-shape.ps1
