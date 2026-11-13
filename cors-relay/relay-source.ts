@@ -1265,6 +1265,7 @@ async function handleDeskSlaCmd(u: URL, request: Request): Promise<Response> {
 const LG_LOGINS_KEY = "jirapulse_lg_logins_v1";
 const LG_LOGINS_V2_KEY = "jirapulse_lg_logins_v2";
 const LG_ACTIVE_MS = 15 * 60 * 1000;        /* "active now" window */
+const LG_PING_COOLDOWN_MS = 60 * 1000;      /* min gap between accepted upserts per email */
 
 type LgLoginRec = { email: string; firstTs: number; lastTs: number; count: number; lastUa: string };
 
@@ -1281,6 +1282,11 @@ async function lgUpsertLogin(surface: "desk" | "admin", email: string, now: numb
     if (lr) bucket[email] = { email, firstTs: Number(lr.firstTs) || now, lastTs: Number(lr.lastTs) || 0, count: Number(lr.count) || 0, lastUa: String(lr.lastUa || "") };
   }
   const rec: LgLoginRec = bucket[email] || { email, firstTs: now, lastTs: 0, count: 0, lastUa: "" };
+  /* write-cooldown: repeat pings inside the window are pure no-ops. The
+     client fires these fire-and-forget and ignores the response, and the
+     30 min session gap dwarfs the cooldown, so real users see no change —
+     this only caps blob-write spam from scripted floods. */
+  if (now - Number(rec.lastTs || 0) < LG_PING_COOLDOWN_MS) return rec;
   const isNewSession = now - Number(rec.lastTs || 0) > 30 * 60 * 1000;  /* 30min gap = new "session" */
   bucket[email] = {
     email,
@@ -1300,7 +1306,8 @@ async function lgUpsertLogin(surface: "desk" | "admin", email: string, now: numb
 async function handleLgPing(request: Request): Promise<Response> {
   const body = await request.json().catch(() => null);
   const email = String(body?.email || '').toLowerCase().trim();
-  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+  /* length cap keeps abuse payloads (mega-strings) out of the login blob */
+  if (!email || email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return json({ error: 'email required' }, 400);
   }
   const now = Date.now();
