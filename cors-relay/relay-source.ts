@@ -60,6 +60,11 @@ const DESK_FIELDS_BASE = "summary,description,status,resolution,resolutiondate,c
    revisits and multi-viewer bursts near-instant. Freshness remains
    viewer-controlled: ?fresh=1 bypasses and re-syncs. */
 const DESK_CACHE_KEY = "jirapulse_desk_cache_v3";
+/* Anonymous (viewer-without-creds) desk-family reads are restricted to these
+   project keys — the stored read-only creds must not become a loophole for
+   enumerating other Jira/JSМ projects. The logistics desk and its admin both
+   hardcode DESK_PROJECT = 'LOG'; add a key here if a second desk goes live. */
+const DESK_PROJECTS = new Set(["LOG"]);
 /* 60s made every incognito visit pay the full multi-minute desk sync
    (viewer almost always arrived after the slot expired) → boards looked
    permanently empty. 15 min keeps the payload fresh enough for status
@@ -588,6 +593,11 @@ async function handleDeskCmd(u: URL, request: Request): Promise<Response> {
   if ((fromQ && !TS_RE.test(fromQ)) || (toQ && !TS_RE.test(toQ))) {
     return json({ error: 'invalid from/to (expected ISO-8601 with UTC offset)' }, 400);
   }
+  /* anonymous reads may only touch published desk projects (see DESK_PROJECTS);
+     viewers bringing their own Authorization header are unrestricted */
+  if (!request.headers.get('authorization') && !DESK_PROJECTS.has(project)) {
+    return json({ error: 'project not published' }, 403);
+  }
   /* each project+window gets its own short-TTL cache slot: the cache key
      MUST include the project — without it a LOG sync overwrote the single
      slot and every other project's viewer read the wrong project's issues
@@ -933,6 +943,10 @@ async function handleDeskAttachCmd(u: URL, request: Request): Promise<Response> 
     if (!stored?.domain || !stored?.email || !stored?.token) {
       return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
     }
+    /* anonymous reads stay inside the published desk projects (DESK_PROJECTS) */
+    if (!DESK_PROJECTS.has(key.split('-')[0])) {
+      return json({ error: 'issue not in a published desk project' }, 403);
+    }
     authHeader = 'Basic ' + btoa(stored.email + ':' + stored.token);
     domain = stored.domain;
   }
@@ -1195,6 +1209,10 @@ async function handleDeskSlaCmd(u: URL, request: Request): Promise<Response> {
   if (!authHeader) {
     if (!stored?.domain || !stored?.email || !stored?.token) {
       return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
+    }
+    /* anonymous reads stay inside the published desk projects (DESK_PROJECTS) */
+    if (!DESK_PROJECTS.has(key.split('-')[0])) {
+      return json({ error: 'issue not in a published desk project' }, 403);
     }
     authHeader = 'Basic ' + btoa(stored.email + ':' + stored.token);
     domain = stored.domain;
