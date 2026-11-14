@@ -19,3 +19,10 @@
 !logistics/admin/
 !logistics/admin/index.html
 !logistics/admin/admin-app.js
+!fines/
+!fines/index.html
+!fines/app.js
+!fines/styles.css
+!fines/admin/
+!fines/admin/index.html
+!fines/admin/admin-app.js
