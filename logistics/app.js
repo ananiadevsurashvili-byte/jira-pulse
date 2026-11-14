@@ -1974,8 +1974,13 @@ function lgOpenLightbox(att, objUrl) {
 const LG_ATTACH_TTL = 10 * 60 * 1000;   /* per-session cache: 10 min */
 const _lgAttachCache = new Map();       /* key → { ts, attachments } */
 
+/* attachment binaries go through the plain proxy WITH the parent issue key
+   (jpKey): the relay proves the issue belongs to a published desk project
+   and actually references this attachment before it serves the file
+   anonymously. Viewers with their own Jira connection are unaffected. */
 function lgAttachProxyUrl(contentUrl) {
-  return PUB_RELAY + '?url=' + encodeURIComponent(contentUrl);
+  return PUB_RELAY + '?url=' + encodeURIComponent(contentUrl) +
+    (lgState.cardKey ? '&jpKey=' + encodeURIComponent(lgState.cardKey) : '');
 }
 
 function lgIsImageMime(mime, filename) {

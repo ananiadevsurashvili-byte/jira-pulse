@@ -1,0 +1,1309 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   JiraPulse · Logistics Desk (logistics/styles.css)
+
+   Page-specific styles only — the shared visual language (orbs, glass
+   cards, topbar, pub-user-chip, data-table, status-pill, toast) comes
+   from ../styles.css. Everything here is additive and scoped to /logistics/.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── login gate: give the inline Google placeholder a stable block size ── */
+#lgAuthBox { max-width: 420px; margin: 0 auto; }
+#lgGoogleBtn.google-btn { justify-content: center; min-height: 44px; }
+/* Google's rendered button replaces the placeholder's inner content */
+#lgGoogleBtn > div { width: 100% !important; }
+
+/* ── filter bar selects (sibling of .tl-search) ───────────────────────── */
+#lgFilterBar { flex-wrap: wrap; }
+.tl-select {
+  width: auto; min-width: 150px; max-width: 230px;
+  padding: 8px 30px 8px 12px; font-size: 0.8rem; font-weight: 500;
+  border: 1px solid var(--border); border-radius: 9px;
+  background-color: rgba(255, 255, 255, 0.04); color: var(--text);
+  color-scheme: dark; cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b93ad' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 11px center;
+}
+.tl-select:focus { outline: none; border-color: var(--accent); }
+body.light .tl-select {
+  background-color: rgba(255, 255, 255, 0.9); color: #1e2540; color-scheme: light;
+}
+
+/* ── table: sticky header, sortable columns, cells ────────────────────── */
+.table-scroll { position: relative; }
+/* fixed layout: columns take exactly their specified widths (long names/URLs
+   can't inflate them), title absorbs the slack, ellipsis actually works.
+   border-separate: with border-collapse:collapse Chromium paints collapsed
+   cell borders in a layer that scrolls UNDER sticky th backgrounds → row
+   text ghosts through the header while scrolling. separate + spacing 0
+   renders identically but fixes the sticky painting. */
+#lgContent .data-table {
+  width: 100%; min-width: 1134px; table-layout: fixed;
+  border-collapse: separate; border-spacing: 0;
+}
+#lgContent .data-table thead th {
+  position: sticky; top: 0; z-index: 2;
+  /* fully opaque: translucent panel let row content bleed through while scrolling */
+  background: #10162c;
+  cursor: pointer; user-select: none; white-space: nowrap;
+}
+/* carets only on real sortable columns (merged ths sort via their halves) */
+#lgContent .data-table thead th[data-col]::after {
+  content: '↕';
+  display: inline-block; margin-left: 6px;
+  font-size: 0.68rem; color: var(--muted); opacity: 0.45;
+  transition: opacity 0.12s ease;
+}
+#lgContent .data-table thead th[data-col]:hover::after { opacity: 1; }
+#lgContent .data-table thead th[data-col].lg-sorted::after { opacity: 1; color: var(--accent); font-weight: 700; }
+#lgContent .data-table thead th[data-col][data-sort="asc"]::after { content: '▲'; }
+#lgContent .data-table thead th[data-col][data-sort="desc"]::after { content: '▼'; }
+body.light #lgContent .data-table thead th { background: #eef1fa; }
+
+/* ── wider desk: the shared .main caps at 1240px, which pushed Comments
+   off-screen — lift the cap for the logistics page only ───────────────── */
+.main { max-width: 1560px; padding: 24px 20px 70px; }
+
+/* ── density: tighter rows + tuned column widths ────────────────────────
+   Narrow: key, status, dates · Wide: title (with description underneath) */
+#lgContent .data-table td { padding: 3px 8px; vertical-align: top; }
+#lgContent .data-table thead th { padding: 6px 8px; }
+#lgContent .lg-col-key      { width: 88px;  min-width: 0; }
+#lgContent .lg-col-status   { width: 104px; min-width: 0; }
+#lgContent .lg-col-people   { width: 200px; min-width: 0; }
+#lgContent .lg-col-dates    { width: 150px; min-width: 0; }
+#lgContent .lg-col-direction{ width: 158px; min-width: 0; max-width: none; }
+#lgContent .lg-col-comments { width: 252px; min-width: 0; max-width: none; }
+#lgContent .lg-col-title    { width: auto; min-width: 0; }
+
+/* narrow windows: lean columns so ALL columns (incl. Comments) fit on screen
+   with no horizontal scrolling; title absorbs the squeeze via 2-line clamp.
+   Key keeps 84px — measured bold "LOG-3961" is 65.8px + 16px cell padding =
+   81.8px; under table-layout:fixed anything narrower bleeds into TITLE.
+   People/Dates keep 152/124px — chips (42px) + real names need room; a
+   starved name column ellipsizes nearly every Georgian fullname. */
+@media (max-width: 1280px) {
+  #lgContent .data-table { min-width: 0; }
+  #lgContent .lg-col-key      { width: 84px; }
+  #lgContent .lg-col-status   { width: 88px; }
+  #lgContent .lg-col-people   { width: 188px; }
+  #lgContent .lg-col-dates    { width: 122px; }
+  #lgContent .lg-col-direction{ width: 128px; }
+  #lgContent .lg-col-comments { width: 180px; }
+}
+/* small laptops (the common 1366×768 class): tighten everything vertical —
+   slimmer paddings and 1-line people/dates cells buy back ~4 visible rows */
+@media (max-width: 1440px) {
+  #lgContent .data-table td { padding: 4px 8px; }
+  #lgContent .data-table thead th { padding: 5px 8px; }
+  .lg-desc { -webkit-line-clamp: 1; font-size: 0.72rem; }
+  .lg-dir-text { -webkit-line-clamp: 2; }
+  .lg-comment-body { -webkit-line-clamp: 1; }
+}
+
+.lg-nowrap { white-space: nowrap; }
+.lg-key-cell a { font-weight: 700; }
+
+/* 📎 badge marks tasks that carry files — pinned to the TOP-RIGHT of the
+   title line (title left, badge right) so it never overrides key text */
+.lg-title-line {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px; min-width: 0;
+}
+.lg-title-line .lg-task-title { min-width: 0; }
+.lg-att-badge {
+  flex: none;
+  display: inline-flex; align-items: center;
+  margin-top: 1px; padding: 1px 7px;
+  font-size: 0.68rem; font-weight: 700; line-height: 1.5;
+  border-radius: 999px;
+  color: var(--accent, #6366f1);
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  text-decoration: none;
+}
+.lg-att-badge:hover { background: rgba(99, 102, 241, 0.22); }
+.lg-title-cell { min-width: 0; overflow: hidden; }
+.lg-task-title {
+  font-weight: 600;
+  overflow: hidden; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+.lg-desc {
+  margin-top: 1px;
+  font-size: 0.76rem; line-height: 1.35; color: var(--muted);
+  max-width: 560px;
+  overflow-wrap: anywhere; /* long Jira URLs must be breakable or the column can't shrink */
+  overflow: hidden; display: -webkit-box;
+  -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+body.light .lg-desc { color: #6b7394; }
+.lg-dir-text {
+  font-size: 0.78rem; line-height: 1.35; color: var(--muted);
+  overflow-wrap: anywhere; /* long tokens must not prop up column width */
+  overflow: hidden; display: -webkit-box;
+  -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+}
+body.light .lg-dir-text { color: #6b7394; }
+.lg-unassigned { color: var(--muted); font-style: italic; }
+
+/* ── count chip is shared; give it breathing room in the toolbar ──────── */
+#lgCount { flex-shrink: 0; }
+#lgToolbar { justify-content: space-between; }
+/* count + page-size grouped at the right end of the toolbar */
+.lg-toolbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* ── compact chrome: toolbars & filters use the minimum vertical space ── */
+#lgContent .tl-filterbar { margin-bottom: 10px; gap: 8px; }
+#lgContent #lgSearch {
+  padding: 6px 12px;
+  height: 32px;
+  max-width: 280px;
+  font-size: 0.8rem;
+}
+#lgCount {
+  font-size: 0.78rem;
+  padding: 3px 12px;
+  min-width: 0;
+}
+.glass.lg-loading { margin-bottom: 10px; }
+
+/* ── filter bar (compact + labelled) ────────────────────────────────────
+   Labels sit ABOVE each select (see .lg-filter-item below); the bar keeps
+   everything on one row by letting selects shrink. */
+#lgFilterBar { align-items: flex-end; gap: 10px; }
+#lgFilterBar .lg-filter-label { padding: 0; }
+#lgFilterBar .tl-select {
+  padding: 5px 24px 5px 9px;
+  font-size: 0.78rem;
+  height: 32px;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 200px;
+  background-position: right 9px center;
+}
+
+/* ── compact list header ────────────────────────────────────────────────
+   One slim line: title · subtitle · updated-at · icon-only refresh.
+   The old block stacked a 1.7rem title over a subtitle with generous
+   margins above/below — on a small laptop it alone pushed ~4 rows off. */
+#lgContent .lg-list-head {
+  margin: 0 0 10px;
+  padding: 0;
+  gap: 12px;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+#lgContent .lg-list-title {
+  font-size: 1.12rem;
+  margin: 0;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+#lgContent .lg-list-sub {
+  margin: 0;
+  min-width: 0;
+  flex: 0 1 auto;
+  font-size: 0.76rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 0;
+}
+/* subtitle tick comes from .pub-hero-sub; restore it compactly */
+#lgContent .lg-list-sub::before {
+  content: '';
+  display: inline-block;
+  vertical-align: middle;
+  width: 4px;
+  height: 13px;
+  border-radius: 2px;
+  margin-right: 8px;
+  background: linear-gradient(180deg, #818cf8, #22d3ee);
+}
+#lgContent .lg-head-spacer { flex: 1 1 auto; }
+#lgContent .lg-fetched {
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+/* icon-only refresh: square ghost button, spins while loading */
+#lgContent .lg-refresh {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 9px;
+}
+#lgContent .lg-refresh svg { width: 15px; height: 15px; }
+#lgContent .lg-refresh.lg-spinning svg { animation: lgRefSpin 0.9s linear infinite; }
+@keyframes lgRefSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  #lgContent .lg-refresh.lg-spinning svg { animation: none; }
+}
+body.light #lgContent .lg-list-sub { color: #6b7394; }
+
+/* ── filter dropdowns: visible mini label above each select ───────────── */
+.lg-filter-item { display: flex; flex-direction: column; gap: 4px; }
+.lg-filter-label {
+  font-size: 0.62rem; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--muted); opacity: 0.85;
+  padding-left: 2px;
+}
+body.light .lg-filter-label { color: #6b7394; opacity: 1; }
+#lgFilterBar { align-items: flex-end; gap: 10px; }
+#lgFilterBar .lg-filter-item {
+  /* shrink-friendly: all five filters (incl. the period button) must stay
+     on ONE row — selects compress instead of pushing the period control
+     onto a wrapped second line */
+  flex: 1 1 auto;
+  min-width: 180px;
+}
+#lgFilterBar .tl-select { min-width: 0; max-width: 300px; width: 100%; }
+
+/* ── period filter (far end of the filter bar) ───────────────────────────
+   Label on top, trigger below — the same shape every other filter has.
+   The trigger is a button; clicking it opens a popup with quick-range
+   buttons (30d / month / quarter / year / all) + a custom from–to range. */
+.lg-period-wrap { position: relative; flex-shrink: 0; flex-grow: 0; }
+.lg-period-item { margin-left: auto; }
+#lgFilterBar .lg-period-btn-top {
+  min-width: 170px;
+  max-width: 260px;
+  border-color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b93ad' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  padding: 8px 30px 8px 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-period-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  /* OPAQUE panel — --panel is translucent, so the data table bled through
+     the popup (visual bug). Solid colors per theme instead. */
+  background: #14161d;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  padding: 12px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+body.light .lg-period-pop {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.14);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.18);
+}
+.lg-period-pop-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.lg-period-quick {
+  padding: 6px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  /* opaque chip — translucent bg made buttons look washed-out over the popup */
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.lg-period-quick:hover { border-color: var(--accent); background: rgba(255, 255, 255, 0.12); }
+.lg-period-quick.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+body.light .lg-period-quick {
+  background: rgba(15, 23, 42, 0.05);
+  color: #1e2540;
+  border-color: rgba(15, 23, 42, 0.14);
+}
+body.light .lg-period-quick:hover { background: rgba(15, 23, 42, 0.09); }
+body.light .lg-period-quick.active { background: var(--accent); color: #fff; }
+.lg-period-pop-row {
+  display: flex;
+  gap: 8px;
+}
+.lg-period-pop-row label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted, #8b93ad);
+}
+.lg-period-pop-row input[type="date"] {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 0.78rem;
+  border-radius: 8px;
+  /* opaque, theme-aware field (must not inherit translucent .input bg) */
+  background: #1b1e29;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  color: var(--text, #e9edf8);
+  color-scheme: dark;
+}
+body.light .lg-period-pop-row input[type="date"] {
+  background: #f4f6fb;
+  border-color: rgba(15, 23, 42, 0.14);
+  color: #1e2540;
+  color-scheme: light;
+}
+.lg-period-pop-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.lg-period-btn { padding: 6px 14px; font-size: 0.78rem; border-radius: 8px; }
+/* inline (space-less) variants used by the period popup markup */
+.lg-period-btn.primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6 55%, #22d3ee 130%);
+  color: #fff;
+  border: none;
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.35);
+}
+.lg-period-btn.primary:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(99, 102, 241, 0.45); }
+.lg-period-btn.ghost {
+  background: #1b1e29;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  color: var(--text, #e9edf8);
+}
+.lg-period-btn.ghost:hover { background: #242836; border-color: var(--border-strong); }
+body.light .lg-period-btn.ghost { background: #fff; color: #1e2540; border-color: rgba(15, 23, 42, 0.14); }
+body.light .lg-period-btn.ghost:hover { background: #eef1f8; }
+/* shared-sheet .btn sets border: 1px solid transparent — keep it that way
+   for the gradient Apply button (a white 1px ring showed in dark mode) */
+.lg-period-btn.primary { border-color: transparent; }
+
+/* "Show more" pagination button under the desk table (admin's .tl-more twin) */
+.lg-show-more {
+  font-size: 0.76rem;
+  padding: 6px 16px;
+  border-radius: 9px;
+  cursor: pointer;
+  background: #1b1e29;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  color: var(--text, #e9edf8);
+}
+.lg-show-more:hover { background: #242836; border-color: var(--border-strong); }
+body.light .lg-show-more { background: #fff; color: #1e2540; border-color: rgba(15, 23, 42, 0.14); }
+body.light .lg-show-more:hover { background: #eef1f8; }
+
+/* ── period popup: input focus polish ─────────────────────────────────
+   Appended after the period popup styles: give the date fields a
+   visible focus ring that matches the rest of the panel controls. */
+.lg-period-pop-row input[type="date"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.22);
+}
+
+/* ── direction filter: CUSTOM dropdown (long multi-line option names) ──
+   The native <select> clipped long direction names to one line and even
+   pushed the list off-screen. This popup mirrors the period popup's
+   opaque-panel style but lets each option wrap to 2-3 lines while staying
+   one clearly selectable object (hover ring + accent selected state). */
+.lg-dir-wrap { position: relative; }
+.lg-dir-btn {
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b93ad' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  padding-right: 30px;
+}
+.lg-dir-btn-text { display: block; overflow: hidden; text-overflow: ellipsis; }
+.lg-dir-btn-placeholder { color: var(--muted, #8b93ad); }
+.lg-dir-pop {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  /* OPAQUE panel — same fix as the period popup: --panel is translucent and
+     the data table bled straight through it */
+  background: #14161d;
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  padding: 6px;
+  width: max(100%, 430px);
+  max-height: min(56vh, 480px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+body.light .lg-dir-pop {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.14);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.18);
+}
+.lg-dir-opt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text, #e9edf8);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  white-space: normal;      /* long names wrap to 2-3 lines */
+  overflow-wrap: anywhere;  /* no overflow even with no spaces present */
+  transition: background 0.12s, border-color 0.12s;
+}
+.lg-dir-opt:hover {
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(99, 102, 241, 0.45);
+}
+.lg-dir-opt.active {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+body.light .lg-dir-opt { color: #1e2540; }
+body.light .lg-dir-opt:hover { background: rgba(99, 102, 241, 0.1); }
+body.light .lg-dir-opt.active { background: rgba(99, 102, 241, 0.16); }
+
+/* ── admin: KPI drill-down ──────────────────────────────────────────────
+   KPI numbers are buttons that open the drill-down task list; the pressed
+   KPI keeps a subtle accent ring so users see which number is open. */
+.kpi-dl-btn {
+  font: inherit;
+  font-weight: 800;
+  font-size: inherit;
+  line-height: 1.2;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 2px 8px;
+  margin: -2px -8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s, box-shadow 0.12s;
+}
+.kpi-dl-btn:hover { background: rgba(99, 102, 241, 0.16); }
+.kpi-dl-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4); }
+.kpi.dl-open { box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35); }
+.lg-res-marker { display: block; color: var(--muted, #8b93ad); font-size: 0.72rem; margin-top: 2px; }
+
+/* ── admin drill-down table looks like the logistics desk table ──────────
+   The drill-down rows reuse the desk's row-scope classes (lg-title-cell,
+   lg-mini-row, lg-desc …) which were previously #lgContent-scoped; give the
+   drill table the same density + column widths so the two lists render
+   identically. */
+#admDrillTable {
+  width: 100%; min-width: 0; table-layout: fixed;
+  border-collapse: separate; border-spacing: 0;
+  font-size: 0.84rem;
+}
+#admDrillTable thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: #10162c;
+  padding: 6px 8px; white-space: nowrap;
+}
+body.light #admDrillTable thead th { background: #eef1fa; }
+#admDrillTable td { padding: 6px 8px; vertical-align: top; }
+#admDrillTable tbody tr { transition: background 0.12s ease; }
+#admDrillTable tbody tr:hover { background: rgba(99, 102, 241, 0.07); }
+#admDrillTable td:first-child { width: 92px; }
+#admDrillTable td:nth-child(3) { width: 104px; }
+#admDrillTable td:nth-child(4) { width: 200px; }
+#admDrillTable td:nth-child(5) { width: 150px; }
+body.light #admDrillTable td { border-bottom-color: rgba(15, 23, 42, 0.07); }
+#admDrillTable .lg-comments-cell { width: 252px; }
+@media (max-width: 1280px) {
+  #admDrillTable td:nth-child(4) { width: 188px; }
+  #admDrillTable td:nth-child(5) { width: 122px; }
+}
+@media (max-width: 1440px) {
+  #admDrillTable td { padding: 4px 8px; }
+  #admDrillTable thead th { padding: 5px 8px; }
+}
+
+/* ── admin drill-down: sortable headers (same carets as the desk table) ── */
+#admDrillTable thead th[data-col] { cursor: pointer; user-select: none; }
+#admDrillTable thead th[data-col]::after,
+#admDrillTable thead .lg-th-split::after {
+  content: '↕';
+  display: inline-block; margin-left: 3px;
+  font-size: 0.55rem; color: var(--muted); opacity: 0.45;
+  transition: opacity 0.12s ease;
+}
+#admDrillTable thead th[data-col]:hover::after,
+#admDrillTable thead .lg-th-split:hover::after { opacity: 1; }
+#admDrillTable thead th[data-col].lg-sorted::after,
+#admDrillTable thead .lg-th-split.lg-sorted::after { opacity: 1; color: var(--accent); font-weight: 700; }
+#admDrillTable thead th[data-col][data-sort="asc"]::after,
+#admDrillTable thead .lg-th-split[data-sort="asc"]::after { content: '▲'; }
+#admDrillTable thead th[data-col][data-sort="desc"]::after,
+#admDrillTable thead .lg-th-split[data-sort="desc"]::after { content: '▼'; }
+#admDrillTable thead .lg-th-split { cursor: pointer; white-space: nowrap; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+#admDrillTable thead .lg-col-people .lg-th-split + .lg-th-split,
+#admDrillTable thead .lg-col-dates .lg-th-split + .lg-th-split { padding-left: 0; border-left: 0; }
+/* status pills inside the drill table (same bucket colors as #lgContent) */
+#admDrillSection .status-pill {
+  display: inline-block; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  vertical-align: top;
+}
+#admDrillSection .lg-filter-item { flex: 0 1 auto; min-width: 150px; }
+#admDrillFilterBar .tl-select { min-width: 0; width: 100%; }
+/* Show-more footer lives under (not inside) the scroll box */
+#admDrillSection .tl-footer-wrap { margin-top: 8px; }
+#admDrillSection .tl-more { font-size: 0.76rem; padding: 6px 16px; border-radius: 9px; }
+#admDrillSection .tl-count { font-size: 0.74rem; white-space: nowrap; }
+body.light #admDrillSection .tl-select option { background-color: #fff; color: #0f172a; }
+
+/* ── page-size switcher (compact select at the toolbar's right end) ────── */
+.lg-page-select {
+  min-width: 0;
+  width: auto;
+  padding: 6px 26px 6px 10px;
+  font-size: 0.75rem;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+/* ── colored status pills (dark + light) ─────────────────────────────────
+   Buckets assigned client-side via lgStatusClass():
+   done → green · in progress → blue · waiting/open → amber · other → neutral */
+#lgContent .status-pill {
+  display: inline-block; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  vertical-align: top;
+}
+#lgContent .lg-st-done {
+  color: #4ade80; background: rgba(74, 222, 128, 0.12);
+  border-color: rgba(74, 222, 128, 0.35);
+}
+#lgContent .lg-st-progress {
+  color: #60a5fa; background: rgba(96, 165, 250, 0.12);
+  border-color: rgba(96, 165, 250, 0.35);
+}
+#lgContent .lg-st-wait {
+  color: #fbbf24; background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.35);
+}
+#lgContent .lg-st-other {
+  color: var(--muted); background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border);
+}
+body.light #lgContent .lg-st-done {
+  color: #15803d; background: #dcfce7; border-color: #86efac;
+}
+body.light #lgContent .lg-st-progress {
+  color: #1d4ed8; background: #dbeafe; border-color: #93c5fd;
+}
+body.light #lgContent .lg-st-wait {
+  color: #92400e; background: #fef3c7; border-color: #fcd34d;
+}
+body.light #lgContent .lg-st-other {
+  color: #55607f; background: #eef1f8; border-color: #d4daea;
+}
+
+/* ── people cell: reporter stacked above assignee ─────────────────────── */
+.lg-people-cell { font-size: 0.8rem; line-height: 1.3; }
+.lg-person { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.lg-person-role {
+  display: block;
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--muted); opacity: 0.8;
+}
+.lg-person > :not(.lg-person-role) { font-weight: 500; }
+body.light .lg-person-role { color: #8a92ac; }
+
+/* ── comments cell: stacked previews, full text on hover ──────────────── */
+.lg-comments {
+  display: flex; flex-direction: column; gap: 5px;
+  cursor: default; min-width: 0;
+}
+.lg-comment { min-width: 0; }
+.lg-comment-author {
+  display: block;
+  font-size: 0.66rem; font-weight: 700; color: var(--accent);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+body.light .lg-comment-author { color: #4f46e5; }
+.lg-comment-body {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.76rem; line-height: 1.35; color: var(--text);
+  opacity: 0.85;
+  overflow-wrap: anywhere; /* break long links/IDs so comments column stays compact */
+}
+body.light .lg-comment-body { color: #2a3350; }
+.lg-comment + .lg-comment {
+  padding-top: 4px;
+  border-top: 1px dashed var(--border);
+}
+body.light .lg-comment + .lg-comment { border-top-color: #dfe4f2; }
+
+/* ── overall polish: zebra rows + hover, softer key/date, header weight ── */
+#lgContent .data-table tbody tr:nth-child(even) td { background: rgba(255, 255, 255, 0.02); }
+body.light #lgContent .data-table tbody tr:nth-child(even) td { background: rgba(30, 41, 80, 0.028); }
+#lgContent .data-table tbody tr { transition: background-color 0.12s ease; }
+#lgContent .data-table tbody tr:hover td { background: rgba(99, 102, 241, 0.07); }
+body.light #lgContent .data-table tbody tr:hover td { background: rgba(99, 102, 241, 0.07); }
+#lgContent .lg-date-cell { font-size: 0.76rem; }
+#lgContent .data-table thead th { font-size: 0.72rem; letter-spacing: 0.03em; }
+
+/* ── skeleton loading state: shimmer placeholder rows while fetching ─────
+   Shown by lgLoad() before the relay answers; replaced by real rows. */
+@keyframes lgShimmer {
+  0% { background-position: -460px 0; }
+  100% { background-position: 460px 0; }
+}
+.lg-skel {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05) 25%,
+    rgba(255, 255, 255, 0.14) 50%,
+    rgba(255, 255, 255, 0.05) 75%
+  );
+  background-size: 460px 100%;
+  animation: lgShimmer 1.15s linear infinite;
+  border-radius: 5px;
+  height: 10px;
+}
+body.light .lg-skel {
+  background: linear-gradient(
+    90deg,
+    rgba(30, 41, 80, 0.08) 25%,
+    rgba(30, 41, 80, 0.16) 50%,
+    rgba(30, 41, 80, 0.08) 75%
+  );
+  background-size: 460px 100%;
+}
+/* per-column skeleton shapes */
+.lg-skel-key { width: 56px; }
+.lg-skel-title { width: 92%; max-width: 300px; }
+.lg-skel-title + .lg-skel { margin-top: 6px; }
+.lg-skel-title-sub { width: 58%; max-width: 200px; height: 8px; opacity: 0.75; }
+.lg-skel-pill { width: 64px; height: 18px; border-radius: 999px; }
+.lg-skel-line { width: 72%; max-width: 120px; }
+.lg-skel-line + .lg-skel { margin-top: 6px; }
+.lg-skel-line2 { width: 52%; max-width: 100px; height: 8px; opacity: 0.75; }
+.lg-skel-cmt { width: 88%; max-width: 190px; }
+.lg-skel-cmt + .lg-skel { margin-top: 6px; }
+.lg-skel-cmt2 { width: 64%; max-width: 150px; height: 8px; opacity: 0.75; }
+/* skeleton rows are decorative — kill hover/zebra on them */
+tr.lg-skelling { pointer-events: none; }
+tr.lg-skelling td { background: transparent !important; }
+
+/* loading banner: "Loading tasks…" chip with a spinner, shown under the toolbar */
+.lg-loading {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 10px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  font-size: 0.8rem; font-weight: 600; color: var(--muted);
+  background: rgba(99, 102, 241, 0.09);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  width: fit-content;
+}
+body.light .lg-loading { background: rgba(99, 102, 241, 0.08); border-color: rgba(99, 102, 241, 0.35); color: #4a5375; }
+.lg-loading .spinner { width: 14px; height: 14px; border-width: 2px; }
+
+/* refreshed rows get a brief accent flash so a Refresh visibly lands */
+@keyframes lgFreshIn { from { background-color: rgba(99, 102, 241, 0.16); } to { background-color: transparent; } }
+.lg-fresh td { animation: lgFreshIn 1.2s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .lg-fresh td { animation: none; }
+}
+
+/* "showing N of M" footer line: center it and add a soft top separator */
+#lgShowing {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px; padding-top: 8px !important;
+}
+
+/* count chip inside the toolbar pops a bit more (matches pub-count-chip look) */
+#lgCount {
+  min-width: 76px; text-align: center;
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.25);
+}
+/* empty states must not render as stray boxes/dashes (e.g. count chip before
+   the first render, showing-line with a full page) */
+#lgCount:empty, #lgShowing:empty { display: none; }
+
+/* ── task card popup (Jira-style full detail, in-app) ────────────────────
+   Opens from the key / title click; never navigates to Jira. */
+.lg-card-modal {
+  width: min(720px, 94vw);
+  position: relative;
+  padding-top: 30px;
+  /* clip the accent strip to the rounded corners, but keep vertical
+     scrolling from the shared .modal (max-height 92vh) */
+  overflow: hidden auto;
+}
+/* thin accent gradient strip along the top edge of the card */
+.lg-card-modal::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, #6366f1, #22d3ee 55%, transparent);
+  opacity: 0.85;
+  pointer-events: none;
+}
+.lg-card-body { display: flex; flex-direction: column; gap: 14px; }
+.lg-card-close {
+  position: absolute; top: 14px; right: 14px;
+  width: 32px; height: 32px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.05); color: var(--muted);
+  border: 1px solid var(--border); cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  z-index: 2;
+}
+.lg-card-close:hover {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: var(--accent);
+  color: var(--text);
+}
+body.light .lg-card-close { background: #eef1f8; color: #55607f; border-color: #d4daea; }
+body.light .lg-card-close:hover { background: #e6e9fd; border-color: #6366f1; color: #1e2540; }
+
+.lg-card-top { display: flex; align-items: center; gap: 10px; padding-right: 40px; flex-wrap: wrap; }
+/* the task key reads as a chip, not plain text */
+.lg-card-key {
+  font-weight: 800; font-size: 0.78rem; letter-spacing: 0.04em;
+  color: var(--accent);
+  padding: 3px 10px; border-radius: 999px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+body.light .lg-card-key { color: #4f46e5; background: rgba(99, 102, 241, 0.1); border-color: rgba(99, 102, 241, 0.35); }
+.lg-card-title { font-size: 1.18rem; font-weight: 750; line-height: 1.35; margin: 0; padding-right: 24px; }
+
+/* hairline dividers separate the header block from detail sections */
+.lg-card-people, .lg-card-meta { padding-top: 12px; border-top: 1px solid var(--border); }
+body.light .lg-card-people, body.light .lg-card-meta { border-top-color: #e3e8f4; }
+.lg-card-people { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.lg-card-person {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 9px 12px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035); border: 1px solid var(--border);
+  transition: border-color 0.15s ease;
+}
+.lg-card-person:hover { border-color: rgba(99, 102, 241, 0.4); }
+body.light .lg-card-person { background: #f6f8fd; border-color: #dfe4f2; }
+.lg-card-person-name { font-weight: 600; font-size: 0.86rem; }
+
+.lg-card-meta { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.lg-card-meta-item { display: flex; flex-direction: column; gap: 2px; font-size: 0.82rem; }
+.lg-card-meta-item > :last-child { font-weight: 500; }
+.lg-card-sla-wrap { display: inline-flex; gap: 6px; align-items: center; }
+
+.lg-card-section { display: flex; flex-direction: column; gap: 6px; }
+.lg-card-desc {
+  font-size: 0.86rem; line-height: 1.5; white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px;
+  /* very long descriptions scroll inside their box instead of pushing the
+     comments below the fold */
+  max-height: 42vh; overflow-y: auto;
+}
+body.light .lg-card-desc { background: #f6f8fd; border-color: #dfe4f2; }
+
+.lg-card-comments { display: flex; flex-direction: column; gap: 8px; }
+/* quote feel: soft left accent bar on every comment */
+.lg-card-comment {
+  padding: 9px 12px 9px 14px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-left: 3px solid rgba(99, 102, 241, 0.55);
+}
+body.light .lg-card-comment { background: #f6f8fd; border-color: #dfe4f2; border-left-color: rgba(79, 70, 229, 0.45); }
+.lg-card-comment-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px; margin-bottom: 4px;
+}
+.lg-card-comment-date { font-size: 0.7rem; color: var(--muted); white-space: nowrap; }
+.lg-card-comment-body {
+  font-size: 0.83rem; line-height: 1.45; white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── card attachments ──────────────────────────────────────────────────
+   Images render as thumbnails (blob URLs via the CORS proxy); documents
+   as icon links. Comment-attached images tuck under their own comment. */
+.lg-card-attach-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.lg-att-item {
+  display: flex; flex-direction: column; gap: 4px;
+  text-decoration: none; color: inherit;
+  padding: 6px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.12s ease;
+  min-width: 0;
+}
+.lg-att-item:hover { border-color: rgba(99, 102, 241, 0.5); transform: translateY(-1px); }
+body.light .lg-att-item { background: #f6f8fd; border-color: #dfe4f2; }
+body.light .lg-att-item:hover { border-color: #6366f1; }
+.lg-att-item img {
+  width: 100%; aspect-ratio: 1 / 1; object-fit: cover;
+  border-radius: 7px; display: block;
+  background: rgba(255, 255, 255, 0.05);
+  cursor: zoom-in;
+}
+body.light .lg-att-item img { background: #e9edf7; }
+.lg-att-name {
+  font-size: 0.72rem; font-weight: 600; color: var(--text, #e9edf8);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+body.light .lg-att-name { color: #1e2540; }
+.lg-att-size { font-size: 0.66rem; color: var(--muted); }
+.lg-att-icon { font-size: 1.5rem; line-height: 1; padding: 10px 0; text-align: center; }
+.lg-att-file { flex-direction: row; align-items: center; gap: 8px; }
+.lg-att-file .lg-att-icon { padding: 0; }
+.lg-att-file .lg-att-name { flex: 1; }
+.lg-att-broken img { display: none; }
+.lg-att-broken { cursor: default; }
+
+/* per-comment strip: smaller horizontal thumbs directly under the text */
+.lg-card-comment-attach {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;
+}
+.lg-card-comment-attach:empty { display: none; }
+.lg-card-comment-attach .lg-att-item { width: 104px; }
+
+/* fullscreen image viewer (opened by clicking any attachment thumb) */
+.lg-lightbox {
+  position: fixed; inset: 0; z-index: 10100;   /* above .modal-overlay (10000) */
+  background: rgba(0, 0, 0, 0.82);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; cursor: zoom-out;
+}
+.lg-lightbox img {
+  max-width: 100%; max-height: 100%;
+  border-radius: 12px;
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.7);
+}
+.lg-lightbox-close {
+  position: absolute; top: 14px; right: 16px;
+  width: 38px; height: 38px; border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08); color: #fff;
+  font-size: 1.05rem; cursor: pointer;
+}
+.lg-lightbox-close:hover { background: rgba(255, 255, 255, 0.18); }
+.lg-lightbox-dl {
+  position: absolute; top: 14px; left: 16px;
+  height: 38px; padding: 0 16px; border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08); color: #fff;
+  font-size: 0.85rem; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; gap: 6px;
+}
+.lg-lightbox-dl:hover { background: rgba(255, 255, 255, 0.18); }
+.lg-lightbox-dl:disabled { opacity: 0.55; cursor: wait; }
+.lg-lightbox-name {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 16px; color: rgba(255, 255, 255, 0.85);
+  font-size: 0.8rem; font-weight: 600; max-width: 80vw;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* title links inside the table look like text, not URLs */
+.lg-title-link { color: inherit; text-decoration: none; }
+.lg-title-link:hover { color: var(--accent); }
+
+/* ── horizontal scroll: visible scrollbar + edge scroll buttons ──────────
+   .lg-scroll-wrap holds the two chevron buttons and the table scroller;
+   buttons float over the table edges and hide when there is nothing to
+   scroll towards. The custom scrollbar makes dragging obvious on Windows. */
+.lg-scroll-wrap { position: relative; }
+
+/* bound the table height: vertical scroll happens inside the scroller
+   (sticky header keeps working) so the page itself stays put.
+   dvh keeps it correct on mobile browsers where 100vh overstates the view */
+#lgTableScroll {
+  /* fill the viewport: header (~57) + head block + toolbar + filter bar + card
+     padding leave roughly 265px of chrome — the rest goes to rows.
+     overflow-y: scroll (not auto) + stable gutter: an appearing scrollbar
+     would otherwise force a full-table reflow on every background append */
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  max-height: calc(100vh - 265px);
+  max-height: calc(100dvh - 265px);
+  min-height: 220px;
+}
+
+/* every laptop/desktop viewport: the card eats all remaining height and the
+   page never scrolls — previously this only applied ≥1100px wide, so the
+   common 1366×768 screens got a tiny un-managed slice of table + a whole
+   page of scroll. Uses a body class toggled by JS (lg-list-active) instead
+   of body:has(...) — :has() re-matches against the entire DOM on every
+   insertion and makes rendering thousands of rows pathologically slow. */
+@media (min-width: 900px) {
+  body.lg-list-active { overflow-y: hidden; }
+  body.lg-list-active .site-footer { display: none; }
+  /* measured chrome above the card: topbar 54 + list head 30 + toolbar 40 +
+     filter bar 58 + main padding-top 24 + head margin 10 ≈ 216 */
+  body.lg-list-active #lgContent .table-card {
+    display: flex; flex-direction: column;
+    height: calc(100dvh - 132px);
+    padding: 12px 16px 10px;
+  }
+  body.lg-list-active #lgContent .table-card .lg-scroll-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  body.lg-list-active #lgContent .table-card #lgTableScroll { flex: 1 1 auto; min-height: 0; max-height: none; }
+  body.lg-list-active #lgContent .table-card .tl-filterbar { margin-bottom: 8px; }
+}
+
+.lg-scroll-btn {
+  position: absolute;
+  top: 170px;
+  z-index: 30;
+  width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  background: rgba(24, 28, 46, 0.85);
+  border: 1px solid var(--border);
+  color: var(--text);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transition: opacity 0.18s ease, background-color 0.15s ease, transform 0.12s ease;
+}
+.lg-scroll-btn:hover {
+  background: rgba(99, 102, 241, 0.35);
+  border-color: var(--accent);
+}
+.lg-scroll-btn:active { transform: scale(0.94); }
+.lg-scroll-left  { left: 10px; }
+.lg-scroll-right { right: 10px; }
+.lg-scroll-hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+body.light .lg-scroll-btn {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.18);
+  color: #1e2749;
+}
+body.light .lg-scroll-btn:hover { background: #eef0fe; }
+
+/* always-visible horizontal scrollbar so dragging works everywhere */
+#lgTableScroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.22) transparent; }
+#lgTableScroll::-webkit-scrollbar { height: 11px; }
+#lgTableScroll::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.04); border-radius: 999px; }
+#lgTableScroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+#lgTableScroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.38); background-clip: padding-box; }
+#lgTableScroll::-webkit-scrollbar-corner { background: transparent; }
+body.light #lgTableScroll { scrollbar-color: rgba(30, 39, 73, 0.28) transparent; }
+body.light #lgTableScroll::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.05); }
+body.light #lgTableScroll::-webkit-scrollbar-thumb { background: rgba(30, 39, 73, 0.28); background-clip: padding-box; }
+body.light #lgTableScroll::-webkit-scrollbar-thumb:hover { background: rgba(30, 39, 73, 0.45); background-clip: padding-box; }
+
+/* merged people/dates cells: label-chip + value on one line, two lines per
+   cell (Reporter + Assignee · Registered + Updated) — saves two full columns.
+   chips are fixed-width so both rows' names align on a clean vertical line */
+.lg-mini-row {
+  display: flex; align-items: center; gap: 7px;
+  min-width: 0; line-height: 1.35;
+}
+.lg-mini-row + .lg-mini-row { margin-top: 5px; }
+.lg-mini-label {
+  flex: 0 0 auto;
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--chip, rgba(148, 163, 184, 0.14));
+  border-radius: 4px;
+  padding: 1.5px 5px;
+  line-height: 1.25;
+  white-space: nowrap;
+  text-align: center;
+  min-width: 34px;
+  box-sizing: border-box;
+}
+.assignee-chip { color: #a5b4fc; background: rgba(99, 102, 241, 0.16); }
+.lg-mini-value {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 0.78rem; font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow-wrap: anywhere; /* fixed layout: long names must clip, not stretch */
+}
+body.light .lg-mini-label { color: #5b647f; background: rgba(30, 39, 73, 0.07); }
+body.light .assignee-chip { color: #4f46e5; background: rgba(99, 102, 241, 0.12); }
+.lg-dates-cell .lg-mini-value { font-weight: 400; color: var(--muted); font-size: 0.76rem; }
+.lg-unassigned { color: var(--muted); font-style: italic; font-weight: 400; }
+
+/* split headers inside the merged People/Dates columns: two clickable
+   halves side by side, each with its own sort caret */
+.lg-col-people .lg-th-split:first-child,
+.lg-col-dates .lg-th-split:first-child { padding-right: 6px; border-right: 1px solid var(--border); }
+.lg-col-people .lg-th-split + .lg-th-split,
+.lg-col-dates .lg-th-split + .lg-th-split { padding-left: 6px; }
+.lg-th-split { cursor: pointer; user-select: none; white-space: nowrap; min-width: 0; }
+.lg-th-split > span { display: inline-block; max-width: 64px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; font-size: 0.72rem; letter-spacing: 0.02em; }
+.lg-th-split:hover > :first-child { opacity: 1; }
+.lg-th-split::after {
+  content: '↕';
+  display: inline-block; margin-left: 2px;
+  font-size: 0.55rem; color: var(--muted); opacity: 0.45;
+  transition: opacity 0.12s ease;
+}
+.lg-th-split:hover::after { opacity: 1; }
+.lg-th-split.lg-sorted::after { opacity: 1; color: var(--accent); font-weight: 700; }
+.lg-th-split[data-sort="asc"]::after { content: '▲'; }
+.lg-th-split[data-sort="desc"]::after { content: '▼'; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   LOGISTICS ADMIN DASHBOARD (logistics/admin/) — #admContent / #admGate
+   Shared tokens come from root styles.css; these rules mirror the pub/log
+   hero + topbar looks for the admin page without #pubScreen/#lgContent.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── sticky topbar (mirrors #pubScreen .pub-topbar) ── */
+.topbar.pub-topbar {
+  position: sticky; top: 0; z-index: 40;
+  background: rgba(6, 9, 20, 0.72);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.topbar.pub-topbar .topbar-center { pointer-events: none; }
+.topbar.pub-topbar .brand { cursor: pointer; }
+.topbar.pub-topbar .brand:hover { opacity: 0.85; }
+body.light .topbar.pub-topbar { background: rgba(255, 255, 255, 0.8); }
+
+/* ── hero title/subtitle (mirrors #pubScreen .pub-hero-*) ── */
+.pub-hero { display: block; min-width: 260px; }
+.pub-hero-title {
+  font-size: 1.7rem; font-weight: 800; letter-spacing: -0.02em;
+  margin: 0 0 4px; line-height: 1.25;
+}
+.pub-hero-sub { position: relative; padding-left: 14px; margin: 0; font-size: 0.86rem; }
+.pub-hero-sub::before {
+  content: ''; position: absolute; left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 6px; height: 22px; border-radius: 3px;
+  background: linear-gradient(180deg, #818cf8, #22d3ee);
+}
+.pub-hero-sub.muted { color: var(--muted); }
+
+/* ── count chip (mirrors #pubScreen .pub-count-chip) ── */
+.pub-count-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 13px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--panel);
+  font-size: 0.76rem; font-weight: 700; color: var(--text);
+  white-space: nowrap;
+}
+.pub-count-chip::before {
+  content: ''; flex: 0 0 auto; width: 8px; height: 8px;
+  border-radius: 2px; transform: rotate(45deg);
+  background: linear-gradient(135deg, #818cf8, #22d3ee);
+}
+
+/* ── user chip interactive states (root file scopes these to #pubUserChip) ── */
+#admUserChip { cursor: pointer; position: relative; transition: border-color 0.12s ease; }
+#admUserChip:hover, #admUserChip.signout-open { border-color: rgba(99, 102, 241, 0.6); }
+#admUserChip.signout-open .pub-chip-caret { transform: rotate(180deg); }
+#admGoogleBtn.google-btn { justify-content: center; min-height: 44px; }
+#admGoogleBtn > div, #admGoogleBtn iframe { width: 100% !important; }
+#admAuthBox { max-width: 420px; margin: 0 auto; }
+
+/* ── dashboard list-head (mirrors #lgContent .lg-list-head) ── */
+#admContent .lg-list-head {
+  margin: 0 0 10px; padding: 0; gap: 12px;
+  align-items: baseline; flex-wrap: nowrap; min-width: 0;
+  display: flex;
+}
+#admContent .lg-list-title { font-size: 1.12rem; margin: 0; line-height: 1.2; flex-shrink: 0; }
+#admContent .lg-list-sub {
+  margin: 0; min-width: 0; flex: 0 1 auto;
+  font-size: 0.76rem; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; padding-left: 0;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+#admContent .lg-list-sub::before {
+  content: ''; flex: 0 0 auto;
+  width: 4px; height: 13px; border-radius: 2px;
+  background: linear-gradient(180deg, #818cf8, #22d3ee);
+}
+#admContent .lg-head-spacer { flex: 1 1 auto; }
+#admContent .lg-fetched {
+  font-size: 0.72rem; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; flex-shrink: 1; min-width: 0;
+}
+#admContent .lg-refresh {
+  flex-shrink: 0; display: inline-flex; align-items: center;
+  justify-content: center; width: 32px; height: 32px;
+  padding: 0; border-radius: 9px;
+}
+#admContent .lg-refresh svg { width: 15px; height: 15px; }
+#admContent .lg-refresh.lg-spinning svg { animation: lgRefSpin 0.9s linear infinite; }
+body.light #admContent .lg-list-sub { color: #6b7394; }
+
+/* ── status badges available outside #lgContent (login table) ── */
+.lg-st-badge {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 0.64rem; font-weight: 700; letter-spacing: 0.03em;
+  white-space: nowrap; border: 1px solid transparent;
+}
+.lg-st-badge.lg-st-done { color: #4ade80; background: rgba(74, 222, 128, 0.12); border-color: rgba(74, 222, 128, 0.35); }
+.lg-st-badge.lg-st-other { color: var(--muted); background: rgba(255, 255, 255, 0.06); border-color: var(--border); }
+.lg-st-badge.lg-st-admin { color: #818cf8; background: rgba(129, 140, 248, 0.12); border-color: rgba(129, 140, 248, 0.35); }
+/* SLA breach chip (red) — used by the admin drill table + the public SLA column */
+.lg-st-badge.lg-st-breach { color: #f87171; background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.4); }
+body.light .lg-st-badge.lg-st-done { color: #15803d; background: #dcfce7; border-color: #86efac; }
+body.light .lg-st-badge.lg-st-other { color: #55607f; background: #eef1f8; border-color: #d4daea; }
+body.light .lg-st-badge.lg-st-admin { color: #4f46e5; background: #e0e7ff; border-color: #a5b4fc; }
+body.light .lg-st-badge.lg-st-breach { color: #b91c1c; background: #fee2e2; border-color: #fca5a5; }
+
+/* ── period filter bar (select variant) ── */
+#admPeriodBar { align-items: flex-end; gap: 10px; display: flex; flex-wrap: wrap; }
+#lgTbody .lg-sla-cell { white-space: nowrap; }
+.lg-col-sla { min-width: 120px; }
+.lg-col-sla .lg-th-split { display: block; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+#admPeriodBar .lg-filter-item { flex: 0 1 auto; min-width: 170px; }
+#admPeriodBar .tl-select { min-width: 0; width: 100%; }
+#admPeriodBar .lg-toolbar-right { margin-left: auto; }
+
+/* ── chart grid ──
+   Fixed 3-per-row: 4 in a line made labels (names, surnames, directions)
+   clip; 3 columns give each card ~33% more width so full names fit. */
+.adm-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 1400px) { .adm-chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 860px) { .adm-chart-grid { grid-template-columns: 1fr; } }
+.adm-chart-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 13px 14px 8px;
+  min-width: 0;
+  position: relative; /* tooltip anchor */
+}
+/* per-chart header: title left, period select right */
+.adm-ch-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 8px;
+}
+.adm-ch-head h4 { margin: 0; }
+.adm-ch-head .adm-ch-period {
+  min-width: auto; max-width: none; padding: 5px 26px 5px 9px;
+  font-size: 0.72rem; border-radius: 8px; flex: 0 0 auto;
+}
+/* hover tooltip (Jira-Pulse style) */
+.adm-tip {
+  display: none; position: absolute; z-index: 30; pointer-events: none;
+  /* OPAQUE panel — --panel is translucent, so bars and gridlines bled
+     straight through the tooltip while hovering (visual bug) */
+  background: #14161d; border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16));
+  border-radius: 10px; padding: 8px 11px; min-width: 120px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+  font-size: 0.74rem; line-height: 1.45;
+}
+body.light .adm-tip {
+  background: #ffffff; border-color: rgba(15, 23, 42, 0.14);
+  box-shadow: 0 8px 26px rgba(15, 23, 42, 0.18);
+}
+.adm-tip-title { font-weight: 700; margin-bottom: 4px; color: var(--text); }
+.adm-tip-row { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.adm-tip-row b { margin-left: auto; color: var(--text); padding-left: 12px; }
+.adm-tip-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.adm-chart-card canvas { display: block; width: 100%; height: 220px; }
+
+/* ── leaderboards ── */
+.adm-leader-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+@media (max-width: 960px) { .adm-leader-grid { grid-template-columns: 1fr; } }
+
+/* ── login activity tiles ── */
+.adm-activity-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.adm-act-tile .kpi-value { font-size: 1.55rem; }
+/* per-surface breakdown (logistics desk vs admin panel) */
+.adm-act-surface-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px; margin-top: 12px;
+}
+.adm-act-surface {
+  border: 1px solid var(--border); border-radius: 11px;
+  padding: 10px 14px; background: rgba(255, 255, 255, 0.02);
+}
+body.light .adm-act-surface { background: rgba(15, 23, 42, 0.03); }
+.adm-act-surface-name {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.8rem; font-weight: 700; color: var(--text); margin-bottom: 6px;
+}
+.adm-act-surface-stats {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; margin: 0;
+}
+.adm-act-surface-stats > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.adm-act-surface-stats dt { font-size: 0.68rem; color: var(--muted); }
+.adm-act-surface-stats dd { margin: 0; font-size: 0.88rem; font-weight: 700; color: var(--text); }
+/* kpi footnote line (e.g. "based on {n} tasks with resolution date") */
+.kpi-foot { margin-top: 6px; font-size: 0.66rem; font-weight: 500; color: var(--muted); line-height: 1.25; }
+/* admin KPI row: exactly 4 columns on desktop × 2 rows, equal heights;
+   labels sentence-case, compact values — no more exploded upper-case walls */
+.adm-kpi-grid.kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.adm-kpi-grid .kpi { display: flex; flex-direction: column; padding: 14px 16px; }
+.adm-kpi-grid .kpi-value { font-size: 1.7rem; margin-top: auto; }
+.adm-kpi-grid .kpi-label { text-transform: none; font-size: 0.8rem; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+@media (max-width: 1140px) { .adm-kpi-grid.kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .adm-kpi-grid.kpi-grid { grid-template-columns: 1fr 1fr; } .adm-kpi-grid .kpi-label { white-space: normal; } }

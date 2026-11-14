@@ -3,6 +3,7 @@
 .trae-html-share-packages/
 .trae/
 cors-relay/_deploy.ps1
+cors-relay/_split.ps1
 cors-relay/_session_seed.html
 cors-relay/_validate.html
 fix-proof-popup.png
