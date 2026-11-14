@@ -10,10 +10,36 @@ import {
   DESK_CACHE_KEY,
   DESK_CACHE_TTL,
   DESK_EXCLUDE_LABEL,
+  DESK_EXTRA_KEY,
   DESK_FIELDS_BASE,
   DESK_PROJECTS,
   json,
 } from "./shared.ts";
+
+/* ── admin-configurable desk allowlist ──────────────────────────────────
+   Anonymous desk reads may only touch DESK_PROJECTS (shared.ts) plus any
+   projects the admin added at runtime via ?cmd=desk:allow (e.g. the
+   fines department desk) without a redeploy. The blob-backed extra list
+   is cached in memory for 60 s so hot paths skip the blob read; the
+   allow/disallow cmds call resetDeskProjectsCache() to apply instantly. */
+let _deskExtra: { set: Set<string>; freshUntil: number } = { set: new Set(), freshUntil: 0 };
+
+export async function deskProjects(): Promise<Set<string>> {
+  const now = Date.now();
+  if (_deskExtra.freshUntil <= now) {
+    let extra: string[] = [];
+    try {
+      const b = await blob.getJSON(DESK_EXTRA_KEY) as any;
+      if (b && Array.isArray(b.projects)) extra = b.projects.map((p: any) => String(p));
+    } catch { /* blob miss — base set only */ }
+    _deskExtra = { set: new Set(extra), freshUntil: now + 60_000 };
+  }
+  return new Set([...DESK_PROJECTS, ..._deskExtra.set]);
+}
+
+export function resetDeskProjectsCache(): void {
+  _deskExtra = { set: new Set(), freshUntil: 0 };
+}
 /* ADF (Atlassian Document Format) body → plain text, one line per block.
    media/mediaInline/mediaSingle nodes emit the SAME " 📷 " marker the
    in-app renderer (jpAdfText) emits, so the desk-payload path can paint
@@ -122,9 +148,10 @@ export async function handleDeskCmd(u: URL, request: Request): Promise<Response>
   if ((fromQ && !TS_RE.test(fromQ)) || (toQ && !TS_RE.test(toQ))) {
     return json({ error: 'invalid from/to (expected ISO-8601 with UTC offset)' }, 400);
   }
-  /* anonymous reads may only touch published desk projects (see DESK_PROJECTS);
-     viewers bringing their own Authorization header are unrestricted */
-  if (!request.headers.get('authorization') && !DESK_PROJECTS.has(project)) {
+  /* anonymous reads may only touch published desk projects (DESK_PROJECTS +
+     admin-added extras); viewers bringing their own Authorization header
+     are unrestricted */
+  if (!request.headers.get('authorization') && !(await deskProjects()).has(project)) {
     return json({ error: 'project not published' }, 403);
   }
   /* each project+window gets its own short-TTL cache slot: the cache key
@@ -482,8 +509,9 @@ export async function handleDeskAttachCmd(u: URL, request: Request): Promise<Res
     if (!stored?.domain || !stored?.email || !stored?.token) {
       return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
     }
-    /* anonymous reads stay inside the published desk projects (DESK_PROJECTS) */
-    if (!DESK_PROJECTS.has(key.split('-')[0])) {
+    /* anonymous reads stay inside the published desk projects (DESK_PROJECTS
+       + admin-added extras) */
+    if (!(await deskProjects()).has(key.split('-')[0])) {
       return json({ error: 'issue not in a published desk project' }, 403);
     }
     authHeader = 'Basic ' + btoa(stored.email + ':' + stored.token);
@@ -758,8 +786,9 @@ export async function handleDeskSlaCmd(u: URL, request: Request): Promise<Respon
     if (!stored?.domain || !stored?.email || !stored?.token) {
       return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
     }
-    /* anonymous reads stay inside the published desk projects (DESK_PROJECTS) */
-    if (!DESK_PROJECTS.has(key.split('-')[0])) {
+    /* anonymous reads stay inside the published desk projects (DESK_PROJECTS
+       + admin-added extras) */
+    if (!(await deskProjects()).has(key.split('-')[0])) {
       return json({ error: 'issue not in a published desk project' }, 403);
     }
     authHeader = 'Basic ' + btoa(stored.email + ':' + stored.token);

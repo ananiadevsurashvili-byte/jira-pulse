@@ -37,8 +37,8 @@
  *   https://www.val.town/x/gensweaty/jira-relay/code/
  */
 import { blob } from "https://esm.town/v/std/blob";
-import { CORS_HEADERS, CREDS_KEY, DESK_PROJECTS, json } from "./shared.ts";
-import { handleDeskAttachCmd, handleDeskCmd, handleDeskSlaCmd } from "./desk.ts";
+import { CORS_HEADERS, CREDS_KEY, DESK_EXTRA_KEY, DESK_PROJECTS, json } from "./shared.ts";
+import { deskProjects, handleDeskAttachCmd, handleDeskCmd, handleDeskSlaCmd, resetDeskProjectsCache } from "./desk.ts";
 
 const ALLOWED_HOST = /(^|\.)atlassian\.net$/i;
 
@@ -112,7 +112,8 @@ async function adminAuthed(request: Request): Promise<boolean> {
    organization's own domain(s) here when the app moves onto company
    hosting (GitLab Pages / Kubernetes ingress). */
 const APPROVED_ORIGIN_RE = new RegExp(
-  '^https://(ananiadevsurashvili-byte\\.github\\.io|anania\\.devsurashvili\\.gitlab\\.io)$' +
+  '^https://(ananiadevsurashvili-byte\\.github\\.io|anania\\.devsurashvili\\.gitlab\\.io' +
+  '|jirapulse(-test)?\\.caucasusauto\\.com)$' +
   '|^https?://(localhost|127\\.0\\.0\\.1)(:\\d+)?$', 'i');
 
 function applyCors(request: Request, resp: Response): Response {
@@ -142,7 +143,7 @@ const RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
   write: { limit: 20, windowMs: 60_000 },
   read: { limit: 120, windowMs: 60_000 },
 };
-const WRITE_CMDS = new Set(['publish:set', 'publish:clear', 'creds:set', 'sla:set', 'admin:rotate']);
+const WRITE_CMDS = new Set(['publish:set', 'publish:clear', 'creds:set', 'sla:set', 'admin:rotate', 'desk:allow', 'desk:disallow']);
 const rateBuckets = new Map<string, { n: number; resetAt: number }>();
 
 function rateLimit(request: Request): boolean {
@@ -303,6 +304,31 @@ async function route(request: Request): Promise<Response> {
         }
         await blob.setJSON(ADMIN_KEY, next);
         return json({ ok: true, rotatedAt: Date.now() });
+      }
+
+      /* desk allowlist: let the admin publish additional service-desk
+         projects for anonymous desk reads (e.g. a second department desk)
+         without a redeploy. desk:allow adds, desk:disallow removes; the
+         merged set is DESK_PROJECTS + the blob's extra list. */
+      if (cmd === 'desk:allow' || cmd === 'desk:disallow') {
+        if (!(await adminAuthed(request))) return json({ error: 'admin auth required' }, 401);
+        const body = await request.json().catch(() => null);
+        const project = String(body?.project || '').trim().toUpperCase();
+        if (!/^[A-Z][A-Z0-9_]{1,9}$/.test(project)) {
+          return json({ error: 'invalid project key' }, 400);
+        }
+        let cur: string[] = [];
+        try {
+          const b = await blob.getJSON(DESK_EXTRA_KEY) as any;
+          if (b && Array.isArray(b.projects)) cur = b.projects.map((p: any) => String(p));
+        } catch { /* start empty */ }
+        const set = new Set(cur);
+        if (cmd === 'desk:allow') set.add(project); else set.delete(project);
+        try {
+          await blob.setJSON(DESK_EXTRA_KEY, { projects: [...set], savedAt: Date.now() });
+        } catch { return json({ error: 'blob write failed' }, 500); }
+        resetDeskProjectsCache();
+        return json({ ok: true, deskProjects: [...DESK_PROJECTS, ...set].sort() });
       }
 
       return json({ error: 'unknown cmd: ' + cmd }, 400);

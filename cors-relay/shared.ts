@@ -21,7 +21,11 @@ export const DESK_CACHE_KEY = "jirapulse_desk_cache_v3";
    project keys — the stored read-only creds must not become a loophole for
    enumerating other Jira/JSM projects. The logistics desk and its admin both
    hardcode DESK_PROJECT = 'LOG'; add a key here if a second desk goes live. */
+/* built-in desk allowlist (base set); the admin can extend it at runtime
+   via ?cmd=desk:allow (blob-backed extra list, see DESK_EXTRA_KEY) */
 export const DESK_PROJECTS = new Set(["LOG"]);
+/* blob key holding the admin-added desk projects (merged with DESK_PROJECTS) */
+export const DESK_EXTRA_KEY = "jirapulse_desk_projects_extra_v1";
 /* 60s made every incognito visit pay the full multi-minute desk sync
    (viewer almost always arrived after the slot expired) → boards looked
    permanently empty. 15 min keeps the payload fresh enough for status

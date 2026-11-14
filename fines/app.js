@@ -1,0 +1,2693 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   JiraPulse · Fines Desk (fines/app.js)
+
+   A standalone mini-app that lives at /fines/ alongside the main
+   JiraPulse dashboard. It is a clone of the Logistics desk reusing the
+   SAME auth system, theme, language, connection and session storage as
+   the main app (same localStorage keys), but shows a filtered task list
+   for ONE Service-Desk project (FINES_PROJECT):
+
+     • gate: Google sign-in (org-domain restricted) + email one-time code
+     • data: relay ?cmd=desk — all fines issues EXCEPT label "Internal"
+     • table: key↗ / title (summary) with description under it / status /
+       assignee / registered / updated / direction
+     • global search + per-column filters + click-to-sort headers
+
+   The project key defaults to FINES_PROJECT_DEFAULT and can be overridden
+   without a redeploy: /fines/?project=<KEY> persists it to localStorage.
+   Own state uses fn_/jp_fn_ localStorage keys so the two desks never
+   crosstalk on the same origin.
+
+   IMPORTANT: this file is intentionally standalone (reuse-by-copy). The
+   main app.js self-boots its own DOM wiring with no null-guards, so it can
+   NOT be shared via <script src>. Keep the copied helpers in sync manually.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+'use strict';
+
+/* ── tiny DOM helpers (copied from app.js) ─────────────────────────── */
+const $ = (s) => document.querySelector(s);
+function show(el) { el.classList.remove('hidden'); }
+function hide(el) { el.classList.add('hidden'); }
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+/* ── constants (same values as the main app) ───────────────────────── */
+const PUB_RELAY = 'https://gensweaty--65df49bca6d911f19f231607ee4eb77e.web.val.run/';
+const PUBLISH_DOMAIN = 'caucasusauto.com';   /* allowed email domain */
+const GOOGLE_CLIENT_ID = '671098966570-21bp1aeud5o2glbjsliif3foi6n71gmh.apps.googleusercontent.com';
+
+const JIRA_DOMAIN = 'caucasusauto.atlassian.net';   /* link base for issue keys */
+const FINES_PROJECT_DEFAULT = 'FIN';                 /* Service-Desk project key */
+const LS_FIN_PROJECT = 'fn_project_v1';              /* ?project= override persists here */
+const FINES_PROJECT = (() => {
+  try {
+    const qp = (new URLSearchParams(location.search).get('project') || '').trim().toUpperCase();
+    if (/^[A-Z][A-Z0-9_]{1,9}$/.test(qp)) {
+      localStorage.setItem(LS_FIN_PROJECT, qp);
+      return qp;
+    }
+    const saved = (localStorage.getItem(LS_FIN_PROJECT) || '').trim().toUpperCase();
+    if (/^[A-Z][A-Z0-9_]{1,9}$/.test(saved)) return saved;
+  } catch (_) { /* non-fatal */ }
+  return FINES_PROJECT_DEFAULT;
+})();
+const DESK_PROJECT = FINES_PROJECT;                  /* the Service-Desk project key */
+const DESK_EXCLUDE_LABEL = 'internal';               /* case-insensitive exclusion */
+const LOG_CODE_SEED = 'org';                         /* same code seed as the org publish */
+
+/* shared localStorage keys — values sync automatically with the main app */
+const LS_THEME = 'jp_theme_v1';
+const LS_LANG = 'jp_lang_v1';
+const LS_CONN = 'jp_conn_v1';
+const LS_PUB_SESSION = 'jp_pub_session_v1';
+const PUB_SESSION_TTL = 30 * 24 * 60 * 60 * 1000;   /* 30 days */
+
+/* table tuning */
+const LG_LIVE_TTL = 30 * 1000;    /* in-memory data cache */
+
+/* ── state ─────────────────────────────────────────────────────────── */
+let lgState = {
+  email: '',
+  verified: false,
+  codeSent: false,
+  rows: [],            /* normalized task rows */
+  fieldIds: { direction: null, title: null },
+  truncated: false,
+  q: '',               /* global search text */
+  filters: { status: '', reporter: '', assignee: '', direction: '', sla: '' },
+  /* SLA goals mirror the admin panel (relay ?cmd=sla:get, cached in LS).
+     Every row's SLA state is computed client-side in lgNormalize against
+     these goals (first response / resolution) */
+  slaGoals: { respHours: 2, resHours: 30 },
+  /* time-period filter: drives the SERVER-side JQL window, so "last 30
+     days" really downloads ~a month of tasks instead of all ~4k.
+     kind: '30d' | 'all' | 'month' | 'quarter' | 'year' | 'custom'
+     from/to: absolute ISO strings (with UTC offset) for the relay */
+  period: { kind: '30d', from: null, to: null },
+  sort: { col: 'created', dir: 'desc' },
+  loading: false,
+  cardKey: null,       /* task currently open in the detail card */
+  pageSize: 200,       /* rendered-row cap; switchable in the toolbar */
+  _renderJob: 0,       /* rAF id of an in-flight background row-append */
+};
+const LG_PAGE_SIZES = [100, 200, 500, 1000, 10000];
+const LG_FIRST_CHUNK = 100;    /* rows painted synchronously before yielding */
+const LG_APPEND_CHUNK = 250;   /* rows appended per animation frame afterwards */
+const LG_PAGE_STEP = 200;      /* "Show more" grows the visible page by +200 */
+const LS_PAGE_SIZE = 'jp_fn_page_v1';
+/* page-1 size: the user's saved page-size choice ( LS), floored at the
+   default 200 — a "Show more" that already grew the page must not persist */
+function lgBasePageSize() {
+  let saved = 0;
+  try { saved = parseInt(localStorage.getItem(LS_PAGE_SIZE) || '', 10); } catch (_) {}
+  return LG_PAGE_SIZES.includes(saved) ? Math.max(saved, 200) : 200;
+}
+try {
+  const saved = parseInt(localStorage.getItem(LS_PAGE_SIZE) || '', 10);
+  if (LG_PAGE_SIZES.includes(saved)) lgState.pageSize = saved;   // eslint-disable-line no-use-before-define
+} catch (_) {}
+let _lgCache = null;   /* { data, ts } */
+/* last good desk payload persisted per-connection — on revisit the table
+   paints from this INSTANTLY and the live refresh continues in background */
+const LS_LG_SNAPSHOT = 'fn_desk_snapshot_v1';
+/* SLA goals mirror the admin panel — fetched once from the relay, cached
+   in LS so a relay hiccup never blanks the SLA column */
+const LS_LG_SLA_GOALS = 'fn_sla_goals_v1';
+/* relay-observed custom field ids — sent with desk requests so the relay
+   skips its own field-catalog round-trip entirely */
+const LS_LG_FIELDIDS = 'fn_desk_fieldids_v1';
+let toastTimer = null;
+
+function toast(msg, type = 'info') {
+  const t = $('#toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.className = 'toast' + (type === 'ok' ? ' toast-ok' : type === 'err' ? ' toast-err' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => hide(t), 4200);
+}
+
+/* ── i18n · English + Georgian ─────────────────────────────────────── */
+let LANG = 'en';
+try { LANG = localStorage.getItem(LS_LANG) === 'ka' ? 'ka' : 'en'; } catch (_) {}
+
+const I18N = {
+  en: {
+    /* shared keys used by the static markup (kept identical to the main app) */
+    'settings.email': 'Email',
+    'pub.google': 'Sign in with Google',
+    'pub.orEmail': '— or with email —',
+    'pub.send': 'Send code',
+    'pub.accessCode': 'Access code',
+    'pub.codePh': '6-digit code',
+    'pub.verify': 'Verify',
+    'pub.emailPh': 'you@caucasusauto.com',
+    'pub.restricted': 'Access is restricted to @{d} accounts.',
+    'pub.googleLoading': 'Google sign-in is still loading… try again in a few seconds.',
+    'pub.googleFailed': 'Google sign-in could not start. Use your @{d} email instead.',
+    'pub.signOut': '⎋ Sign out',
+    'pub.signOutTitle': 'Sign out and return to the login screen',
+    'pub.signedOut': 'Signed out — see you soon!',
+    'pub.resendCode': 'Resend code',
+    'pub.sending': 'Sending your code to {email}…',
+    'pub.sentTo': 'Code sent to {email}. Check your inbox, then enter it below.',
+    'pub.sendFailed': 'Could not email the code ({m}). Use Sign in with Google instead.',
+    'pub.wrongCode': 'Wrong code. Please try again.',
+    'pub.invalidEmail': 'Please enter a valid @{d} email.',
+    'pub.activateFirst': 'First time for this email — FormSubmit has emailed an activation link to {email}. Click it, then press "Resend code".',
+    'pub.deliverFailed': 'Could not deliver the code right now ({m}). Use Sign in with Google instead.',
+    'theme.title': 'Switch color theme',
+    'theme.dark': 'Dark theme',
+    'theme.light': 'Light theme',
+    'auth.sending': 'Sending…',
+    /* logistics-specific keys */
+    'lg.headTitle': 'Fines desk',
+    'lg.orgBadge': 'Fines',
+    'lg.toMain': 'Refresh Fines desk',
+    'lg.title': 'Fines desk',
+    'lg.subtitle': 'Live fines service-desk tasks · restricted to @caucasusauto.com',
+    'lg.listTitle': 'Fines tasks',
+    'lg.listSub': 'All service-desk requests · items labeled "Internal" are hidden',
+    'lg.refresh': 'Refresh',
+    'lg.refreshing': 'Refreshing…',
+    'lg.updatedAt': 'Updated {t}',
+    'lg.count': '{n} tasks',
+    'lg.showing': 'Showing {n} of {total} — refine filters to see more',
+    'lg.showMore': 'Show more',
+    'lg.searchPh': 'Search tasks…',
+    'lg.filterAll': 'All',
+    'lg.fLabel.status': 'Status',
+    'lg.fLabel.reporter': 'Reporter',
+    'lg.fLabel.assignee': 'Assignee',
+    'lg.fLabel.direction': 'Direction',
+    'lg.fLabel.period': 'Period',
+    'lg.fLabel.sla': 'SLA',
+    'lg.th.sla': 'SLA',
+    'lg.sla.in': 'In SLA',
+    'lg.sla.late': 'Late (breached)',
+    'lg.sla.out': 'Out of SLA',
+    'lg.sla.pending': 'Pending',
+    'lg.sla.overdue': 'Overdue',
+    'lg.sla.nodata': 'No data',
+    'lg.sla.respTitle': 'First response',
+    'lg.sla.resTitle': 'Resolution',
+    'lg.sla.resRunning': 'Resolution running',
+    'lg.sla.settledAt': 'Settled {w}',
+    'lg.period.30d': 'Last 30 days',
+    'lg.period.all': 'All time',
+    'lg.period.custom': 'Custom range…',
+    'lg.period.thisMonth': 'This month',
+    'lg.period.thisQuarter': 'This quarter',
+    'lg.period.thisYear': 'This year',
+    'lg.period.apply': 'Apply',
+    'lg.period.cancel': 'Cancel',
+    'lg.period.from': 'From',
+    'lg.period.to': 'To',
+    'lg.countIn': '{n} tasks in period',
+    'lg.pageSizeTitle': 'Tasks shown per page',
+    'lg.pageSize': '{n} / page',
+    'lg.th.key': 'Key',
+    'lg.th.title': 'Title',
+    'lg.th.status': 'Status',
+    'lg.th.reporter': 'Reporter',
+    'lg.th.assignee': 'Assignee',
+    'lg.th.created': 'Registered',
+    'lg.th.updated': 'Updated',
+    'lg.mini.reporter': 'Rep.',
+    'lg.mini.assignee': 'Asg.',
+    'lg.mini.created': 'Reg.',
+    'lg.mini.updated': 'Upd.',
+    'lg.th.direction': 'Direction',
+    'lg.th.comments': 'Comments',
+    'lg.sortTitle': 'Click to sort',
+    'lg.filterStatus': 'Filter by status',
+    'lg.filterReporter': 'Filter by reporter',
+    'lg.filterAssignee': 'Filter by assignee',
+    'lg.filterDirection': 'Filter by direction',
+    'lg.commentsCount': '{n} comments',
+    'lg.truncated': 'Jira returned more tasks than can be synced — showing the newest.',
+    'lg.loading': 'Loading tasks…',
+    'lg.loadingMore': 'Loading remaining tasks…',
+    'lg.loadingPage': '{done} of {total} tasks loaded…',
+    'lg.empty': 'No tasks match the current filters.',
+    'lg.unassigned': 'Unassigned',
+    'lg.card.noDescription': 'No description',
+    'lg.card.noComments': 'No comments yet',
+    'lg.card.attachments': 'Attachments',
+    'lg.card.download': 'Download',
+    'lg.downloadFail': 'Download failed',
+    'lg.row.hasFiles': 'Has attachments',
+    'lg.card.close': 'Close',
+    'lg.descLabel': 'Description',
+    'lg.scrollLeft': 'Scroll left',
+    'lg.scrollRight': 'Scroll right',
+    'lg.errorLoad': 'Could not load fines tasks ({m}).',
+    'lg.errorNoCreds': 'No Jira credentials available for the relay. The admin must connect once from the main JiraPulse app (which stores relay creds), then reload this page.',
+    'lg.footer': 'JiraPulse · Fines desk — live Jira data, org-only access',
+  },
+  ka: {
+    'settings.email': 'ელფოსტა',
+    'pub.google': 'Google-ით შესვლა',
+    'pub.orEmail': '— ან ელფოსტით —',
+    'pub.send': 'კოდის გაგზავნა',
+    'pub.accessCode': 'წვდომის კოდი',
+    'pub.codePh': '6-ციფრიანი კოდი',
+    'pub.verify': 'დადასტურება',
+    'pub.emailPh': 'you@caucasusauto.com',
+    'pub.restricted': 'წვდომა შეზღუდულია @{d} ანგარიშებზე.',
+    'pub.googleLoading': 'Google-ით შესვლა ჯერ იტვირთება… სცადეთ რამდენიმე წამში.',
+    'pub.googleFailed': 'Google-ით შესვლა ვერ დაიწყო. გამოიყენეთ თქვენი @{d} ფოსტა.',
+    'pub.signOut': '⎋ გასვლა',
+    'pub.signOutTitle': 'გასვლა და დაბრუნება შესვლის ეკრანზე',
+    'pub.signedOut': 'გასულხართ სისტემიდან — ნახვამდის!',
+    'pub.resendCode': 'კოდის ხელახლა გაგზავნა',
+    'pub.sending': 'კოდი იგზავნება {email} მისამართზე…',
+    'pub.sentTo': 'კოდი გაიგზავნა {email} მისამართზე. შეამოწმეთ შემომავალი და შეიყვანეთ ქვემოთ.',
+    'pub.sendFailed': 'კოდის გაგზავნა ვერ მოხერხდა ({m}). გამოიყენეთ Google-ით შესვლა.',
+    'pub.wrongCode': 'კოდი არასწორია. სცადეთ ხელახლა.',
+    'pub.invalidEmail': 'გთხოვთ, შეიყვანეთ სწორი @{d} ფოსტა.',
+    'pub.activateFirst': 'ეს ფოსტა პირველად გამოიყენება — FormSubmit-მა {email} მისამართზე გააქტივაციის ბმული გაგზავნა. დააჭირეთ მას და შემდეგ აირჩიეთ „კოდის ხელახლა გაგზავნა".',
+    'pub.deliverFailed': 'კოდი ამჟამად ვერ მიეწოდა ({m}). გამოიყენეთ Google-ით შესვლა.',
+    'theme.title': 'ფერის თემის გადამრთველი',
+    'theme.dark': 'მუქი თემა',
+    'theme.light': 'ღია თემა',
+    'auth.sending': 'იგზავნება…',
+    'lg.headTitle': 'ჯარიმების დესკი',
+    'lg.orgBadge': 'ჯარიმები',
+    'lg.toMain': 'ჯარიმების გვერდის განახლება',
+    'lg.title': 'ჯარიმების დესკი',
+    'lg.subtitle': 'ჯარიმების სერვის-დესკის ამოცანები · მხოლოდ @caucasusauto.com-ისთვის',
+    'lg.listTitle': 'ჯარიმების ამოცანები',
+    'lg.listSub': 'სერვის-დესკის ყველა მოთხოვნა · „Internal" ლეიბლიანი ამოცანები დამალულია',
+    'lg.refresh': 'განახლება',
+    'lg.refreshing': 'განახლება…',
+    'lg.updatedAt': 'განახლდა {t}',
+    'lg.count': '{n} ამოცანა',
+    'lg.showing': 'ნაჩვენებია {n} / {total} — შეავიწროვეთ ფილტრები დანარჩენის სანახავად',
+    'lg.showMore': 'მეტის ჩვენება',
+    'lg.searchPh': 'ამოცანების ძებნა…',
+    'lg.filterAll': 'ყველა',
+    'lg.fLabel.status': 'სტატუსი',
+    'lg.fLabel.reporter': 'მომხსენებელი',
+    'lg.fLabel.assignee': 'აღმასრულებელი',
+    'lg.fLabel.direction': 'მიმართულება',
+    'lg.fLabel.period': 'პერიოდი',
+    'lg.fLabel.sla': 'SLA',
+    'lg.th.sla': 'SLA',
+    'lg.sla.in': 'SLA-ში',
+    'lg.sla.late': 'დაგვიანებული',
+    'lg.sla.out': 'SLA-გარე',
+    'lg.sla.pending': 'მიმდინარე',
+    'lg.sla.overdue': 'ვადაგადაცილებული',
+    'lg.sla.nodata': 'მონაცემი არაა',
+    'lg.sla.respTitle': 'პირველი პასუხი',
+    'lg.sla.resTitle': 'გადაწყვეტა',
+    'lg.sla.resRunning': 'გადაწყვეტა მიმდინარეობს',
+    'lg.sla.settledAt': 'დასრულდა {w}',
+    'lg.period.30d': 'ბოლო 30 დღე',
+    'lg.period.all': 'მთელი პერიოდი',
+    'lg.period.custom': 'არჩეული პერიოდი…',
+    'lg.period.thisMonth': 'ეს თვე',
+    'lg.period.thisQuarter': 'ეს კვარტალი',
+    'lg.period.thisYear': 'ეს წელი',
+    'lg.period.apply': 'გამოყენება',
+    'lg.period.cancel': 'გაუქმება',
+    'lg.period.from': 'საიდან',
+    'lg.period.to': 'სად',
+    'lg.countIn': '{n} ამოცანა პერიოდში',
+    'lg.pageSizeTitle': 'გვერდზე ნაჩვენები ამოცანები',
+    'lg.pageSize': '{n} / გვერდი',
+    'lg.th.key': 'კოდი',
+    'lg.th.title': 'დასახელება',
+    'lg.th.status': 'სტატუსი',
+    'lg.th.reporter': 'მომხსენებელი',
+    'lg.th.assignee': 'აღმასრულებელი',
+    'lg.th.created': 'რეგისტრაციის თარიღი',
+    'lg.th.updated': 'ბოლო განახლება',
+    'lg.mini.reporter': 'მომხ.',
+    'lg.mini.assignee': 'აღმ.',
+    'lg.mini.created': 'რეგ.',
+    'lg.mini.updated': 'განახ.',
+    'lg.th.direction': 'მიმართულება',
+    'lg.th.comments': 'კომენტარები',
+    'lg.sortTitle': 'დასალაგებლად დააჭირეთ',
+    'lg.filterStatus': 'სტატუსით ფილტრი',
+    'lg.filterReporter': 'მომხსენებლით ფილტრი',
+    'lg.filterAssignee': 'აღმასრულებლით ფილტრი',
+    'lg.filterDirection': 'მიმართულებით ფილტრი',
+    'lg.commentsCount': '{n} კომენტარი',
+    'lg.truncated': 'Jira-მა ამოცანების იმაზე მეტი დააბრუნა, რამდენის სინქრონიზაციაც შესაძლებელია — ნაჩვენებია უახლესი.',
+    'lg.loading': 'ამოცანები იტვირთება…',
+    'lg.loadingMore': 'დარჩენილი ამოცანები იტვირთება…',
+    'lg.loadingPage': '{done} / {total} ამოცანა ჩაიტვირთა…',
+    'lg.empty': 'ფილტრებს ვერცერთი ამოცანა არ ემთხვევა.',
+    'lg.unassigned': 'გაუნაწილებელი',
+    'lg.card.noDescription': 'აღწერა არ არის',
+    'lg.card.noComments': 'კომენტარები ჯერ არ არის',
+    'lg.card.attachments': 'ატვირთული ფაილები',
+    'lg.card.download': 'ჩამოტვირთვა',
+    'lg.downloadFail': 'ჩამოტვირთვა ვერ მოხერხდა',
+    'lg.row.hasFiles': 'აქვს ფაილები',
+    'lg.card.close': 'დახურვა',
+    'lg.descLabel': 'აღწერა',
+    'lg.scrollLeft': 'ჩამოსქროლე მარცხნივ',
+    'lg.scrollRight': 'ჩამოსქროლე მარჯვნივ',
+    'lg.errorLoad': 'ჯარიმების ამოცანების ჩატვირთვა ვერ მოხერხდა ({m}).',
+    'lg.errorNoCreds': 'რელეისთვის Jira-ს ავტორიზაცია მიუწვდომელია. ადმინმა ერთხელ უნდა დაუკავშირდეს ძირითად JiraPulse აპლიკაციას (ინახავს relay-ის ავტორიზაციას) და შემდეგ გადატვირთოს ეს გვერდი.',
+    'lg.footer': 'JiraPulse · ჯარიმების დესკი — პირდაპირი Jira მონაცემები, მხოლოდ ორგანიზაციისთვის',
+  },
+};
+
+function t(key, fallback) {
+  const d = I18N[LANG] || I18N.en;
+  const v = d[key];
+  if (v != null && v !== '') return v;
+  const e = I18N.en[key];
+  if (e != null && e !== '') return e;
+  return fallback != null ? fallback : key;
+}
+
+function tReplace(key, subs, fallback) {
+  let s = t(key, fallback);
+  for (const [k, v] of Object.entries(subs || {})) s = s.split('{' + k + '}').join(String(v));
+  return s;
+}
+
+function applyI18n(root) {
+  const scope = root || document;
+  scope.querySelectorAll('[data-i18n]').forEach((el) => { el.innerHTML = t(el.getAttribute('data-i18n')); });
+  scope.querySelectorAll('[data-i18n-text]').forEach((el) => { el.textContent = t(el.getAttribute('data-i18n-text')); });
+  scope.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.setAttribute('placeholder', t(el.getAttribute('data-i18n-placeholder'))); });
+  scope.querySelectorAll('[data-i18n-title]').forEach((el) => { el.setAttribute('title', t(el.getAttribute('data-i18n-title'))); });
+}
+
+function setLangButtons() {
+  document.querySelectorAll('.lang-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.lang === LANG);
+  });
+}
+
+function setLang(lang) {
+  LANG = (lang === 'ka') ? 'ka' : 'en';
+  try { localStorage.setItem(LS_LANG, LANG); } catch (_) {}
+  document.documentElement.setAttribute('lang', LANG === 'ka' ? 'ka' : 'en');
+  applyI18n();
+  setLangButtons();
+  /* re-render dynamic surfaces so runtime strings follow the language */
+  try {
+    lgBumpRows();                /* cached row HTML contains lang strings → rebuild */
+    lgRenderPageSizeOptions();   /* option labels are language-specific */
+    if (lgState.verified && lgState.rows.length) { lgBuildFilterBar(); lgRenderRows(); }
+    if (lgState.cardKey) { lgRenderCard(); }   /* open card follows the language too */
+  } catch { /* noop */ }
+}
+
+/* fill the page-size switcher with localized labels, keeping selection */
+function lgRenderPageSizeOptions() {
+  const sel = $('#lgPageSize');
+  if (!sel) return;
+  sel.innerHTML = LG_PAGE_SIZES.map((n) =>
+    `<option value="${n}"${lgState.pageSize === n ? ' selected' : ''}>${escapeHtml(tReplace('lg.pageSize', { n }))}</option>`
+  ).join('');
+}
+
+/* ── theme switcher (copied pattern from app.js) ───────────────────── */
+let THEME = 'dark';
+try { THEME = localStorage.getItem(LS_THEME) === 'light' ? 'light' : 'dark'; } catch (_) {}
+
+function applyThemeClass() {
+  document.body.classList.toggle('light', THEME === 'light');
+  document.querySelectorAll('.theme-btn').forEach((b) => {
+    b.classList.toggle('active', (b.dataset.theme === 'light') === (THEME === 'light'));
+  });
+}
+
+function setTheme(theme) {
+  THEME = (theme === 'light') ? 'light' : 'dark';
+  try { localStorage.setItem(LS_THEME, THEME); } catch (_) {}
+  applyThemeClass();
+}
+
+/* ── org access (copied from app.js) ───────────────────────────────── */
+/* deterministic 6-digit code from seed + email */
+function publishCode(seed, email) {
+  let h = 0;
+  const s = seed + '|' + email.toLowerCase().trim();
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return String(Math.abs(h) % 1000000).padStart(6, '0');
+}
+
+/* is this email in the allowed domain? */
+function publishEmailOk(email) {
+  const e = (email || '').toLowerCase().trim();
+  return e.endsWith('@' + PUBLISH_DOMAIN) && e.split('@')[1] === PUBLISH_DOMAIN;
+}
+
+function decodeJwt(token) {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = atob(base64);
+    return JSON.parse(json);
+  } catch { return null; }
+}
+
+function googleReady() {
+  return typeof window.google !== 'undefined' && window.google.accounts && window.google.accounts.id;
+}
+
+/* ── viewer session (same key/shape as the main app) ─────────────────
+   Signed in on one page → signed in on the other; 30-day TTL. */
+function lgSaveSession(extra = {}) {
+  try {
+    if (!lgState.verified || !lgState.email) return;
+    localStorage.setItem(LS_PUB_SESSION, JSON.stringify({
+      email: lgState.email,
+      ts: Date.now(),
+      ...extra,
+    }));
+  } catch { /* storage unavailable — non-fatal */ }
+}
+
+function lgRestoreSession() {
+  try {
+    const raw = localStorage.getItem(LS_PUB_SESSION);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s || !s.email || !publishEmailOk(s.email)) return null;
+    if (!s.ts || Date.now() - s.ts > PUB_SESSION_TTL) {
+      localStorage.removeItem(LS_PUB_SESSION);
+      return null;
+    }
+    return s;
+  } catch { return null; }
+}
+
+function lgClearSession() {
+  try { localStorage.removeItem(LS_PUB_SESSION); } catch { /* noop */ }
+}
+
+/* ── usage ping: tell the relay this viewer opened the fines desk ──
+   one-shot per page load · powers the admin panel's "platform logins" */
+function lgSendPing(email) {
+  try {
+    fetch(PUB_RELAY + '?cmd=lgPing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, surface: 'desk' }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch (_) { /* telemetry must never break the page */ }
+}
+
+/* ── stored Jira connection (shared with the main app) ─────────────── */
+function loadConn() {
+  try {
+    const raw = localStorage.getItem(LS_CONN);
+    if (!raw) return null;
+    const c = JSON.parse(raw);
+    if (!c.domain || !c.email || !c.token) return null;
+    return c;
+  } catch (_) { return null; }
+}
+
+/* ── date formatting (copied + a datetime variant) ───────────────────
+   Dates follow the active UI language (en / ka) so Georgian users see
+   Georgian month names everywhere — table cells and the task card.
+   Georgian month names are rendered manually because some Chromium
+   builds ship without ka-GE ICU data (Intl silently falls back to en). */
+const LG_MONTHS_KA = ['იან', 'თებ', 'მარ', 'აპრ', 'მაი', 'ივნ', 'ივლ', 'აგვ', 'სექ', 'ოქტ', 'ნოე', 'დეკ'];
+
+function lgKaDate(d) {
+  return `${d.getDate()} ${LG_MONTHS_KA[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function lgKaTime(d) {
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function lgParseDate(v) {
+  if (!v) return null;
+  const d = typeof v === 'number' ? new Date(v) : new Date(String(v));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/* date formatting is memoized per (value, mode): table re-renders (page-size
+   switches, filters, sort) call these thousands of times with the same raw
+   timestamps, and re-parsing + Intl-formatting each time was a measurable
+   part of the render lag. Cache is keyed by LANG so language switches
+   naturally produce the right string; entries are cheap (~40 chars). */
+const LG_FMT_CACHE = new Map();   /* key: `${mode}|${LANG}|${value}` */
+
+function fmtDateLong(v) {
+  const ck = 'D|' + LANG + '|' + v;
+  if (LG_FMT_CACHE.has(ck)) return LG_FMT_CACHE.get(ck);
+  const d = lgParseDate(v);
+  let out = '—';
+  if (d) out = LANG === 'ka' ? lgKaDate(d) : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  LG_FMT_CACHE.set(ck, out);
+  return out;
+}
+
+function fmtDateTime(v) {
+  const ck = 'T|' + LANG + '|' + v;
+  if (LG_FMT_CACHE.has(ck)) return LG_FMT_CACHE.get(ck);
+  const d = lgParseDate(v);
+  let out = '—';
+  if (d) {
+    out = LANG === 'ka'
+      ? `${lgKaDate(d)} ${lgKaTime(d)}`
+      : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) +
+        ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  }
+  LG_FMT_CACHE.set(ck, out);
+  return out;
+}
+
+/* ── status → semantic color bucket ──────────────────────────────────
+   One bucket per workflow family; CSS gives each a colored pill.
+   Regexes are hoisted to module scope — they were being re-created
+   on every call, for every row, on every render. */
+const LG_ST_RE_DONE = /^(done|closed|resolved|complete|completed|cancelled|canceled)/;
+const LG_ST_RE_PROGRESS = /^(in progress|in review|review|testing|qa|in development|reopened)/;
+const LG_ST_RE_WAIT = /^(waiting|pending|blocked|hold|on hold|escalated|open|to do|backlog|new)/;
+function lgStatusClass(status) {
+  const s = String(status || '').toLowerCase();
+  if (LG_ST_RE_DONE.test(s)) return 'lg-st-done';
+  if (LG_ST_RE_PROGRESS.test(s)) return 'lg-st-progress';
+  if (LG_ST_RE_WAIT.test(s)) return 'lg-st-wait';
+  return 'lg-st-other';
+}
+
+/* ── login gate rendering ──────────────────────────────────────────── */
+function renderLgGate() {
+  lgState.verified = false;
+  lgState.email = '';
+  lgState.codeSent = false;
+  $('#lgEmail').value = '';
+  $('#lgEmail').disabled = false;
+  $('#lgEmail').placeholder = 'you@' + PUBLISH_DOMAIN;
+  $('#lgCodeWrap').classList.add('hidden');
+  $('#lgCode').value = '';
+  $('#lgCode').disabled = false;
+  $('#lgSendBtn').textContent = t('pub.send');
+  $('#lgSendBtn').disabled = false;
+  $('#lgVerifyBtn').textContent = t('pub.verify');
+  $('#lgVerifyBtn').classList.add('hidden');
+  $('#lgStatus').textContent = '';
+  $('#lgStatus').className = 'muted';
+  $('#lgContent').classList.add('hidden');
+  document.body.classList.remove('lg-list-active');
+  $('#lgAuthBox').classList.remove('hidden');
+  updateLgUserChip();
+  /* re-render Google's official button — GSI wipes it when the gate was hidden */
+  initGoogleButton();
+}
+
+/* verified path: hide the gate, show the task list, load data */
+function lgEnterVerified() {
+  hide($('#lgGate'));
+  $('#lgAuthBox').classList.add('hidden');
+  show($('#lgContent'));
+  /* cheap hook for fill-height CSS (avoids body:has(...) which re-matches
+     against the whole DOM on every insertion and makes big renders crawl) */
+  document.body.classList.add('lg-list-active');
+  updateLgUserChip();
+  lgSendPing(lgState.email);
+  /* SLA goals must land BEFORE the first lgApplyData so rows are computed
+     against the real goals, not the in-code defaults */
+  lgFetchSlaGoals().finally(() => {
+    lgLoadPeriod();   /* restore the remembered time period (default: last 30 days) */
+    _lgPainted.n = 0;
+    lgLoad(false);
+  });
+}
+
+/* ── Google sign-in (copied pattern from app.js) ───────────────────── */
+function handleGoogleCredential(resp) {
+  const payload = decodeJwt(resp.credential);
+  const email = (payload?.email || '').toLowerCase().trim();
+  if (!publishEmailOk(email)) {
+    $('#lgStatus').textContent = tReplace('pub.restricted', { d: PUBLISH_DOMAIN });
+    $('#lgStatus').className = 'error';
+    return;
+  }
+  lgState.email = email;
+  lgState.verified = true;
+  lgSaveSession();
+  /* no "verified · loading" message — the task list appearing IS the feedback */
+  lgEnterVerified();
+}
+
+/* render Google's official sign-in button over our placeholder. The GSI
+   script loads with `async`, so poll until ready (same as the main app). */
+function initGoogleButton() {
+  const container = $('#lgGoogleBtn');
+  if (!container || !GOOGLE_CLIENT_ID) return;
+
+  let polls = 0;
+  const timer = setInterval(() => {
+    polls++;
+    if (!googleReady()) {
+      if (polls === 1) {
+        container.addEventListener('click', () => {
+          $('#lgStatus').textContent = t('pub.googleLoading');
+          $('#lgStatus').className = 'warn';
+        });
+      }
+      if (polls > 50) clearInterval(timer);   // ~10s cap
+      return;
+    }
+    clearInterval(timer);
+    try {
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleCredential,
+        context: 'use',
+        ux_mode: 'popup',
+        /* hd restricts the account chooser to the org domain; the callback re-verifies it too */
+        hd: PUBLISH_DOMAIN,
+      });
+      container.innerHTML = '';
+      window.google.accounts.id.renderButton(container, {
+        theme: 'outline',
+        size: 'large',
+        width: 280,
+        text: 'continue_with',
+        logo_alignment: 'center',
+      });
+    } catch (e) {
+      $('#lgStatus').textContent = tReplace('pub.googleFailed', { d: PUBLISH_DOMAIN });
+      $('#lgStatus').className = 'error';
+    }
+  }, 200);
+}
+
+/* ── email one-time code (copied pattern from app.js) ────────────────
+   Same code derivation (seed 'org' + email) as the main org publish, so a
+   user's Fines code equals their JiraPulse code. FormSubmit emails it. */
+async function lgSendCode() {
+  const email = $('#lgEmail').value.trim();
+  if (!publishEmailOk(email)) {
+    $('#lgStatus').textContent = tReplace('pub.invalidEmail', { d: PUBLISH_DOMAIN });
+    $('#lgStatus').className = 'error';
+    return;
+  }
+  lgState.email = email;
+  const code = publishCode(LOG_CODE_SEED, email);
+  lgState.codeSent = true;
+
+  const btn = $('#lgSendBtn');
+  btn.disabled = true;
+  btn.textContent = t('auth.sending');
+  $('#lgStatus').textContent = tReplace('pub.sending', { email });
+  $('#lgStatus').className = 'muted';
+
+  const recipient = email;
+  const subject = 'Your JiraPulse Fines access code';
+  const body =
+    'Hello,\n\n' +
+    'Your one-time access code for JiraPulse Fines is:\n\n' +
+    code + '\n\n' +
+    'Enter it on the Fines page to view the task list.\n\n' +
+    'If you did not request this, ignore this email.';
+
+  try {
+    const res = await fetch('https://formsubmit.co/ajax/' + encodeURIComponent(recipient), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        email: email,
+        _subject: subject,
+        message: body,
+        _template: 'table',
+        _captcha: 'false',
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = (data && (data.message || data.error)) || 'Email service error (' + res.status + ')';
+      throw new Error(msg);
+    }
+    if (data && data.success === false) {
+      const reason = data.message || 'the email service needs confirmation';
+      const activating = /activat/i.test(reason);
+      $('#lgStatus').textContent = activating
+        ? tReplace('pub.activateFirst', { email })
+        : tReplace('pub.deliverFailed', { m: reason });
+      $('#lgStatus').className = activating ? 'warn' : 'error';
+      $('#lgCodeWrap').classList.remove('hidden');
+      $('#lgVerifyBtn').classList.remove('hidden');
+      $('#lgSendBtn').textContent = t('pub.resendCode');
+      return;
+    }
+    $('#lgStatus').textContent = tReplace('pub.sentTo', { email });
+    $('#lgStatus').className = 'ok';
+    $('#lgCodeWrap').classList.remove('hidden');
+    $('#lgVerifyBtn').classList.remove('hidden');
+    $('#lgSendBtn').textContent = t('pub.resendCode');
+  } catch (e) {
+    $('#lgStatus').textContent = tReplace('pub.sendFailed', { m: e.message });
+    $('#lgStatus').className = 'error';
+  } finally {
+    btn.disabled = false;
+    if (!btn.textContent.startsWith('Resend') && !btn.textContent.startsWith('კოდის ხელახლა')) btn.textContent = t('pub.send');
+  }
+}
+
+function lgVerifyCode() {
+  const entered = $('#lgCode').value.trim();
+  const expected = publishCode(LOG_CODE_SEED, lgState.email);
+  if (entered === expected) {
+    lgState.verified = true;
+    lgSaveSession();
+    /* success = the task list appearing; the status line stays for errors */
+    lgEnterVerified();
+  } else {
+    $('#lgStatus').textContent = t('pub.wrongCode');
+    $('#lgStatus').className = 'error';
+  }
+}
+
+/* ── topbar identity chip + sign-out (copied pattern from app.js) ──── */
+/* How many rows are actually painted in #lgTbody right now, and from which
+   data generation. Enables incremental page-size rendering: when only the
+   page size changed, the filtered list (see lgFiltered memo) is the same
+   array, so the painted prefix is still valid — growing appends the suffix,
+   shrinking trims the tail, and nothing is rebuilt or reflowed. */
+let _lgPainted = { all: null, lang: null, token: -1, n: 0 };
+
+function updateLgUserChip() {
+  const chip = $('#lgUserChip');
+  if (!chip) return;
+  const email = lgState.email || '';
+  if (!lgState.verified || !email) {
+    chip.classList.add('hidden');
+    return;
+  }
+  const name = String(email).split('@')[0] || '?';
+  const avatar = $('#lgUserAvatar');
+  avatar.textContent = name.charAt(0).toUpperCase();
+  $('#lgUserName').textContent = email;
+  chip.title = email;
+  chip.classList.remove('hidden');
+}
+
+function toggleLgSignOut(ev) {
+  if (ev) ev.stopPropagation();
+  const chip = $('#lgUserChip');
+  const menu = $('#lgSignOutBtn');
+  if (!chip || !menu) return;
+  const open = !menu.classList.contains('hidden');
+  if (open) {
+    menu.classList.add('hidden');
+    chip.classList.remove('signout-open');
+  } else {
+    menu.classList.remove('hidden');
+    chip.classList.add('signout-open');
+  }
+}
+
+function closeLgSignOut() {
+  const chip = $('#lgUserChip');
+  const menu = $('#lgSignOutBtn');
+  if (menu) menu.classList.add('hidden');
+  if (chip) chip.classList.remove('signout-open');
+}
+
+function lgSignOut() {
+  closeLgSignOut();
+  lgState.verified = false;
+  lgState.email = '';
+  lgState.codeSent = false;
+  lgState.rows = [];
+  lgBumpRows();   /* invalidate cached row HTML + filter memo */
+  _lgPainted.n = 0;
+  lgState.q = '';
+  lgState.filters = { status: '', reporter: '', assignee: '', direction: '', sla: '' };
+  lgState.period = { kind: '30d', from: null, to: null };   /* back to the default window */
+  lgState.sort = { col: 'created', dir: 'desc' };
+  _lgCache = null;
+  lgClearSession();   /* forget the persisted viewer session */
+  /* let Google forget the chosen account so the next sign-in shows the chooser */
+  if (googleReady()) {
+    try { window.google.accounts.id.disableAutoSelect(); } catch { /* noop */ }
+  }
+  renderLgGate();
+  show($('#lgGate'));
+  toast(t('pub.signedOut'), 'ok');
+}
+
+/* ── data layer: relay ?cmd=desk ─────────────────────────────────────
+   Viewer with their own Jira connection forwards Basic auth (their creds,
+   zero stored secrets); otherwise the relay falls back to the admin's
+   stored creds. All fines issues except label "Internal" come back. */
+function lgSaveSnapshot(data) {
+  try {
+    localStorage.setItem(LS_LG_SNAPSHOT, JSON.stringify({ ts: Date.now(), data }));
+  } catch (_) { /* quota/private mode — snapshot is a best-effort nicety */ }
+}
+
+function lgLoadSnapshot() {
+  try {
+    const raw = localStorage.getItem(LS_LG_SNAPSHOT);
+    if (!raw) return null;
+    const snap = JSON.parse(raw);
+    if (!snap?.data?.issues?.length) return null;
+    return snap;
+  } catch (_) { return null; }
+}
+
+function lgSnapshotFieldIds() {
+  try { return JSON.parse(localStorage.getItem(LS_LG_FIELDIDS) || 'null'); } catch (_) { return null; }
+}
+
+/* ── time-period filter ───────────────────────────────────────────────
+   The chosen period is sent to the RELAY as absolute ISO timestamps and
+   becomes part of the server-side JQL — so "Last 30 days" (the default)
+   downloads only that window (~a few hundred issues) instead of the
+   whole project. "All time" fetches everything and shows the real count.
+   Quick buttons: 30 days · this month · this quarter · this year · all.
+   A custom calendar range covers everything in between. */
+
+const LS_LG_PERIOD = 'jp_fn_period_v1';
+
+/* local Date → "yyyy-MM-dd'T'HH:mm:ss.SSS±ZZZZ" (what Jira/JQL parses) */
+function lgIsoStamp(d) {
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  const off = -d.getTimezoneOffset();
+  const sign = off >= 0 ? '+' : '-';
+  const abs = Math.abs(off);
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +
+    '.' + pad(d.getMilliseconds(), 3) + sign + pad(Math.floor(abs / 60)) + pad(abs % 60);
+}
+
+/* start of day, local time */
+function lgDayStart(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
+
+/* end of day (23:59:59.999), local time */
+function lgDayEnd(d) { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; }
+
+/* compute the from/to window for a period kind. Returns {from,to} ISO
+   stamps (null = unbounded on that side) or null for 'all'. */
+function lgPeriodRange(kind, ref = new Date()) {
+  if (kind === 'all') return null;
+  if (kind === '30d') {
+    return { from: lgIsoStamp(lgDayStart(new Date(ref.getTime() - 29 * 86400000))), to: null };
+  }
+  if (kind === 'month') {
+    return { from: lgIsoStamp(lgDayStart(new Date(ref.getFullYear(), ref.getMonth(), 1))), to: null };
+  }
+  if (kind === 'quarter') {
+    const qm = Math.floor(ref.getMonth() / 3) * 3;
+    return { from: lgIsoStamp(lgDayStart(new Date(ref.getFullYear(), qm, 1))), to: null };
+  }
+  if (kind === 'year') {
+    return { from: lgIsoStamp(lgDayStart(new Date(ref.getFullYear(), 0, 1))), to: null };
+  }
+  /* custom — lgState.period already carries from/to Date ms */
+  const p = lgState.period;
+  if (p.fromMs == null) return null;
+  return {
+    from: lgIsoStamp(lgDayStart(new Date(p.fromMs))),
+    to: p.toMs != null ? lgIsoStamp(lgDayEnd(new Date(p.toMs))) : null,
+  };
+}
+
+/* persist the chosen kind (custom ranges also persist their dates) */
+function lgSavePeriod() {
+  try {
+    const { kind, fromMs, toMs } = lgState.period;
+    localStorage.setItem(LS_LG_PERIOD, JSON.stringify({ kind, fromMs, toMs }));
+  } catch (_) {}
+}
+
+function lgLoadPeriod() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS_LG_PERIOD) || 'null');
+    if (saved && ['30d', 'all', 'month', 'quarter', 'year', 'custom'].includes(saved.kind)) {
+      lgState.period = {
+        kind: saved.kind,
+        from: null, to: null,
+        fromMs: saved.kind === 'custom' ? saved.fromMs : undefined,
+        toMs: saved.kind === 'custom' ? saved.toMs : undefined,
+      };
+    }
+  } catch (_) {}
+}
+
+/* true when the on-screen rows came from a snapshot of THIS period */
+function lgSnapshotMatchesPeriod(snap) {
+  const want = lgState.period.kind;
+  const gotFrom = snap?.data?.period?.from || null;
+  const gotTo = snap?.data?.period?.to || null;
+  if (want === 'all') return !gotFrom && !gotTo;
+  if (want === 'custom') return false;   /* custom ranges always re-sync */
+  const range = lgPeriodRange(want);
+  if (!range) return false;
+  /* month/quarter/year windows drift (a new day/quarter starts) — the
+     snapshot must have been fetched for the SAME window boundaries */
+  return gotFrom === range.from && gotTo === range.to;
+}
+
+/* snapshot + field-ids storage keyed by period so switching between
+   "30d" and "All" doesn't thrash one shared cache slot */
+function lgSnapshotKey() {
+  return lgState.period.kind === 'custom'
+    ? LS_LG_SNAPSHOT + ':' + lgState.period.fromMs + '..' + lgState.period.toMs
+    : LS_LG_SNAPSHOT + ':' + lgState.period.kind;
+}
+
+function lgSaveSnapshot(data) {
+  try { localStorage.setItem(lgSnapshotKey(), JSON.stringify({ ts: Date.now(), data })); } catch (_) {}
+}
+
+function lgLoadSnapshot() {
+  try {
+    const raw = localStorage.getItem(lgSnapshotKey());
+    if (!raw) return null;
+    const snap = JSON.parse(raw);
+    if (!snap?.data?.issues?.length) return null;
+    return snap;
+  } catch (_) { return null; }
+}
+
+/* fetch the desk payload for the ACTIVE period.
+   `force=true` now means only "bypass our local 30s TTL cache" — the relay's
+   own per-window cache slot is still used, which is what keeps period
+   switches instant (a fresh=1 download of 4k+ issues takes >40s and trips
+   the timeout; serving the cached window is what makes 30d↔all snappy) */
+async function lgFetchDeskForce(force = false, opts = {}) {
+  if (!force && _lgCache && Date.now() - _lgCache.ts < LG_LIVE_TTL) return _lgCache.data;
+  const conn = loadConn();
+  const domain = conn?.domain ? String(conn.domain).replace(/^https?:\/\//, '') : JIRA_DOMAIN;
+  /* field ids learned earlier let the relay skip the field-catalog call */
+  const known = lgSnapshotFieldIds();
+  /* the period window itself: server-side JQL so a bounded period really
+     downloads only that slice of the project */
+  const range = lgPeriodRange(lgState.period.kind);
+  const url = PUB_RELAY + '?cmd=desk&project=' + encodeURIComponent(DESK_PROJECT) +
+    '&domain=' + encodeURIComponent(domain) +
+    (range?.from ? '&from=' + encodeURIComponent(range.from) : '') +
+    (range?.to ? '&to=' + encodeURIComponent(range.to) : '') +
+    (known?.direction ? '&directionField=' + encodeURIComponent(known.direction) : '') +
+    (known?.title ? '&titleField=' + encodeURIComponent(known.title) : '');
+  const headers = { 'Accept': 'application/json' };
+  if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
+  const controller = new AbortController();
+  if (typeof opts.signalCb === 'function') {
+    try { opts.signalCb(controller); } catch (_) {}
+  }
+  const timer = setTimeout(() => controller.abort(), 40000);
+  try {
+    const res = await fetch(url, { method: 'GET', headers, signal: controller.signal });
+    let data = null;
+    const text = await res.text();
+    try { data = JSON.parse(text); } catch (_) { /* non-json */ }
+    if (!res.ok) {
+      const err = new Error((data && (data.error || data.detail)) || `Desk fetch failed (HTTP ${res.status})`);
+      err.status = res.status;
+      throw err;
+    }
+    /* remember the resolved field ids to shorten the next sync */
+    if (data?.fieldIds?.direction) {
+      try { localStorage.setItem(LS_LG_FIELDIDS, JSON.stringify(data.fieldIds)); } catch (_) {}
+    }
+    _lgCache = { data, ts: Date.now() };
+    lgSaveSnapshot(data);   /* instant paint on the next visit */
+    return data;   /* { ok, cmd:'desk', project, count, fetchedAt, fieldIds, issues } */
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* normalize a Jira custom-field value to a display string
+   (handles plain values, Jira objects, arrays and cascading selects —
+   cascading shows "Parent / Child" like Jira's own display) */
+function lgNormCustom(v) {
+  if (v == null) return '';
+  if (typeof v === 'string' || typeof v === 'number') return String(v);
+  if (typeof v === 'object' && !Array.isArray(v)) {
+    if (v.value != null || v.child != null) {
+      const parent = v.value != null ? String(v.value) : '';
+      const child = v.child ? lgNormCustom(v.child) : '';
+      return child ? (parent + ' / ' + child) : parent;
+    }
+    return String(v.value ?? v.name ?? v.displayName ?? '');
+  }
+  if (Array.isArray(v)) return v.map(lgNormCustom).filter(Boolean).join(', ');
+  return '';
+}
+
+/* Jira ADF (Atlassian Document Format) → plain text, one line per block */
+function lgAdfText(doc) {
+  if (doc == null) return '';
+  if (typeof doc === 'string') return doc;
+  if (Array.isArray(doc)) return doc.map(lgAdfText).filter(Boolean).join('\n');
+  if (typeof doc !== 'object') return '';
+  let text = '';
+  if (Array.isArray(doc.content)) text = lgAdfText(doc.content);
+  else if (doc.text != null) text = String(doc.text);
+  /* paragraph-level nodes get a newline after them for readability */
+  if (doc.type === 'paragraph' || doc.type === 'heading' || doc.type === 'bulletList' ||
+      doc.type === 'orderedList' || doc.type === 'codeBlock' || doc.type === 'blockquote') {
+    return text ? text + '\n' : '';
+  }
+  return text;
+}
+
+/* first line(s) of the description for the compact table cell */
+function lgDescPreview(raw) {
+  const full = lgAdfText(raw).replace(/\r/g, '');
+  if (!full.trim()) return { one: '', full: '' };
+  const lines = full.split('\n').map((s) => s.trim()).filter(Boolean);
+  return { one: lines[0] || '', full: lines.join('\n') };
+}
+
+/* ── SLA goals + per-row SLA state (mirrors the admin panel) ──────────
+   Goals come from the relay (?cmd=sla:set in the admin panel) and are
+   cached in LS so the column renders even when the relay hiccups. */
+let _lgSlaGoalsFetch = null;
+async function lgFetchSlaGoals() {
+  if (_lgSlaGoalsFetch) return _lgSlaGoalsFetch;
+  _lgSlaGoalsFetch = (async () => {
+    try {
+      const r = await fetch(PUB_RELAY + '?cmd=sla:get');
+      if (r.ok) {
+        const j = await r.json();
+        if (j && j.ok && j.goals && isFinite(j.goals.respHours) && isFinite(j.goals.resHours)) {
+          lgState.slaGoals = { respHours: Number(j.goals.respHours), resHours: Number(j.goals.resHours) };
+          try { localStorage.setItem(LS_LG_SLA_GOALS, JSON.stringify(lgState.slaGoals)); } catch (_) {}
+          return;
+        }
+      }
+    } catch (_) {}
+    try {
+      const saved = JSON.parse(localStorage.getItem(LS_LG_SLA_GOALS) || 'null');
+      if (saved && isFinite(saved.respHours) && isFinite(saved.resHours)) lgState.slaGoals = saved;
+    } catch (_) {}
+  })();
+  return _lgSlaGoalsFetch;
+}
+
+/* format an SLA duration compactly for the badge: 45m · 1h 24m · 6h · 3d */
+function lgFmtSla(ms) {
+  if (!(ms > 0)) return '—';
+  const h = ms / 3600e3;
+  if (h >= 48) return Math.round(ms / 864e5) + 'd';
+  const hi = Math.floor(h), mi = Math.round((h - hi) * 60);
+  return mi && hi < 8 ? `${hi}h ${mi}m` : `${hi}h`;
+}
+
+/* badge chip html for one SLA aspect */
+function lgSlaChip(state, val, title) {
+  const cls = { in: 'lg-st-done', out: 'lg-st-breach', overdue: 'lg-st-breach', pending: 'lg-st-wait', nodata: 'lg-st-other' }[state] || 'lg-st-other';
+  return `<span class="lg-st-badge ${cls}" title="${escapeHtml(title)}">${escapeHtml(val)}</span>`;
+}
+
+/* ═══ SLA WORKING-HOURS CLOCK (mirrors admin-app: Mon–Fri 02:00–10:00 Tbilisi) ═══
+   Goals are WORKING hours; Georgia is UTC+4 year-round so the measurement
+   uses shifted integer math — the viewer's local zone can never skew it. */
+const LG_SLA_TZ_OFF = 4 * 3600e3, LG_SLA_WIN_START = 2 * 3600e3, LG_SLA_WIN_END = 10 * 3600e3;
+function lgsWhSpanMs(fromMs, toMs) {
+  if (!(toMs > fromMs)) return 0;
+  const a = fromMs + LG_SLA_TZ_OFF, b = toMs + LG_SLA_TZ_OFF;
+  const aD = Math.floor(a / 864e5), bD = Math.floor(b / 864e5);
+  let total = 0;
+  for (let d = aD; d <= bD; d++) {
+    const wd = (d + 4) % 7;             /* 1970-01-01 was Thursday → 0=Sun */
+    if (wd === 0 || wd === 6) continue; /* Sat/Sun — clock paused */
+    const day0 = d * 864e5;
+    const lo = Math.max(a, day0 + LG_SLA_WIN_START);
+    const hi = Math.min(b, day0 + LG_SLA_WIN_END);
+    if (hi > lo) total += hi - lo;
+  }
+  return total;
+}
+
+/* map one JSM-native SLA aspect ({elapsedMs, goalMs, breached, completed,
+   startMs, stopMs}) into the row's SLA state — same keys lgSlaRow produces,
+   so loggerisks/cells/filters/sorts keep working unchanged. Verdict (green/
+   red) comes from Jira's own `breached` flag, NOT from our working-hours
+   re-estimate: JSM's clock is the exact one the agent view shows. */
+function lgSlaApplyNative(r, sla) {
+  if (!sla || typeof sla !== 'object') return;
+  /* Jira's NEW_SLA_FORMAT quirk (probed on this instance): COMPLETED cycles
+     are often booked a PAUSED-CLOCK SLIVER — elapsedMs 0 or a ~2-second
+     cluster (probed 1886/1972/2100/2338/2387/2441 ms) — while startMs/
+     stopMs hold the real settlement window. Probed truth: NO real first
+     reply on this desk lands under 1 minute, so any completed cycle booked
+     under 1 minute is suspect and its real startMs→stopMs window is
+     preferred (working-clock span first, wall-clock fallback for
+     settlements outside Mon–Fri 02:00–10:00). Verdict stays Jira's own
+     breached flag either way. */
+  const ARTIFACT_MS = 60e3;
+  const mk = (a) => {
+    if (!a || !a.completed) return null;
+    let ms = Number(a.elapsedMs) || 0;
+    if (ms < ARTIFACT_MS && a.stopMs && a.startMs) {
+      const w = lgsWhSpanMs(Number(a.startMs), Number(a.stopMs)) ||
+        (Number(a.stopMs) - Number(a.startMs));
+      if (w > ms) ms = w;
+    }
+    return { ms, state: a.breached ? 'out' : 'in' };
+  };
+  let resp = mk(sla.resp);
+  const res = mk(sla.res);
+  /* "Resolution: Set" is ALSO a first-response stop on this instance's
+     goal — once the task is resolved its response clock cannot run
+     further, and Jira often leaves the response cycle unsettled-or-stuck:
+     missing entirely, or completed while the clock sat paused.
+     Display rule per product: a GENUINE earlier first response
+     (>= 1m and <= resolution span) stays as-is; otherwise (missing,
+     sub-minute artifact, or later than resolution) the response field
+     shows the resolution span — red when it passes the 2h goal — so a
+     task settled on first response shows BOTH fields identical. */
+  const respGoal = ((lgState.slaGoals || {}).respHours || 2) * 3600e3;
+  /* the bulk payload often ships the response cycle alone (res cycle
+     missing or still uncompleted) — fall back to the row's own computed
+     created→resolved span so the rule below still applies */
+  const resSpan = (res && res.ms) || r.resMs || 0;
+  if (resSpan && (!resp || resp.ms < ARTIFACT_MS || resp.ms > resSpan)) {
+    /* paused/unknown cycles inherit the RESOLUTION window as the effective
+       first-response stop — not the 2-second clock-sliver stop — so the
+       row's respAtMs points at the real response moment */
+    const effStart = sla.res?.startMs ?? (sla.resp && sla.resp.startMs);
+    const effStop = sla.res?.stopMs ?? (sla.resp && sla.resp.stopMs);
+    resp = { ms: resSpan, state: resSpan <= respGoal ? 'in' : 'out' };
+    sla.resp = Object.assign({}, sla.resp || {
+      startMs: effStart, stopMs: effStop, goalMs: respGoal
+    }, { completed: true, breached: resp.state === 'out', elapsedMs: resSpan, startMs: effStart, stopMs: effStop });
+  } else if (resp && resp.ms < ARTIFACT_MS && !resSpan) {
+    /* artifact sliver on a NOT-yet-resolved row: the sliver tells nothing —
+       unset the fake completion so the chips fall back to the comment
+       clock / live working clock instead of an impossible "0h" */
+    sla.resp = Object.assign({}, sla.resp, { completed: false, elapsedMs: 0 });
+    resp = null;
+  }
+  if (resp) { r.respMs = resp.ms; r.respAtMs = Number(sla.resp.stopMs) || r.respAtMs; r.respState = resp.state; }
+  if (res) {
+    r.resMs = res.ms; r.resState = res.state;
+    /* mirror of the resp quirk: the cell/card render the RAW payload —
+       patch it whenever mk() recovered a DIFFERENT span (raw 0m over a
+       real window, or a longer window under a sub-minute raw) so every
+       native consumer shows the real span (a task resolved on first
+       response then shows BOTH fields identical). */
+    if ((Number(sla.res.elapsedMs) || 0) !== res.ms) {
+      sla.res = Object.assign({}, sla.res, { elapsedMs: res.ms });
+    }
+  }
+  /* keep the native payload so the card can show exact settled times
+     (nat.resp was patched above, so cells/cards stay consistent) */
+  r.slaNative = sla;
+}
+
+/* SLA state per row — called from lgNormalize AFTER each row is built.
+   First response = earliest REAL comment we hold by someone other than the
+   reporter (the relay keeps only the last 10 comments, so a long silent
+   thread can be missing its first reply — we use what we have; if nothing
+   qualifies the aspect is 'nodata'). Resolution = created → resolved,
+   measured in WORKING hours (clock ticks Mon–Fri 02:00–10:00 Tbilisi).
+   Open tasks get a live working clock: 'pending' inside the goal,
+   'overdue' once past it. */
+function lgSlaRow(r) {
+  const g = lgState.slaGoals || { respHours: 2, resHours: 30 };
+  const respGoal = (g.respHours || 2) * 3600e3;   /* working-ms */
+  const resGoal = (g.resHours || 30) * 3600e3;
+  const now = Date.now();
+  const rep = (r.reporter || '').toLowerCase().trim();
+  let respAt = 0;
+  for (const c of r.comments || []) {
+    const au = (c.author || '').toLowerCase().trim();
+    if (c.created && (rep ? (au && au !== rep) : !!au)) { respAt = c.created; break; }
+  }
+  r.respAtMs = respAt || 0;
+  /* zero working-span is a REAL measurement (reply in the same evening /
+     weekend, outside Mon–Fri 02:00–10:00): fall back to the wall-clock
+     span so the response field shows the real elapsed time — e.g. a task
+     answered at resolution time shows the SAME duration in both fields,
+     red when it passes the response goal. */
+  r.respMs = respAt ? (lgsWhSpanMs(r.created, respAt) || (respAt - r.created)) : 0;
+  r.elapsedMs = lgsWhSpanMs(r.created, now);
+  if (r.resolvedAt) {
+    /* zero working-span is a REAL measurement, not missing data: tasks
+       created AND settled outside Mon–Fri 02:00–10:00 (same-evening /
+       weekend work) span no calendar working time. Fall back to the
+       wall-clock span so they land in in/out instead of the gray nodata
+       bucket that used to swallow ~40% of all resolved work. */
+    const resSpan = lgsWhSpanMs(r.created, r.resolvedAt);
+    r.resMs = resSpan || (r.resolvedAt - r.created);
+    /* response goal stops wider than the comment thread (Assignee change,
+       In-Progress walk, Resolution Set) — same honesty rule as the admin
+       side: with no visible non-reporter reply it stays nodata, except the
+       bound below (settled within the response goal ⇒ response was in). */
+    /* Resolution Set is a first-response stop on the JSM goal: once the
+       task is resolved the response clock CANNOT run further — a task
+       resolved at +1m whose last comment lands +1h54m shows BOTH fields
+       at the resolution time (red when it passes the response goal),
+       never the slower comment time. */
+    if (r.resMs && r.respMs > r.resMs) { r.respMs = r.resMs; r.respAtMs = r.resolvedAt || 0; }
+    if (r.resMs && !r.respMs) { r.respMs = r.resMs; r.respAtMs = r.resolvedAt || 0; }
+    r.respState = r.respMs ? (r.respMs <= respGoal ? 'in' : 'out') : 'nodata';
+    r.resState = r.resMs ? (r.resMs <= resGoal ? 'in' : 'out') : 'nodata';
+  } else {
+    r.resMs = 0;
+    r.respState = respAt ? (r.respMs <= respGoal ? 'in' : 'out') : (r.elapsedMs > respGoal ? 'overdue' : 'pending');
+    r.resState = r.elapsedMs > resGoal ? 'overdue' : 'pending';
+  }
+  return r;
+}
+
+/* compact SLA cell: response chip + resolution chip on one mini-row.
+   JSM-native cycles (r.slaNative, hydrated async per row) win when the
+   aspect is COMPLETED — for unsettled aspects the live working clock is
+   still the better display (JSM's ongoing elapsed can sit at a paused 0m). */
+function lgSlaCellHtml(r) {
+  const g = lgState.slaGoals || { respHours: 2, resHours: 30 };
+  const nat = r.slaNative || null;
+  const natResp = nat?.resp && nat.resp.completed ? nat.resp : null;
+  const natRes = nat?.res && nat.res.completed ? nat.res : null;
+  const fmtGoalH = (ms, fb) => (ms > 0 ? lgFmtSla(ms) : fb + ' working h');
+  const resp = natResp
+    ? lgSlaChip(natResp.breached ? 'out' : 'in', lgFmtSla(natResp.elapsedMs),
+        t('lg.sla.respTitle') + ': ' + lgFmtSla(natResp.elapsedMs) + ' / ' + fmtGoalH(natResp.goalMs, g.respHours || 2))
+    : r.resolvedAt && r.resMs > 0
+      /* display guarantee (global): a RESOLVED task always has a first
+         response — "Resolution Set" is a first-response stop on this
+         goal, so the resolution span IS the effective first-response
+         time. When every earlier measurement is missing the response
+         chip falls back to the resolution span (same duration) instead
+         of an impossible "–". Open rows keep the comment clock. */
+      ? r.respMs > 0
+        ? lgSlaChip(r.respState === 'nodata' ? r.resState : r.respState,
+            lgFmtSla(r.respMs), t('lg.sla.respTitle') + ': ' + lgFmtSla(r.respMs) + ' / ' + (g.respHours || 2) + ' working h')
+        : lgSlaChip(r.resState, lgFmtSla(r.resMs), t('lg.sla.respTitle') + ': ' + lgFmtSla(r.resMs) + ' / ' + (g.respHours || 2) + ' working h')
+      : r.respState === 'nodata' || !r.respAtMs
+        ? lgSlaChip('nodata', '–', t('lg.sla.nodata'))
+        : lgSlaChip(r.respState, lgFmtSla(r.respMs), t('lg.sla.respTitle') + ': ' + lgFmtSla(r.respMs) + ' / ' + (g.respHours || 2) + ' working h');
+  const res = natRes
+    ? lgSlaChip(natRes.breached ? 'out' : 'in', lgFmtSla(natRes.elapsedMs),
+        t('lg.sla.resTitle') + ': ' + lgFmtSla(natRes.elapsedMs) + ' / ' + fmtGoalH(natRes.goalMs, g.resHours || 30))
+    : r.resState === 'pending' || r.resState === 'overdue'
+      ? lgSlaChip(r.resState, lgFmtSla(r.elapsedMs) + ' /', t('lg.sla.resRunning') + ' ' + lgFmtSla(r.elapsedMs))
+      : r.resMs > 0
+        ? lgSlaChip(r.resState, lgFmtSla(r.resMs), t('lg.sla.resTitle') + ': ' + lgFmtSla(r.resMs) + ' / ' + (g.resHours || 30) + ' working h')
+        : lgSlaChip('nodata', '–', t('lg.sla.nodata'));
+  return `<div class="lg-mini-row">${resp} ${res}</div>`;
+}
+
+/* relay issues → flat display rows (with defense-in-depth Internal filter) */
+function lgNormalize(data) {
+  const dirId = data.fieldIds?.direction || null;
+  const rows = [];
+  for (const iss of (data.issues || [])) {
+    const f = iss.fields || {};
+    const labels = (f.labels || []).map(String);
+    if (labels.some((l) => l.toLowerCase() === DESK_EXCLUDE_LABEL)) continue;
+
+    const direction = dirId ? lgNormCustom(f[dirId]) : '';
+    const desc = lgDescPreview(f.description);
+
+    /* comments come pre-slimmed from the relay: last 3, plain-text bodies;
+       idx = the comment's position in Jira's FULL list (comment attachments
+       from ?cmd=deskAttach are anchored against this full-list index).
+       📷 markers are carried in `media` and stripped from the body — the
+       paired attachment renders as a chip/thumb in the comment's slot, so
+       the raw emoji must never show (this instance often QUEUES inline
+       media with an EMPTY ADF alt AND an empty attachment mediaId, which
+       the relay's exact matcher can't link) */
+    const rawComments = Array.isArray(f.comment) ? f.comment : [];
+    const comments = rawComments.map((c) => {
+      const media = Array.isArray(c?.media)
+        ? c.media.map((m) => ({ id: String(m?.id || ''), alt: String(m?.alt || '') }))
+        : [];
+      const body = String(c?.body || '').replace(/\r/g, '').replace(/\s*📷\s*/g, ' ').trim();
+      return {
+        author: String(c?.author || ''),
+        created: c?.created ? Date.parse(c.created) : 0,
+        body,
+        _idx: typeof c.idx === 'number' ? c.idx : null,
+        media,
+      };
+    }).filter((c) => c.body || c.media.length);
+
+    /* attachment presence (filename + mime only, no binaries — the relay
+       sends them in the bulk payload just for the 📎 badge on table rows) */
+    const attFiles = (Array.isArray(f.attachment) ? f.attachment : [])
+      .map((a) => ({ filename: String(a?.filename || ''), mimeType: String(a?.mimeType || '') }))
+      .filter((a) => a.filename);
+
+    /* ordered description media (media UUID + alt filename) — the card
+       paints one slot per 📷 marker in the text and slots the matching
+       ?cmd=deskAttach attachment into each (mirrors root app's jpPlaceDescAttachments) */
+    const descMedia = Array.isArray(f.descMedia)
+      ? f.descMedia.map((m) => ({ id: String(m?.id || ''), alt: String(m?.alt || '') }))
+      : [];
+    const num = parseInt(String(iss.key).split('-')[1], 10) || 0;
+    /* pre-build the lowercase search haystack once per row — lgFiltered()
+       used to rebuild this (descFull + all comment bodies) on every render
+       call, which was one of the biggest wastes on page-size switches */
+    const hay = (iss.key + ' ' + (f.summary || '') + ' ' + desc.full + ' ' + (f.status?.name || '') + ' ' +
+      (f.reporter?.displayName || '') + ' ' + (f.assignee?.displayName || '') + ' ' + direction + ' ' +
+      comments.map((c) => c.author + ' ' + c.body).join(' ')
+    ).toLowerCase();
+    rows.push({
+      key: iss.key,
+      num,
+      href: 'https://' + JIRA_DOMAIN + '/browse/' + encodeURIComponent(iss.key),
+      summary: f.summary || '',
+      descOne: desc.one,
+      descFull: desc.full,
+      status: f.status?.name || '',
+      reporter: f.reporter?.displayName || '',
+      assignee: f.assignee?.displayName || '',
+      created: f.created ? Date.parse(f.created) : 0,
+      updated: f.updated ? Date.parse(f.updated) : 0,
+      /* SLA goal finishes on "Resolution: Set OR Entered Status: Done" — a
+         task parked in a done-class status WITHOUT a resolutiondate is
+         still settled; use updated as the settlement moment (mirrors the
+         admin side's resolvedAt fallback and the root board's
+         issueCompletedAt changelog walk). */
+      resolvedAt: f.resolutiondate ? Date.parse(f.resolutiondate)
+        : (lgStatusClass(f.status?.name || '') === 'lg-st-done' ? (Date.parse(f.updated) || 0) : 0),
+      rdReal: f.resolutiondate ? true : false,
+      direction,
+      comments,
+      attFiles,
+      descMedia,
+      hay,
+    });
+    lgSlaRow(rows[rows.length - 1]);   /* SLA compute needs the final row shape */
+    /* Jira's OWN SLA cycles ship in the bulk payload now — apply them right
+       after the approximation so list chips, filters and stats card all come
+       from the same verdicts the agent view shows (completed aspects only;
+       open tasks keep the live working clock). */
+    if (f.sla || f.slaRes) {
+      lgSlaApplyNative(rows[rows.length - 1], { resp: f.sla || null, res: f.slaRes || null });
+      rows[rows.length - 1].slaBulk = true;
+    }
+  }
+  return rows;
+}
+
+/* ── table engine: filters + sort + render ─────────────────────────── */
+function lgDistinct(col) {
+  const s = new Set();
+  lgState.rows.forEach((r) => { if (r[col]) s.add(r[col]); });
+  return [...s].sort((a, b) => String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }));
+}
+
+/* per-column dropdowns: status / reporter / assignee / direction.
+   each select sits under a visible mini label so it's clear what filters what.
+   The PERIOD control sits at the far end of the bar (where the user asked
+   for it): a select with quick ranges + a calendar popup for custom ones.
+   Changing it re-syncs data from the relay with a narrowed server-side
+   JQL window — it does NOT merely filter already-downloaded rows. */
+function lgBuildFilterBar() {
+  const bar = $('#lgFilterBar');
+  if (!bar) return;
+  const mk = (id, col, labelKey) => {
+    const opts = lgDistinct(col).map((v) =>
+      `<option value="${escapeHtml(v)}"${lgState.filters[col] === v ? ' selected' : ''}>${escapeHtml(v)}</option>`).join('');
+    return `<div class="lg-filter-item">` +
+      `<span class="lg-filter-label">${escapeHtml(t(labelKey))}</span>` +
+      `<select id="${id}" class="input tl-select" data-col="${col}" aria-label="${escapeHtml(t(labelKey))}">` +
+      `<option value="">${escapeHtml(t('lg.filterAll'))}</option>${opts}</select></div>`;
+  };
+  /* DIRECTION uses a CUSTOM dropdown (not a native <select>): direction names
+     are long multi-part strings that a native select clips to one line or
+     pushes off-screen. In the popup each option wraps to 2-3 lines and stays
+     one clearly selectable object (hover + selected state, opaque panel). */
+  const dirAll = lgDistinct('direction');
+  const dirSel = lgState.filters.direction;
+  const dirBtnLabel = dirSel || t('lg.filterAll');
+  const dirItem =
+    `<div class="lg-filter-item lg-dir-item">` +
+    `<span class="lg-filter-label">${escapeHtml(t('lg.fLabel.direction'))}</span>` +
+    `<div class="lg-dir-wrap">` +
+    `<button type="button" id="lgFDirBtn" class="input tl-select lg-dir-btn" data-col="direction" aria-label="${escapeHtml(t('lg.fLabel.direction'))}" aria-haspopup="listbox" aria-expanded="false">` +
+    `<span class="lg-dir-btn-text${dirSel ? '' : ' lg-dir-btn-placeholder'}">${escapeHtml(dirBtnLabel)}</span>` +
+    `</button>` +
+    `<div id="lgDirPop" class="lg-dir-pop hidden" role="listbox">` +
+    `<button type="button" class="lg-dir-opt${dirSel ? '' : ' active'}" role="option" data-val="">${escapeHtml(t('lg.filterAll'))}</button>` +
+    dirAll.map((v) =>
+      `<button type="button" class="lg-dir-opt${dirSel === v ? ' active' : ''}" role="option" data-val="${escapeHtml(v)}">${escapeHtml(v)}</button>`).join('') +
+    `</div></div></div>`;
+  /* period control: a BUTTON under the same style of label the other filter
+     dropdowns have (label on top, control below — visually parallel).
+     Clicking it opens the popup, which holds the quick-range buttons
+     (30d / month / quarter / year / all) + the custom calendar range. */
+  const per = lgState.period;
+  const perTitle = per.kind === '30d' ? t('lg.period.30d')
+    : per.kind === 'all' ? t('lg.period.all')
+    : per.kind === 'month' ? t('lg.period.thisMonth')
+    : per.kind === 'quarter' ? t('lg.period.thisQuarter')
+    : per.kind === 'year' ? t('lg.period.thisYear')
+    : per.kind === 'custom' && per.fromMs != null
+      ? lgIsoStamp(new Date(per.fromMs)).slice(0, 10) +
+        (per.toMs != null ? ' … ' + lgIsoStamp(new Date(per.toMs)).slice(0, 10) : ' …')
+      : t('lg.period.custom');
+  const perItem =
+    `<div class="lg-filter-item lg-period-item">` +
+    `<span class="lg-filter-label">${escapeHtml(t('lg.fLabel.period'))}</span>` +
+    `<div class="lg-period-wrap">` +
+    `<button type="button" id="lgFPeriodBtn" class="input tl-select lg-period-btn-top" aria-label="${escapeHtml(t('lg.fLabel.period'))}">` +
+    `🗓 ${escapeHtml(perTitle)}</button>` +
+    `<div id="lgPeriodPop" class="lg-period-pop hidden">` +
+    `<div class="lg-period-pop-quick">` +
+    [[ '30d', 'lg.period.30d' ], [ 'month', 'lg.period.thisMonth' ],
+     [ 'quarter', 'lg.period.thisQuarter' ], [ 'year', 'lg.period.thisYear' ],
+     [ 'all', 'lg.period.all' ]].map(([k, key]) =>
+      `<button type="button" class="lg-period-quick${per.kind === k ? ' active' : ''}" data-pkind="${k}">${escapeHtml(t(key))}</button>`).join('') +
+    `</div>` +
+    `<div class="lg-period-pop-row">` +
+    `<label>${escapeHtml(t('lg.period.from'))}<input type="date" id="lgPeriodFrom" class="input"></label>` +
+    `<label>${escapeHtml(t('lg.period.to'))}<input type="date" id="lgPeriodTo" class="input"></label>` +
+    `</div>` +
+    `<div class="lg-period-pop-actions">` +
+    `<button type="button" id="lgPeriodCancel" class="btn ghost lg-period-btn">${escapeHtml(t('lg.period.cancel'))}</button>` +
+    `<button type="button" id="lgPeriodApply" class="btn primary lg-period-btn">${escapeHtml(t('lg.period.apply'))}</button>` +
+    `</div>` +
+    `</div>` +
+    `</div></div>`;
+  /* SLA filter: fixed states (not per-value distinct like the other selects) —
+     'late' groups measured breaches (out) with still-open overdue tasks,
+     matching how managers actually ask: "show me what's late". */
+  const SLA_FILTER_OPTS = [['', 'lg.filterAll'], ['in', 'lg.sla.in'], ['late', 'lg.sla.late'], ['out', 'lg.sla.out'], ['pending', 'lg.sla.pending'], ['overdue', 'lg.sla.overdue'], ['nodata', 'lg.sla.nodata']];
+  const slaSel = lgState.filters.sla || '';
+  const slaItem =
+    `<div class="lg-filter-item">` +
+    `<span class="lg-filter-label">${escapeHtml(t('lg.fLabel.sla'))}</span>` +
+    `<select id="lgFSla" class="input tl-select" data-col="sla" aria-label="${escapeHtml(t('lg.fLabel.sla'))}">` +
+    SLA_FILTER_OPTS.map(([v, key]) =>
+      `<option value="${v}"${slaSel === v ? ' selected' : ''}>${escapeHtml(t(key))}</option>`).join('') +
+    `</select></div>`;
+  bar.innerHTML =
+    mk('lgFStatus', 'status', 'lg.fLabel.status') +
+    mk('lgFReporter', 'reporter', 'lg.fLabel.reporter') +
+    mk('lgFAssignee', 'assignee', 'lg.fLabel.assignee') +
+    dirItem +
+    slaItem +
+    perItem;
+  bar.querySelectorAll('select[data-col]').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      lgState.filters[sel.dataset.col] = sel.value;
+      lgState.pageSize = lgBasePageSize();   /* new filter → back to page 1 */
+      lgRenderRows();
+    });
+  });
+
+  /* ── direction dropdown wiring ──
+     Trigger button toggles the popup; clicking an option applies the filter
+     (filters are client-side, so NO relay re-sync — just re-render) and
+     closes it. The trigger caption then shows the pick. */
+  const dirBtn = $('#lgFDirBtn');
+  const dirPop = $('#lgDirPop');
+  const closeDir = () => { dirPop.classList.add('hidden'); dirBtn.setAttribute('aria-expanded', 'false'); };
+  dirBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (dirPop.classList.contains('hidden')) {
+      dirPop.classList.remove('hidden');
+      dirBtn.setAttribute('aria-expanded', 'true');
+    } else closeDir();
+  });
+  dirPop.querySelectorAll('.lg-dir-opt').forEach((b) => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      lgState.filters.direction = b.dataset.val;
+      closeDir();
+      lgBuildFilterBar();   /* refresh the trigger caption + active state */
+      lgState.pageSize = lgBasePageSize();   /* new filter → back to page 1 */
+      lgRenderRows();
+    });
+  });
+
+  /* ── period wiring ──
+     The trigger is now a BUTTON: clicking it opens the popup with quick-range
+     buttons + calendar. The From/To inputs are ALWAYS prefilled with the
+     last-30-days dates (or the active custom range), so the calendar is
+     ready to tweak immediately — exactly the behavior the user asked for. */
+  const pop = $('#lgPeriodPop');
+  /* yyyy-mm-dd in LOCAL time (toISOString would shift back one calendar day
+     at +04:00 whenever the local time is before 04:00 UTC-offset order) */
+  const localDate = (d) => {
+    const pad = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  };
+  const prefillRange = () => {
+    const fromInp = $('#lgPeriodFrom');
+    const toInp = $('#lgPeriodTo');
+    let fromMs, toMs;
+    if (per.kind === 'custom' && per.fromMs != null) {
+      /* keep the active custom range so Apply/Cancel are reversible */
+      fromMs = per.fromMs;
+      toMs = per.toMs;
+    } else {
+      /* ALWAYS prefill the calendar with the last 30 days — the period the
+         user asked the calendar to open with */
+      fromMs = lgDayStart(new Date(Date.now() - 29 * 86400000)).getTime();
+      toMs = lgDayStart(new Date()).getTime();
+    }
+    fromInp.value = localDate(new Date(fromMs));
+    toInp.value = toMs != null ? localDate(new Date(toMs)) : '';
+  };
+  const openPop = () => { prefillRange(); pop.classList.remove('hidden'); };
+  const periodChanged = () => {
+    lgSavePeriod();
+    lgBuildFilterBar();   /* refresh the button caption + active state */
+    lgState.pageSize = lgBasePageSize();   /* new period → back to page 1 */
+    lgLoad(true);   /* re-sync with the narrowed server-side window */
+  };
+  $('#lgFPeriodBtn').addEventListener('click', () => {
+    if (pop.classList.contains('hidden')) openPop(); else pop.classList.add('hidden');
+  });
+  pop.querySelectorAll('.lg-period-quick').forEach((b) => {
+    b.addEventListener('click', () => {
+      lgState.period = { kind: b.dataset.pkind, from: null, to: null };
+      pop.classList.add('hidden');
+      periodChanged();
+    });
+  });
+  $('#lgPeriodApply').addEventListener('click', () => {
+    const fv = $('#lgPeriodFrom').value;
+    const tv = $('#lgPeriodTo').value;
+    if (!fv) { toast(t('lg.period.from') + ' — ' + t('lg.period.apply')); return; }
+    lgState.period = {
+      kind: 'custom', from: null, to: null,
+      fromMs: lgDayStart(new Date(fv + 'T00:00:00')).getTime(),
+      toMs: tv ? lgDayStart(new Date(tv + 'T00:00:00')).getTime() : null,
+    };
+    if (lgState.period.toMs != null && lgState.period.toMs < lgState.period.fromMs) {
+      const tmp = lgState.period.fromMs;
+      lgState.period.fromMs = lgState.period.toMs;
+      lgState.period.toMs = tmp;
+    }
+    pop.classList.add('hidden');
+    periodChanged();
+  });
+  $('#lgPeriodCancel').addEventListener('click', () => {
+    pop.classList.add('hidden');
+    lgBuildFilterBar();   /* restore the button to the actually-active period */
+  });
+}
+
+/* single global outside-click closer for the period popup (attached once —
+   lgBuildFilterBar() rebuilds the bar often, and per-rebuild listeners
+   would stack up) */
+document.addEventListener('click', (e) => {
+  /* direction popup */
+  const dirPop = $('#lgDirPop');
+  if (dirPop && !dirPop.classList.contains('hidden')) {
+    const dirTrigger = $('#lgFDirBtn');
+    if (!((dirTrigger && dirTrigger.contains(e.target)) || dirPop.contains(e.target))) {
+      dirPop.classList.add('hidden');
+      if (dirTrigger) dirTrigger.setAttribute('aria-expanded', 'false');
+    }
+  }
+  const pop = $('#lgPeriodPop');
+  if (!pop || pop.classList.contains('hidden')) return;
+  const trigger = $('#lgFPeriodBtn');
+  if ((trigger && trigger.contains(e.target)) || pop.contains(e.target)) return;
+  pop.classList.add('hidden');
+  if (typeof lgBuildFilterBar === 'function') lgBuildFilterBar();
+});
+
+/* global search + per-column filters + sort → filtered row array.
+   The (query, filters, sort, data-generation) → result mapping is memoized:
+   lgRenderRows() only needs the same full filtered list regardless of the
+   page size, so switching page sizes no longer re-filters and re-sorts the
+   whole dataset — it reuses the memo. Any input change rebuilds once. */
+let _lgFiltMemo = { key: '', rows: null };
+
+function lgFilteredKey() {
+  return lgState.q + '\u0001' + lgState.filters.status + '\u0001' +
+    lgState.filters.reporter + '\u0001' + lgState.filters.assignee + '\u0001' +
+    lgState.filters.direction + '\u0001' + lgState.filters.sla + '\u0001' +
+    lgState.rows.length + ':' + lgRowToken + '\u0001' +
+    lgState.sort.col + ':' + lgState.sort.dir;
+}
+
+function lgFiltered() {
+  const key = lgFilteredKey();
+  if (_lgFiltMemo.rows && _lgFiltMemo.key === key) return _lgFiltMemo.rows;
+  const q = lgState.q.trim().toLowerCase();
+  const rows = lgState.rows.filter((r) => {
+    if (lgState.filters.status && r.status !== lgState.filters.status) return false;
+    if (lgState.filters.reporter && r.reporter !== lgState.filters.reporter) return false;
+    if (lgState.filters.assignee && r.assignee !== lgState.filters.assignee) return false;
+    if (lgState.filters.direction && r.direction !== lgState.filters.direction) return false;
+    /* SLA filter: 'late' is the manager view — measured breaches AND still-open
+       overdue tasks in one bucket; the other values match the state directly
+       (response OR resolution in that state shows the row) */
+    if (lgState.filters.sla) {
+      const f = lgState.filters.sla;
+      const hit = f === 'late'
+        ? (r.respState === 'out' || r.resState === 'out' || r.respState === 'overdue' || r.resState === 'overdue')
+        : (r.respState === f || r.resState === f);
+      if (!hit) return false;
+    }
+    if (!q) return true;
+    /* haystack was pre-built (lowercased) once per row in lgNormalize —
+       see `hay` there. Same search behavior, ~zero rebuild cost. */
+    return r.hay.includes(q);
+  });
+  const { col, dir } = lgState.sort;
+  const mul = dir === 'asc' ? 1 : -1;
+  /* worse SLA state = bigger rank, so a desc sort floats the late tasks up */
+  const SLA_RANK = { in: 0, pending: 1, nodata: 2, overdue: 3, out: 4 };
+  const slaWorst = (r) => Math.max(SLA_RANK[r.respState] || 0, SLA_RANK[r.resState] || 0);
+  rows.sort((a, b) => {
+    let r;
+    if (col === 'created' || col === 'updated') r = (a[col] || 0) - (b[col] || 0);
+    else if (col === 'key') r = a.num - b.num;   /* FIN-123 → 123 */
+    else if (col === 'comments') r = a.comments.length - b.comments.length;
+    else if (col === 'sla') r = slaWorst(a) - slaWorst(b);
+    else r = String(a[col] || '').localeCompare(String(b[col] || ''), undefined, { sensitivity: 'base' });
+    return r * mul;
+  });
+  _lgFiltMemo = { key, rows };
+  return rows;
+}
+
+/* ── per-row HTML cache (performance-only, no behavior change) ────────
+   lgRowHtml output depends only on (row data, LANG), yet it was recomputed
+   for every visible row on EVERY render call: page-size switches, filter
+   changes, sort clicks, language switches and Refreshes all re-escaped the
+   same strings (incl. 2 date formats + full comment tooltips per row).
+   Cached HTML lives on the row itself (`_h`) with a generation token —
+   so any request for an older generation transparently re-renders.
+   Generation bumps:
+     • setLang()           — lang strings changed, rebuild
+     • after lgNormalize() — fresh row objects, fresh cache
+   Cached rows themselves are thrown away with each new data load, so there
+   is no unbounded growth on Refresh. */
+let lgRowToken = 0;
+function lgBumpRows() {
+  lgRowToken++;
+}
+
+function lgRowHtml(r) {
+  /* hit: same row object, same language, same data generation */
+  if (r._h !== undefined && r._hLang === LANG && r._hTok === lgRowToken) return r._h;
+  const html = lgRowHtmlUncached(r);
+  r._h = html;
+  r._hLang = LANG;
+  r._hTok = lgRowToken;
+  return html;
+}
+
+function lgRowHtmlUncached(r) {
+  /* key opens the in-app task card instead of navigating to Jira.
+     The 📎 badge marks tasks that carry files (issue or comment
+     attachments — count from the bulk payload) and sits at the TOP-RIGHT
+     of the title line, above the description / beside diagram feed */
+  const attN = (r.attFiles || []).length;
+  const attBadge = attN
+    ? `<a href="#" class="lg-open-card lg-att-badge" data-key="${escapeHtml(r.key)}" title="${escapeHtml(t('lg.row.hasFiles') + ' (' + attN + ')')}" data-i18n-title="lg.row.hasFiles" aria-label="${escapeHtml(t('lg.row.hasFiles'))}">📎${attN}</a>`
+    : '';
+  const keyLink = `<a href="#" class="lg-open-card" data-key="${escapeHtml(r.key)}" title="${escapeHtml(r.summary)}">${escapeHtml(r.key)}</a>`;
+  const direction = r.direction
+    ? `<div class="lg-dir-text">${escapeHtml(r.direction)}</div>`
+    : '<span class="muted">—</span>';
+  /* Title cell: task title (summary) with the description line under it.
+     The preview is skipped when it just echoes the summary — showing the
+     same text twice truncating differently read as a rendering glitch. */
+  const descPreview = (r.descOne && r.descOne !== r.summary) ? r.descOne : '';
+  const descHtml = descPreview
+    ? `<div class="lg-desc" ${r.descFull !== descPreview ? `title="${escapeHtml(r.descFull)}"` : ''}>${escapeHtml(descPreview)}</div>`
+    : '';
+  /* people column: reporter + assignee each on one line. Labels are small
+     isolated chips (assignee chip is accent-tinted) so the name text starts
+     after a clear visual boundary instead of a glued dot+space */
+  const who = (name) => name
+    ? escapeHtml(name)
+    : `<span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`;
+  const peopleHtml =
+    `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.reporter'))}"><span class="lg-mini-label">${escapeHtml(t('lg.mini.reporter'))}</span>` +
+    `<span class="lg-mini-value">${who(r.reporter)}</span></div>` +
+    `<div class="lg-mini-row lg-row-asg" title="${escapeHtml(t('lg.th.assignee'))}"><span class="lg-mini-label assignee-chip">${escapeHtml(t('lg.mini.assignee'))}</span>` +
+    `<span class="lg-mini-value">${who(r.assignee)}</span></div>`;
+  /* dates column: registered + updated stacked, same mini-label pattern.
+     labels are abbreviated (Reg./Upd.) to keep the column narrow; the full
+     word sits in the row tooltip */
+  const datesHtml =
+    `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.created'))}"><span class="lg-mini-label">${escapeHtml(t('lg.mini.created'))}</span>` +
+    `<span class="lg-mini-value lg-date-cell">${fmtDateLong(r.created)}</span></div>` +
+    `<div class="lg-mini-row" title="${escapeHtml(t('lg.th.updated'))}"><span class="lg-mini-label">${escapeHtml(t('lg.mini.updated'))}</span>` +
+    `<span class="lg-mini-value lg-date-cell">${fmtDateLong(r.updated)}</span></div>`;
+  /* comments: synced from Jira — stacked preview, full text on hover */
+  const commentsHtml = r.comments.length
+    ? `<div class="lg-comments" title="${escapeHtml(r.comments.map((c) => (c.author ? c.author + ': ' : '') + c.body).join('\n———\n'))}">` +
+      r.comments.map((c) =>
+        `<div class="lg-comment"><span class="lg-comment-author">${escapeHtml(c.author || '—')}</span>` +
+        `<span class="lg-comment-body">${escapeHtml(c.body.length > 90 ? c.body.slice(0, 90) + '…' : c.body)}</span></div>`
+      ).join('') +
+      `</div>`
+    : '<span class="muted">—</span>';
+  /* SLA column: response + resolution chips (label S under the header split) */
+  return `<tr>
+    <td class="lg-nowrap lg-key-cell">${keyLink}</td>
+    <td class="lg-title-cell">
+      <div class="lg-title-line">
+        <div class="lg-task-title"><a href="#" class="lg-open-card lg-title-link" data-key="${escapeHtml(r.key)}">${escapeHtml(r.summary || '—')}</a></div>
+        ${attBadge}
+      </div>${descHtml}
+    </td>
+    <td><span class="status-pill ${lgStatusClass(r.status)}">${escapeHtml(r.status || '—')}</span></td>
+    <td class="lg-people-cell">${peopleHtml}</td>
+    <td class="lg-dates-cell">${datesHtml}</td>
+    <td class="lg-direction-cell">${direction}</td>
+    <td class="lg-comments-cell">${commentsHtml}</td>
+    <td class="lg-sla-cell">${lgSlaCellHtml(r)}</td>
+  </tr>`;
+}
+
+/* ── skeleton rows: shimmer placeholders shown while the relay answers ─────
+   Column shapes mirror lgRowHtml's layout so the swap to real rows is calm. */
+function lgSkeletonRowsHtml(n) {
+  let rows = '';
+  for (let i = 0; i < n; i++) {
+    const w = (base, sub) => (i % 3 === 1 ? sub : base);
+    rows += `<tr class="lg-skelling" aria-hidden="true">
+      <td class="lg-nowrap lg-key-cell"><div class="lg-skel lg-skel-key"></div></td>
+      <td class="lg-title-cell"><div class="lg-skel lg-skel-title" style="width:${w(92, 78)}%"></div><div class="lg-skel lg-skel-title-sub"></div></td>
+      <td><div class="lg-skel lg-skel-pill" style="width:${w(64, 78)}px"></div></td>
+      <td class="lg-people-cell"><div class="lg-skel lg-skel-line"></div><div class="lg-skel lg-skel-line2"></div></td>
+      <td class="lg-dates-cell"><div class="lg-skel lg-skel-line"></div><div class="lg-skel lg-skel-line2"></div></td>
+      <td class="lg-direction-cell"><div class="lg-skel lg-skel-line" style="max-width:130px"></div><div class="lg-skel lg-skel-line2" style="max-width:110px"></div></td>
+      <td class="lg-comments-cell"><div class="lg-skel lg-skel-cmt"></div><div class="lg-skel lg-skel-cmt2"></div></td>
+      <td class="lg-sla-cell"><div class="lg-skel lg-skel-line" style="max-width:120px"></div></td>
+    </tr>`;
+  }
+  return rows;
+}
+
+function lgRenderRows(opts) {
+  const fresh = !!(opts && opts.fresh);
+  const all = lgFiltered();
+  const rows = all.slice(0, lgState.pageSize);
+  const tbody = $('#lgTbody');
+  const banner = $('#lgLoading');
+
+  /* cancel any in-flight background append from a previous render */
+  if (lgState._renderJob) {
+    cancelAnimationFrame(lgState._renderJob);
+    lgState._renderJob = null;
+  }
+
+  /* progressive appender shared by initial paint and page-size growth:
+     paints rows[from..n) in growing rAF chunks (250→1000) while frames stay
+     quick, banner showing done/total. Keeps huge pages from freezing. */
+  const appendFrom = (from) => {
+    const msg = banner ? banner.querySelector('span:last-child') : null;
+    const showProgress = (done) => {
+      if (!banner) return;
+      banner.classList.remove('hidden');
+      if (msg) msg.textContent = tReplace('lg.loadingPage', { done, total: rows.length });
+    };
+    showProgress(from);
+    let idx = from;
+    let chunkSize = LG_APPEND_CHUNK;
+    let lastT = 0;
+    const appendNext = (t) => {
+      if (lastT && t - lastT < 24 && chunkSize < 1000) {
+        chunkSize = Math.min(1000, chunkSize * 2);
+      }
+      lastT = t;
+      const slice = rows.slice(idx, idx + chunkSize);
+      idx += slice.length;
+      tbody.insertAdjacentHTML('beforeend', slice.map(lgRowHtml).join(''));
+      _lgPainted.n = idx;
+      if (idx < rows.length) {
+        showProgress(idx);
+        lgState._renderJob = requestAnimationFrame(appendNext);
+      } else {
+        lgState._renderJob = null;
+        _lgPainted = { all, lang: LANG, token: lgRowToken, n: rows.length };
+        if (banner) banner.classList.add('hidden');
+      }
+    };
+    lgState._renderJob = requestAnimationFrame(appendNext);
+  };
+
+  /* incremental fast path: same filtered data, same language/generation,
+     only the page size changed → the already-painted prefix stays; we just
+     extend or trim it. Zero repaint of visible rows, no vertical lurch. */
+  const sameBase = _lgPainted.all === all && _lgPainted.lang === LANG &&
+    _lgPainted.token === lgRowToken && _lgPainted.n > 0 && !!tbody;
+  if (sameBase && rows.length > _lgPainted.n) {
+    appendFrom(_lgPainted.n);
+  } else if (sameBase && rows.length <= _lgPainted.n) {
+    const extra = _lgPainted.n - rows.length;
+    if (extra) {
+      const kids = tbody.children;
+      for (let i = kids.length - 1; i >= 0 && kids.length > rows.length; i--) {
+        tbody.removeChild(kids[i]);
+      }
+    }
+    _lgPainted = { all, lang: LANG, token: lgRowToken, n: rows.length };
+    if (banner) banner.classList.add('hidden');
+  } else if (!rows.length) {
+    _lgPainted = { all: null, lang: LANG, token: lgRowToken, n: 0 };
+    tbody.innerHTML = `<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">${escapeHtml(t('lg.empty'))}</td></tr>`;
+    if (banner) banner.classList.add('hidden');
+  } else {
+    /* full repaint: first LG_FIRST_CHUNK rows synchronously so the table is
+       usable immediately; the rest streams in via appendFrom (above). */
+    tbody.innerHTML = rows.slice(0, LG_FIRST_CHUNK).map(lgRowHtml).join('');
+    const painted = Math.min(LG_FIRST_CHUNK, rows.length);
+    _lgPainted = { all, lang: LANG, token: lgRowToken, n: painted };
+    if (rows.length > LG_FIRST_CHUNK) {
+      appendFrom(painted);
+    } else if (banner) {
+      banner.classList.add('hidden');
+    }
+    /* on a Refresh, briefly tint the top rows so the update visibly lands */
+    if (fresh) {
+      tbody.querySelectorAll('tr').forEach((tr, i) => {
+        if (i < 12) tr.classList.add('lg-fresh');
+      });
+    }
+  }
+  /* headline count: with a period active the filtered list IS the period's
+     real total (the server only returned that window), so keep the "in
+     period" wording on every re-render (filters/sort/page-size) */
+  $('#lgCount').textContent = lgState.period.kind !== 'all'
+    ? tReplace('lg.countIn', { n: all.length })
+    : tReplace('lg.count', { n: all.length });
+  const showMore = $('#lgShowMore');
+  const setShowing = (limited) => {
+    $('#lgShowing').textContent = limited
+      ? tReplace('lg.showing', { n: rows.length, total: all.length })
+      : '';
+    if (showMore) {
+      if (limited) {
+        showMore.textContent = t('lg.showMore') + ' +' + LG_PAGE_STEP;
+        showMore.classList.remove('hidden');
+      } else {
+        showMore.classList.add('hidden');
+      }
+    }
+  };
+  setShowing(all.length > rows.length);
+  /* sort carets: whole columns + the split halves inside People/Dates */
+  document.querySelectorAll('#lgContent thead th[data-col]').forEach((th) => {
+    const active = th.dataset.col === lgState.sort.col;
+    th.classList.toggle('lg-sorted', active);
+    th.setAttribute('data-sort', active ? lgState.sort.dir : '');
+  });
+  document.querySelectorAll('#lgContent thead .lg-th-split[data-col]').forEach((sp) => {
+    const active = sp.dataset.col === lgState.sort.col;
+    sp.classList.toggle('lg-sorted', active);
+    sp.setAttribute('data-sort', active ? lgState.sort.dir : '');
+  });
+  /* keep the open card in sync with fresh data (e.g. after Refresh) */
+  if (lgState.cardKey) {
+    const still = all.some((r) => r.key === lgState.cardKey) || lgState.rows.some((r) => r.key === lgState.cardKey);
+    if (still) lgRenderCard(); else lgCloseCard();
+  }
+  /* lazy native-SLA hydration for the rows actually shown (Jira's own
+     verdicts arrive a tick later and re-paint their chips in place) */
+  lgSlaQueueMissing(rows.map((r) => r.key));
+}
+
+/* ── task card: Jira-style full detail popup, rendered in-app ────────────
+   Opens from the task key or title click. Never navigates to Jira — all
+   data comes from the synced rows (relay), so it also works offline. */
+function lgFindTask(key) {
+  return lgState.rows.find((r) => r.key === key) || null;
+}
+
+function lgOpenCard(key) {
+  const task = lgFindTask(key);
+  if (!task) return;
+  lgState.cardKey = key;
+  lgRenderCard();
+  show($('#lgCardOverlay'));
+  $('#lgCardClose').focus();
+}
+
+function lgCloseCard() {
+  lgState.cardKey = null;
+  hide($('#lgCardOverlay'));
+  lgRevokeBlobCache();       /* free preview blobs — thumbs reload on reopen */
+  const lb = document.querySelector('.lg-lightbox');
+  if (lb) lb.remove();
+}
+
+/* ── attachment interactions (delegated on the card body) ─────────────
+   - click on an image thumb → fullscreen lightbox with a Download button
+   - non-image thumbs are plain download links (target=_blank) */
+
+/* fetch the file binary through the CORS proxy and hand it to the browser
+   as a real download (named save) — works for images AND any other file */
+async function lgDownloadAttachment(att) {
+  const objUrl = await lgAttachBlob(att);
+  const a = document.createElement('a');
+  a.href = objUrl;
+  a.download = att.filename || 'file';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function lgOpenLightbox(att, objUrl) {
+  const lb = document.createElement('div');
+  lb.className = 'lg-lightbox';
+  lb.innerHTML = `
+    <button class="lg-lightbox-close" type="button" aria-label="Close">✕</button>
+    <button class="lg-lightbox-dl" type="button" title="${escapeHtml(t('lg.card.download'))}" data-i18n-title="lg.card.download">⬇ ${escapeHtml(t('lg.card.download'))}</button>
+    <img alt="${escapeHtml(att.filename)}" src="${objUrl}" />
+    <div class="lg-lightbox-name">${escapeHtml(att.filename)}</div>`;
+  const close = () => { lb.remove(); };
+  lb.addEventListener('click', (e) => {
+    if (e.target === lb || e.target.closest('.lg-lightbox-close')) close();
+  });
+  lb.querySelector('.lg-lightbox-dl').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try { await lgDownloadAttachment(att); }
+    catch (_) { btn.textContent = '⚠ ' + t('lg.downloadFail'); setTimeout(() => { btn.disabled = false; btn.textContent = '⬇ ' + t('lg.card.download'); }, 2000); return; }
+    btn.disabled = false;
+    btn.textContent = '⬇ ' + t('lg.card.download');
+  });
+  document.addEventListener('keydown', function onKey(ev) {
+    if (ev.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
+  });
+  document.body.appendChild(lb);
+}
+
+/* ── card attachments ──────────────────────────────────────────────────
+   Attachments live OUTSIDE the bulk desk payload (too heavy for ~4k
+   issues), so when a card opens we fetch them for exactly this one
+   issue via the relay's ?cmd=deskAttach. Results are cached per key in
+   _lgAttachCache (per session + a light localStorage copy). Colors and
+   preview thumbs come through the plain CORS proxy (?url=). */
+const LG_ATTACH_TTL = 10 * 60 * 1000;   /* per-session cache: 10 min */
+const _lgAttachCache = new Map();       /* key → { ts, attachments } */
+
+/* attachment binaries go through the plain proxy WITH the parent issue key
+   (jpKey): the relay proves the issue belongs to a published desk project
+   and actually references this attachment before it serves the file
+   anonymously. Viewers with their own Jira connection are unaffected. */
+function lgAttachProxyUrl(contentUrl) {
+  return PUB_RELAY + '?url=' + encodeURIComponent(contentUrl) +
+    (lgState.cardKey ? '&jpKey=' + encodeURIComponent(lgState.cardKey) : '');
+}
+
+function lgIsImageMime(mime, filename) {
+  if (/^image\//i.test(mime || '')) return true;
+  /* broader raster list — Jira clients paste tiff/heic/avif screenshots too */
+  return /\.(png|jpe?g|gif|webp|bmp|svg|tiff?|avif|heic|heif|ico)$/i.test(filename || '');
+}
+
+function lgFmtBytes(n) {
+  if (!n || n < 0) return '';
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+/* fetch attachment metadata (NOT the binaries) for one task */
+async function lgFetchAttachments(key) {
+  const hit = _lgAttachCache.get(key);
+  if (hit && Date.now() - hit.ts < LG_ATTACH_TTL) return hit.attachments;
+  const conn = loadConn();
+  const domain = conn?.domain ? String(conn.domain).replace(/^https?:\/\//, '') : JIRA_DOMAIN;
+  const url = PUB_RELAY + '?cmd=deskAttach&key=' + encodeURIComponent(key) +
+    '&domain=' + encodeURIComponent(domain);
+  const headers = { 'Accept': 'application/json' };
+  if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
+  const res = await fetch(url, { method: 'GET', headers });
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch (_) { /* non-json */ }
+  if (!res.ok) throw new Error((data && (data.error || data.detail)) || `HTTP ${res.status}`);
+  const attachments = Array.isArray(data?.attachments) ? data.attachments : [];
+  _lgAttachCache.set(key, { ts: Date.now(), attachments });
+  return attachments;
+}
+
+/* ── JSM-native SLA hydration (per row) ────────────────────────────────
+   SLA cycles live OUTSIDE the bulk desk payload (too heavy for ~4k
+   issues), so — like attachments — each task's Jira-measured SLA clocks
+   (Time to first response / Time to resolution) are fetched lazily via
+   the relay's ?cmd=deskSla and cached in _lgSlaCache. Rendering: once a
+   row's SLA lands, ONLY that row's chips are re-painted in place (no full
+   table re-render), so the hydration is invisible to the user. */
+const LG_SLA_TTL = 10 * 60 * 1000;     /* per-session cache: 10 min */
+const _lgSlaCache = new Map();         /* key → { ts, sla } */
+const _lgSlaInFlight = new Map();      /* key → Promise (dedupe concurrent) */
+const _lgSlaTried = new Set();         /* keys that returned nothing → don't refetch */
+let _lgSlaQueue = [];                  /* pending keys for the deferred pump */
+let _lgSlaTimer = null;
+
+/* fetch Jira's own SLA clocks for one task */
+async function lgFetchSla(key) {
+  const hit = _lgSlaCache.get(key);
+  if (hit && Date.now() - hit.ts < LG_SLA_TTL) return hit.sla;
+  if (_lgSlaInFlight.has(key)) return _lgSlaInFlight.get(key);
+  const p = (async () => {
+    try {
+      const conn = loadConn();
+      const domain = conn?.domain ? String(conn.domain).replace(/^https?:\/\//, '') : JIRA_DOMAIN;
+      const url = PUB_RELAY + '?cmd=deskSla&key=' + encodeURIComponent(key) +
+        '&domain=' + encodeURIComponent(domain);
+      const headers = { 'Accept': 'application/json' };
+      if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
+      const res = await fetch(url, { method: 'GET', headers });
+      const text = await res.text();
+      let data = null;
+      try { data = JSON.parse(text); } catch (_) { /* non-json */ }
+      if (!res.ok) throw new Error((data && (data.error || data.detail)) || `HTTP ${res.status}`);
+      const sla = data?.sla && typeof data.sla === 'object' ? data.sla : null;
+      if (sla && (sla.resp || sla.res)) _lgSlaCache.set(key, { ts: Date.now(), sla });
+      else _lgSlaTried.add(key);   /* Jira holds no cycles for this task */
+      return sla;
+    } finally {
+      _lgSlaInFlight.delete(key);
+    }
+  })();
+  _lgSlaInFlight.set(key, p);
+  return p;
+}
+
+/* determine which of the painted rows still need native SLA: DONE tasks
+   first (their settled chips are what this feature is about), then open
+   ones — the stopped/paused verdicts only exist in Jira's own data */
+function lgSlaQueueMissing(keys) {
+  for (const key of keys) {
+    if (_lgSlaCache.has(key) || _lgSlaTried.has(key) || _lgSlaInFlight.has(key)) continue;
+    const r = lgFindTask(key);
+    if (!r || (r.slaNative && !r.slaBulk)) continue;
+    _lgSlaQueue.push(key);
+  }
+  if (_lgSlaQueue.length && !_lgSlaTimer) {
+    _lgSlaTimer = setTimeout(lgSlaPump, 120);
+  }
+}
+
+/* deferred pump: a few requests per tick so scrolling never stutter */
+function lgSlaPump() {
+  _lgSlaTimer = null;
+  const batch = _lgSlaQueue.splice(0, 4);
+  if (!batch.length) return;
+  for (const key of batch) {
+    lgFetchSla(key).then((sla) => {
+      if (!sla) return;
+      const r = lgFindTask(key);
+      if (!r) return;
+      lgSlaApplyNative(r, sla);
+      r.slaBulk = false;         /* fully hydrated — skip next time */
+      r._h = undefined;          /* force lgRowHtml to rebuild this row */
+      lgRepaintRow(key);
+      /* open card shows exact settled times once the SLA lands */
+      if (lgState.cardKey === key) lgRenderCard();
+    }).catch(() => { /* optional garnish — approximation stays */ });
+  }
+  if (_lgSlaQueue.length) _lgSlaTimer = setTimeout(lgSlaPump, 120);
+}
+
+/* surgical repaint of ONE row's cells (keeps table paint cost near zero) */
+function lgRepaintRow(key) {
+  const tbody = $('#lgTbody');
+  if (!tbody) return;
+  const tr = tbody.querySelector(`a.lg-open-card[data-key="${CSS.escape(key)}"]`);
+  if (!tr) return;
+  const row = tr.closest('tr');
+  if (!row) return;
+  const r = lgFindTask(key);
+  if (!r) return;
+  const cells = row.querySelectorAll('td');
+  const slaTd = cells[cells.length - 1];   /* SLA is the last column */
+  if (slaTd) slaTd.innerHTML = lgSlaCellHtml(r);
+}
+
+/* blob URL cache so the same image isn't re-downloaded while its card is open */
+const _lgBlobCache = new Map();         /* attachId → objectURL */
+let _lgBlobRevokes = new Set();         /* revocable after card close */
+
+async function lgAttachBlob(att) {
+  if (_lgBlobCache.has(att.id)) return _lgBlobCache.get(att.id);
+  const res = await fetch(lgAttachProxyUrl(att.contentUrl), {
+    headers: loadConn() ? { 'Authorization': 'Basic ' + btoa(loadConn().email + ':' + loadConn().token) } : {},
+  });
+  if (!res.ok) throw new Error('preview HTTP ' + res.status);
+  /* 303-style redirects surface as JSON error payloads through the proxy
+     without an auth header — guard against a JSON body for an image */
+  const blob = await res.blob();
+  if (/json/i.test(blob.type || '')) throw new Error('proxy refused preview');
+  const objUrl = URL.createObjectURL(blob);
+  _lgBlobCache.set(att.id, objUrl);
+  return objUrl;
+}
+
+function lgRevokeBlobCache() {
+  for (const [, u] of _lgBlobCache) {
+    try { URL.revokeObjectURL(u); } catch (_) {}
+    _lgBlobRevokes.add(u);
+  }
+  _lgBlobCache.clear();
+}
+
+/* ── render helpers (called once lgFetchAttachments resolves) ───────── */
+
+function lgAttachThumbHtml(att) {
+  const isImg = lgIsImageMime(att.mimeType, att.filename);
+  if (isImg) {
+    return `<a class="lg-att-item lg-att-img" data-att-id="${escapeHtml(att.id)}" href="#" title="${escapeHtml(att.filename)}">
+      <img alt="${escapeHtml(att.filename)}" loading="lazy" />
+      <span class="lg-att-name">${escapeHtml(att.filename)}</span>
+    </a>`;
+  }
+  const icon = /\.(pdf)$/i.test(att.filename || '') ? '📄'
+    : /\.(xlsx?|csv)$/i.test(att.filename || '') ? '📊'
+    : /\.(docx?)$/i.test(att.filename || '') ? '📝' : '📎';
+  return `<a class="lg-att-item lg-att-file" data-att-id="${escapeHtml(att.id)}" href="${lgAttachProxyUrl(att.contentUrl)}" target="_blank" rel="noopener" title="${escapeHtml(att.filename)}">
+    <span class="lg-att-icon">${icon}</span>
+    <span class="lg-att-name">${escapeHtml(att.filename)}</span>
+    ${att.size ? `<span class="lg-att-size">${lgFmtBytes(att.size)}</span>` : ''}
+  </a>`;
+}
+
+/* wire up <img> loading inside every rendered thumb (called after inner
+   HTML is in place — the img tags ship without src to avoid eager loads) */
+function lgHydrateAttachImages(rootEl) {
+  rootEl.querySelectorAll('.lg-att-img:not([data-hydrated="1"])').forEach((a) => {
+    a.setAttribute('data-hydrated', '1');
+    const attId = a.getAttribute('data-att-id');
+    const meta = rootEl._lgAttMeta?.get(attId);
+    if (!meta) return;
+    a.querySelector('img').alt = meta.filename;
+    lgAttachBlob(meta).then((objUrl) => {
+      const img = a.querySelector('img');
+      if (img) img.src = objUrl;
+    }).catch(() => {
+      a.classList.add('lg-att-broken');
+      const n = a.querySelector('.lg-att-name');
+      if (n) n.insertAdjacentHTML('beforebegin', '<span class="lg-att-icon">⚠️</span>');
+    });
+  });
+}
+
+
+function lgRenderCard() {
+  const r = lgFindTask(lgState.cardKey);
+  if (!r) return;
+
+  const statusPill = `<span class="status-pill ${lgStatusClass(r.status)}">${escapeHtml(r.status || '—')}</span>`;
+
+  const personBlock = (roleKey, name, unassigned) => {
+    const val = name
+      ? escapeHtml(name)
+      : `<span class="lg-unassigned">${escapeHtml(t('lg.unassigned'))}</span>`;
+    return `<div class="lg-card-person">
+      <span class="lg-person-role" data-i18n="${roleKey}">${escapeHtml(t(roleKey))}</span>
+      <span class="lg-card-person-name${name ? '' : ' lg-unassigned'}">${val}</span>
+    </div>`;
+  };
+
+  const metaItem = (labelKey, value) =>
+    `<div class="lg-card-meta-item">
+      <span class="lg-person-role" data-i18n="${labelKey}">${escapeHtml(t(labelKey))}</span>
+      <span>${value}</span>
+    </div>`;
+
+  const commentsHtml = r.comments.length
+    ? r.comments.map((c) =>
+        `<div class="lg-card-comment">
+          <div class="lg-card-comment-head">
+            <span class="lg-comment-author">${escapeHtml(c.author || '—')}</span>
+            <span class="lg-card-comment-date">${fmtDateTime(c.created)}</span>
+          </div>
+          <div class="lg-card-comment-body">${escapeHtml(c.body)}</div>
+          <div class="lg-card-comment-attach" data-comment-idx="${c._idx ?? ''}"></div>
+        </div>`
+      ).join('')
+    : `<div class="muted">${escapeHtml(t('lg.card.noComments'))}</div>`;
+
+  /* SLA meta line: exact settled times from Jira's own clocks when the
+     payload has landed (row paint queued it; card open re-checks). Shows
+     measurement + status WITHOUT the goal, so no misleading 'working h'
+     framing is attached to JSM's own calendar rules. */
+  const nat = r.slaNative || null;
+  /* display guarantee: a RESOLVED task always has both first response and
+     resolution ("Resolution Set" is a response stop, so the resolution span
+     IS the effective first-response time when no earlier measurement
+     survived) — fall back to the row's own computed spans instead of "–". */
+  const natResp = nat?.resp?.completed ? nat.resp
+    : r.resolvedAt && r.resMs > 0 ? { breached: r.respState === 'out', elapsedMs: r.respMs || r.resMs } : null;
+  const natRes = nat?.res?.completed ? nat.res
+    : r.resolvedAt && r.resMs > 0 ? { breached: r.resState === 'out', elapsedMs: r.resMs } : null;
+  const natChip = (a) => a
+    ? `<span class="lg-st-badge ${a.breached ? 'lg-st-breach' : 'lg-st-done'}">${escapeHtml(lgFmtSla(a.elapsedMs))}</span>`
+    : `<span class="lg-st-badge lg-st-other">–</span>`;
+  const slaHtml =
+    `<span class="lg-card-sla-wrap" title="${escapeHtml(t('lg.sla.respTitle') + ' / ' + t('lg.sla.resTitle'))}">` +
+    natChip(natResp) +
+    ' ' + natChip(natRes) +
+    `</span>`;
+
+  $('#lgCardBody').innerHTML = `
+    <div class="lg-card-top">
+      ${statusPill}
+      <span class="lg-card-key">${escapeHtml(r.key)}</span>
+    </div>
+    <h3 class="lg-card-title">${escapeHtml(r.summary || '—')}</h3>
+    <div class="lg-card-people">
+      ${personBlock('lg.th.reporter', r.reporter, false)}
+      ${personBlock('lg.th.assignee', r.assignee, true)}
+    </div>
+    <div class="lg-card-meta">
+      ${metaItem('lg.th.created', fmtDateTime(r.created))}
+      ${metaItem('lg.th.updated', fmtDateTime(r.updated))}
+      ${r.direction ? metaItem('lg.th.direction', escapeHtml(r.direction)) : ''}
+      ${metaItem('lg.th.sla', slaHtml)}
+    </div>
+    <div class="lg-card-section">
+      <span class="lg-person-role" data-i18n="lg.descLabel">${escapeHtml(t('lg.descLabel') || 'Description')}</span>
+      <div class="lg-card-desc" id="lgCardDesc">${lgPaintDescHtml(r.descFull)}</div>
+    </div>
+    <div class="lg-card-section lg-card-attach-section" hidden>
+      <span class="lg-person-role" data-i18n="lg.card.attachments">${escapeHtml(t('lg.card.attachments') || 'Attachments')}</span>
+      <div class="lg-card-attach-grid" id="lgCardAttachGrid"></div>
+    </div>
+    <div class="lg-card-section">
+      <span class="lg-person-role" data-i18n="lg.th.comments">${escapeHtml(t('lg.th.comments'))}</span>
+      <div class="lg-card-comments">${commentsHtml}</div>
+    </div>`;
+
+  /* attachments load AFTER the card paints (one small relay call for
+     exactly this issue) — comments' inline images land under their own
+     comment; everything else appears in the Attachments section */
+  lgLoadCardAttachments(r.key);
+
+  /* eager native-SLA fetch so the card's SLA line lands immediately
+     (queued row hydration may not have reached this key yet); repaints
+     the card when it arrives */
+  if (!r.slaNative) {
+    lgFetchSla(r.key).then((sla) => {
+      if (!sla || lgState.cardKey !== r.key) return;
+      lgSlaApplyNative(r, sla);
+      lgRenderCard();
+    }).catch(() => { /* SLA line stays approximate */ });
+  }
+}
+
+/* description text → esc'd text where every 📷 marker becomes an inline
+   image slot the matching attachment later sits inside (mirrors root
+   app's jpPaintDesc). Empty descriptions keep the muted placeholder. */
+function lgPaintDescHtml(descFull) {
+  if (!descFull) return `<span class="muted">${escapeHtml(t('lg.card.noDescription'))}</span>`;
+  let mi = -1;
+  return escapeHtml(descFull).replace(/📷/g, () => {
+    mi += 1;
+    return `<span class="jp-desc-media" data-desc-media="${mi}"></span>`;
+  });
+}
+
+/* slot the attachment whose mediaId/alt matches each description marker
+   into its slot — mediaId match first, filename fallback (this instance's
+   image attachments often carry an EMPTY mediaId). Safe to call from both
+   async arrival orders; slots already filled are skipped. */
+function lgPlaceDescAttachments(body, r, attachments) {
+  const descEl = body.querySelector('#lgCardDesc');
+  if (!descEl || !r?.descMedia?.length) return;
+  const slots = descEl.querySelectorAll('.jp-desc-media[data-desc-media]');
+  if (!slots.length) return;
+  const list = Array.isArray(attachments) && attachments.length
+    ? attachments
+    : (body._lgAttMeta ? [...body._lgAttMeta.values()] : []);
+  const claimedSet = new Set();   /* attachments already slotted here */
+  const byMedia = new Map();
+  const byFile = new Map();
+  for (const a of list) {
+    if (a.mediaId) byMedia.set(String(a.mediaId), a);
+    const fn = String(a.filename || '').trim().toLowerCase();
+    if (fn && !byFile.has(fn)) byFile.set(fn, a);
+  }
+  slots.forEach((slot) => {
+    if (slot.getAttribute('data-done') === '1') return;
+    const m = r.descMedia[Number(slot.getAttribute('data-desc-media'))] || null;
+    if (!m) return;
+    let att = byMedia.get(m.id) || byFile.get(String(m.alt || '').trim().toLowerCase()) || null;
+    /* empty-mediaId + empty-alt fallback: when the slot's media node is
+       blank on BOTH signals, the attachment can't be identified exactly —
+       but an image attachment with NO commentIndex of its own is almost
+       always the pasted media for it (comment media was already paired
+       above). Claim the first still-unclaimed image for this slot. */
+    if (!att && !m.id && !m.alt) {
+      att = list.find((a) => !claimedSet.has(String(a.id)) &&
+        (a.commentIndex == null || a.commentIndex === -1) &&
+        lgIsImageMime(a.mimeType, a.filename)) || null;
+    }
+    if (!att || !lgIsImageMime(att.mimeType, att.filename)) return;
+    if (claimedSet.has(String(att.id)) && !(!m.id && !m.alt)) return;
+    claimedSet.add(String(att.id));
+    slot.setAttribute('data-done', '1');
+    slot.insertAdjacentHTML('beforeend', lgAttachThumbHtml(att));
+  });
+  lgHydrateAttachImages(body);
+}
+
+/* fill the card's attachment sections (called async after lgRenderCard) */
+async function lgLoadCardAttachments(key) {
+  const body = $('#lgCardBody');
+  const cardKeyAtStart = lgState.cardKey;
+  try {
+    const attachments = await lgFetchAttachments(key);
+    if (lgState.cardKey !== cardKeyAtStart || body.closest('#lgCardOverlay').classList.contains('hidden')) return;
+    if (!attachments.length) return;
+
+    /* issue-level meta for thumbnail hydration */
+    body._lgAttMeta = new Map(attachments.map((a) => [String(a.id), a]));
+
+    /* 1) comment-embedded images go INSIDE their own comment block */
+    const inComments = attachments.filter((a) => a.commentIndex != null);
+    for (const att of inComments) {
+      const slot = body.querySelector(`.lg-card-comment-attach[data-comment-idx="${att.commentIndex}"]`);
+      if (!slot) continue;
+      slot.insertAdjacentHTML('beforeend', lgAttachThumbHtml(att));
+    }
+
+    /* 2) LEFTOVER PAIRING — this Jira instance often queues inline media
+       with an EMPTY ADF alt AND an empty attachment mediaId, so the relay's
+       exact matcher can never link them (the 📷 marker would stay raw and
+       the pasted file would only show in the Attachments grid). Fallback:
+       an inline paste's attachment lands in Jira at the SAME moment as its
+       comment, so pair each unclaimed attachment to the nearest comment by
+       |created distance| (≤60s). Works for images AND inline PDFs. Runs
+       BEFORE the description pass so desc slots can't steal comment media. */
+    const r = lgFindTask(key);
+    const claimed = new Set(inComments.map((a) => String(a.id)));
+    const comments = r?.comments || [];
+    const leftovers = attachments.filter((a) => a.commentIndex == null && !claimed.has(String(a.id)));
+    for (const att of leftovers) {
+      const t = Date.parse(att.created) || 0;
+      if (!t) continue;
+      let best = null, bestDiff = Infinity;
+      for (const c of comments) {
+        const d = Math.abs((c.created || 0) - t);
+        if (d < bestDiff) { bestDiff = d; best = c; }
+      }
+      if (!best || bestDiff > 60_000) continue;
+      const slot = body.querySelector(`.lg-card-comment-attach[data-comment-idx="${best._idx}"]`);
+      if (!slot) continue;
+      claimed.add(String(att.id));
+      slot.insertAdjacentHTML('beforeend', lgAttachThumbHtml(att));
+    }
+
+    /* 3) description-embedded images: slot matching attachments into the
+       📷 markers painted into the description text */
+    lgPlaceDescAttachments(body, r, attachments);
+
+    /* 4) everything else (files + non-comment images) into the Attachments grid */
+    const rest = attachments.filter((a) => !claimed.has(String(a.id)));
+    const sec = body.querySelector('.lg-card-attach-section');
+    const grid = body.querySelector('#lgCardAttachGrid');
+    if (rest.length && sec && grid) {
+      sec.hidden = false;
+      grid.innerHTML = rest.map(lgAttachThumbHtml).join('');
+    }
+
+    /* 4) hydrate image thumbnails (fetch binaries via CORS proxy → blob) */
+    lgHydrateAttachImages(body);
+  } catch (_) {
+    /* attachments are optional garnish — a failed fetch leaves the card clean */
+  }
+}
+
+/* ── load pipeline ─────────────────────────────────────────────────── */
+/* apply a desk payload to the table (shared by snapshot restore + live fetch) */
+function lgApplyData(data, opts = {}) {
+  lgState.rows = lgNormalize(data);
+  lgBumpRows();   /* new rows array → per-row HTML cache must revalidate */
+  lgState.fieldIds = data.fieldIds || { direction: null };
+  lgState.truncated = !!data.truncated;
+  const periodActive = lgState.period.kind !== 'all';
+  $('#lgFetchedAt').textContent = tReplace('lg.updatedAt', { t: fmtDateTime(data.fetchedAt) }) +
+    (lgState.truncated ? ' · ⚠ ' + t('lg.truncated') : '');
+  /* headline count reflects the active period window — when a period is
+     active, the number IS the period's real total (server-side filtered) */
+  $('#lgCount').textContent = periodActive
+    ? tReplace('lg.countIn', { n: lgState.rows.length })
+    : tReplace('lg.count', { n: lgState.rows.length });
+  lgBuildFilterBar();
+  lgRenderRows(opts);
+}
+
+const LG_SNAPSHOT_MAX_AGE = 10 * 24 * 60 * 60 * 1000;   /* 10 days */
+
+/* external abort plumbing: a period change while a sync is running
+   SUPERSEDES the in-flight load — the old fetch is cancelled and the new
+   window is re-requested when it unwinds (the request is never dropped) */
+let _lgAbort = null;         /* controller of the in-flight desk fetch */
+let _lgRestart = false;      /* a newer request superseded the in-flight load */
+let _lgRestartForce = false; /* force flag for the superseding reload */
+
+async function lgLoad(force) {
+  if (lgState.loading) {
+    _lgRestart = true;
+    _lgRestartForce = force;
+    if (_lgAbort) { try { _lgAbort.abort(); } catch (_) {} }
+    return;
+  }
+
+  /* ── instant paint from the persisted snapshot ──
+     The live sync is genuinely slow (Jira pages ~30s on first hit). The
+     snapshot from the LAST successful load paints real rows immediately;
+     the live refresh then continues in the background. The user asked for
+     exactly this: first 100 shown while the rest loads behind it.
+     Only a snapshot of the CURRENT period window is usable — switching
+     the period must not briefly show another period's rows. */
+  const snap = lgLoadSnapshot();
+  const snapGood = snap && (Date.now() - snap.ts) < LG_SNAPSHOT_MAX_AGE &&
+    lgSnapshotMatchesPeriod(snap);
+  if (snapGood) {
+    try {
+      lgApplyData(snap.data, { fresh: false });
+      if (_lgCache && Date.now() - _lgCache.ts < LG_LIVE_TTL) {
+        /* data is already fresh (came back within TTL) — nothing to do */
+        return;
+      }
+    } catch (_) { /* corrupted snapshot — fall through to skeleton flow */ }
+  }
+
+  lgState.loading = true;
+  hide($('#lgError'));
+  const btn = $('#lgRefreshBtn');
+  btn.classList.toggle('lg-spinning', true);
+  btn.disabled = true;
+  /* skeleton rows + spinner banner while the relay answers — the list never
+     sits empty, it shimmers instead (only when there is nothing to show) */
+  const banner = $('#lgLoading');
+  const tbody = $('#lgTbody');
+  const hadRows = lgState.rows.length > 0;
+  if (banner) banner.classList.remove('hidden');
+  if (tbody && !hadRows) { tbody.innerHTML = lgSkeletonRowsHtml(9); _lgPainted.n = 0; }
+  try {
+    const data = await lgFetchDeskForce(force && !snapGood, { signalCb: (c) => { _lgAbort = c; } });
+    if (_lgRestart) {
+      /* a period change happened while this fetch ran — reload with the new
+         window; the stale result of the OLD window is discarded */
+      _lgRestart = false;
+      const rf = _lgRestartForce;
+      lgState.loading = false;
+      btn.classList.toggle('lg-spinning', false);
+      btn.disabled = false;
+      if (banner) banner.classList.add('hidden');
+      if (tbody && !hadRows) { tbody.innerHTML = ''; _lgPainted.n = 0; }
+      return lgLoad(rf);
+    }
+    lgApplyData(data, { fresh: true });
+  } catch (e) {
+    /* a failed refresh with a good snapshot on screen is non-fatal */
+    const keepSnapshot = !force && snapGood;
+    if (_lgRestart) {
+      /* superseded by a newer period change — retry silently with the
+         new window instead of surfacing the abort error */
+      _lgRestart = false;
+      const rf = _lgRestartForce;
+      lgState.loading = false;
+      btn.classList.toggle('lg-spinning', false);
+      btn.disabled = false;
+      if (banner) banner.classList.add('hidden');
+      return lgLoad(rf);
+    }
+    if (!keepSnapshot) {
+      if (tbody && !hadRows) { tbody.innerHTML = ''; _lgPainted.n = 0; }
+      if (banner) banner.classList.add('hidden');
+      $('#lgError').textContent = e?.status === 401
+        ? t('lg.errorNoCreds')
+        : tReplace('lg.errorLoad', { m: e?.message || 'error' });
+      show($('#lgError'));
+    }
+  } finally {
+    lgState.loading = false;
+    btn.classList.toggle('lg-spinning', false);
+    btn.disabled = false;
+    if (banner) banner.classList.add('hidden');
+  }
+}
+
+/* ── boot ──────────────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', () => {
+  applyThemeClass();
+  setLangButtons();
+  applyI18n();
+
+  /* topbar switches (same persistence as the main app) */
+  document.querySelectorAll('.theme-btn').forEach((b) => {
+    b.addEventListener('click', () => setTheme(b.dataset.theme));
+  });
+  document.querySelectorAll('.lang-btn').forEach((b) => {
+    b.addEventListener('click', () => setLang(b.dataset.lang));
+  });
+
+  /* auth wiring */
+  $('#lgSendBtn').addEventListener('click', lgSendCode);
+  $('#lgVerifyBtn').addEventListener('click', lgVerifyCode);
+  $('#lgEmail').addEventListener('keydown', (e) => { if (e.key === 'Enter') lgSendCode(); });
+  $('#lgCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') lgVerifyCode(); });
+
+  /* content wiring */
+  $('#lgRefreshBtn').addEventListener('click', () => lgLoad(true));
+  /* brand click: stay on the Fines page — reload it for fresh data
+     (previously navigated away to the dashboards, which felt like a trap) */
+  $('#lgBrandBtn').addEventListener('click', () => { location.reload(); });
+  $('#lgBrandBtn').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') location.reload(); });
+
+  /* global search (debounced like the main task list) */
+  let deb;
+  $('#lgSearch').addEventListener('input', (e) => {
+    clearTimeout(deb);
+    deb = setTimeout(() => {
+      lgState.q = e.target.value;
+      lgState.pageSize = lgBasePageSize();   /* new search → back to page 1 */
+      lgRenderRows();
+    }, 250);
+  });
+
+  /* page-size switcher: 100 / 200 / 500 / 1000 / 10000 rows per page */
+  lgRenderPageSizeOptions();
+  const pageSizeSel = $('#lgPageSize');
+  pageSizeSel.addEventListener('change', () => {
+    lgState.pageSize = parseInt(pageSizeSel.value, 10) || 200;
+    try { localStorage.setItem(LS_PAGE_SIZE, String(lgState.pageSize)); } catch (_) {}
+    lgRenderRows();
+  });
+
+  /* "Show more": grow the visible page by +200 while more rows exist —
+     keeps the first paint small (speed) and reveals the rest on demand */
+  const showMoreBtn = $('#lgShowMore');
+  if (showMoreBtn) {
+    showMoreBtn.addEventListener('click', () => {
+      lgState.pageSize += LG_PAGE_STEP;
+      lgRenderRows();
+    });
+  }
+
+  /* click-to-sort headers */
+  document.querySelectorAll('#lgContent thead th[data-col]').forEach((th) => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (lgState.sort.col === col) {
+        lgState.sort.dir = lgState.sort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        lgState.sort = { col, dir: (col === 'created' || col === 'updated' || col === 'key') ? 'desc' : 'asc' };
+      }
+      lgState.pageSize = lgBasePageSize();   /* new sort → back to page 1 */
+      lgRenderRows();
+    });
+  });
+
+  /* split header halves (Reporter/Assignee, Registered/Updated) sort too */
+  document.querySelectorAll('#lgContent thead .lg-th-split[data-col]').forEach((sp) => {
+    sp.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const col = sp.dataset.col;
+      if (lgState.sort.col === col) {
+        lgState.sort.dir = lgState.sort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        lgState.sort = { col, dir: (col === 'created' || col === 'updated') ? 'desc' : 'asc' };
+      }
+      lgState.pageSize = lgBasePageSize();   /* new sort → back to page 1 */
+      lgRenderRows();
+    });
+  });
+
+  /* task card: open from key/title clicks (delegated), close on button,
+     overlay click or Escape — never navigates to Jira */
+  $('#lgTbody').addEventListener('click', (e) => {
+    const link = e.target.closest('.lg-open-card');
+    if (!link) return;
+    e.preventDefault();
+    lgOpenCard(link.dataset.key);
+  });
+  $('#lgCardClose').addEventListener('click', lgCloseCard);
+  $('#lgCardOverlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) lgCloseCard(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lgState.cardKey) lgCloseCard(); });
+  /* attachment clicks: image thumbs open the lightbox (files open as links);
+     broken thumbs retry their preview load on click (proxy-side credential
+     fix may have landed since the failure was cached) */
+  $('#lgCardBody').addEventListener('click', (e) => {
+    const thumb = e.target.closest('.lg-att-img');
+    if (!thumb) return;
+    e.preventDefault();
+    if (thumb.classList.contains('lg-att-broken')) {
+      thumb.classList.remove('lg-att-broken');
+      thumb.removeAttribute('data-hydrated');   /* let the hydrator retry it */
+      const ic = thumb.querySelector('.lg-att-icon');
+      if (ic) ic.remove();
+      lgHydrateAttachImages($('#lgCardBody'));
+      return;
+    }
+    const meta = $('#lgCardBody')._lgAttMeta?.get(thumb.getAttribute('data-att-id'));
+    if (!meta) return;
+    const img = thumb.querySelector('img');
+    if (img?.src) lgOpenLightbox(meta, img.src);
+    else lgAttachBlob(meta).then((objUrl) => lgOpenLightbox(meta, objUrl)).catch(() => {});
+  });
+
+  /* horizontal scroll controls: buttons nudge the table, edge buttons and
+     scrollbar visibility follow the scroll position */
+  const scroller = $('#lgTableScroll');
+  const updateScrollBtns = () => {
+    const max = scroller.scrollWidth - scroller.clientWidth;
+    $('#lgScrollLeft').classList.toggle('lg-scroll-hidden', scroller.scrollLeft <= 4);
+    $('#lgScrollRight').classList.toggle('lg-scroll-hidden', scroller.scrollLeft >= max - 4);
+  };
+  $('#lgScrollLeft').addEventListener('click', () => {
+    scroller.scrollBy({ left: -Math.round(scroller.clientWidth * 0.7), behavior: 'smooth' });
+  });
+  $('#lgScrollRight').addEventListener('click', () => {
+    scroller.scrollBy({ left: Math.round(scroller.clientWidth * 0.7), behavior: 'smooth' });
+  });
+  scroller.addEventListener('scroll', updateScrollBtns, { passive: true });
+  window.addEventListener('resize', updateScrollBtns, { passive: true });
+  setInterval(updateScrollBtns, 1200);   /* rows re-render changes scrollWidth */
+  updateScrollBtns();
+
+  /* identity chip + sign-out */
+  $('#lgUserChip').addEventListener('click', toggleLgSignOut);
+  $('#lgSignOutBtn').addEventListener('click', (e) => { e.stopPropagation(); lgSignOut(); });
+  document.addEventListener('click', closeLgSignOut);
+
+  /* session restore skips the login gate (shared with the main app) */
+  const s = lgRestoreSession();
+  if (s) {
+    lgState.email = s.email;
+    lgState.verified = true;
+    lgEnterVerified();
+  } else {
+    renderLgGate();
+  }
+});

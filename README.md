@@ -34,11 +34,27 @@ Enter your Jira site, email and API token — JiraPulse syncs your boards and tu
 Pure HTML/CSS/JS single-page app (no build step) + [Chart.js](https://www.chartjs.org/) via CDN.
 Uses Jira Cloud REST APIs: `agile/1.0/board`, `agile/1.0/board/{id}/issue?expand=changelog`.
 
-Deployed as a static site on **GitHub Pages**.
+Deployed as a static site on **GitHub Pages**, with the organization deployment served from the GitLab repo onto company infrastructure:
+
+| Environment | URL | Source |
+|---|---|---|
+| GitHub Pages (current public home) | `https://ananiadevsurashvili-byte.github.io/jira-pulse/` | `main` on GitHub |
+| Organization test | `https://jirapulse-test.caucasusauto.com/` | `test` branch on GitLab (nginx image via the DevOps pipeline) |
+| Organization production | `https://jirapulse.caucasusauto.com/` | `main` on GitLab (same pipeline) |
+
+All three serve the same static files and call the same relay; the relay's CORS allowlist covers every origin listed above.
 
 ## 🚚 Logistics Desk
 
 A companion mini-app at [/logistics/](https://ananiadevsurashvili-byte.github.io/jira-pulse/logistics/) — the same org login (Google + email code, @caucasusauto.com only) showing a live, filterable task list of the **LOG Service-Desk project** (tasks labeled *Internal* are excluded).
+
+## 💸 Fines Desk
+
+A clone of the logistics desk for a second department at `/fines/` (admin dashboard at `/fines/admin/`). It reads one Service-Desk project:
+
+- the project key defaults to `FIN` and can be overridden without a redeploy by opening `/fines/?project=<KEY>` (persisted in that browser),
+- the relay only serves anonymous desk reads for projects on its desk allowlist — the built-in set is `LOG`, and the admin extends it at runtime with
+  `POST /?cmd=desk:allow` `{"project":"KEY"}` (admin token required; `?cmd=desk:disallow` removes it again).
 
 ## 🔒 Privacy
 
@@ -47,7 +63,7 @@ Your Jira credentials are stored only in your browser's local storage (clear the
 The relay is a small backend, and it does store some data:
 - the **publish configuration** (which boards are published and their chart layout) and the **SLA goals**,
 - a set of **read-only Jira credentials** the admin stored once so anonymous viewers of published boards can see live data,
-- short-lived **response caches** for published boards and the logistics desk (10–15 minutes) and a derived allowlist of published projects,
-- **logistics login-activity counters** (email, timestamps, user agent; readable only with the admin token).
+- short-lived **response caches** for published boards and the desk pages (10–15 minutes) and a derived allowlist of published projects,
+- **desk login-activity counters** (email, timestamps, user agent; readable only with the admin token).
 
 Board analytics data is fetched live from Jira at view time and never archived. All admin write operations require a shared admin token that is never shipped in the app bundle (rotate it any time via the relay's `?cmd=admin:rotate`).
