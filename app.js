@@ -4874,7 +4874,24 @@ async function fetchPaginated(request, cap = 5000, pageSize = 50) {
 }
 
 /* ── persistence ─────────────────────────────────────────────────── */
-function saveConn() { localStorage.setItem(LS_CONN, JSON.stringify(state.conn)); }
+/* The Jira API token is a long-lived secret: per the security review it
+   must NOT persist in localStorage (readable by any script on the origin
+   until manually cleared). It lives in sessionStorage instead — cleared
+   automatically when the browser session/tab ends. Email, domain and
+   non-sensitive prefs stay in localStorage, so reconnecting means typing
+   only the token. Connections saved by older versions are migrated on
+   first load. */
+const LS_JIRA_TOKEN = 'jp_jira_token_v1';          /* sessionStorage */
+function saveConn() {
+  try {
+    const c = { ...(state.conn || {}) };
+    const token = c.token;
+    delete c.token;
+    localStorage.setItem(LS_CONN, JSON.stringify(c));
+    if (token) sessionStorage.setItem(LS_JIRA_TOKEN, token);
+    else sessionStorage.removeItem(LS_JIRA_TOKEN);
+  } catch (_) { /* storage unavailable — non-fatal */ }
+}
 /* relay preferences survive independently of the Jira connection, so they are
    not lost if the user configures a relay before ever connecting successfully */
 function loadRelayPrefs() {
@@ -4888,11 +4905,24 @@ function loadConn() {
     const raw = localStorage.getItem(LS_CONN);
     if (!raw) return null;
     const c = JSON.parse(raw);
-    if (!c.domain || !c.email || !c.token) return null;
-    return c;
+    if (!c) return null;
+    /* one-time migration from the pre-hardening layout that stored the
+       token inside LS_CONN */
+    if (c.token) {
+      try { sessionStorage.setItem(LS_JIRA_TOKEN, c.token); } catch (_) { /* noop */ }
+      delete c.token;
+      try { localStorage.setItem(LS_CONN, JSON.stringify(c)); } catch (_) { /* noop */ }
+    }
+    const token = sessionStorage.getItem(LS_JIRA_TOKEN) || '';
+    if (!c.domain || !c.email || !token) return null;
+    return { ...c, token };
   } catch (_) { return null; }
 }
-function clearConn() { localStorage.removeItem(LS_CONN); localStorage.removeItem(LS_LAST_BOARD); }
+function clearConn() {
+  localStorage.removeItem(LS_CONN);
+  localStorage.removeItem(LS_LAST_BOARD);
+  try { sessionStorage.removeItem(LS_JIRA_TOKEN); } catch (_) { /* noop */ }
+}
 
 /* ── screens ─────────────────────────────────────────────────────── */
 function showSetup() {

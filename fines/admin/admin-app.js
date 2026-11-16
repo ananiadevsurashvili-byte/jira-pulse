@@ -48,16 +48,27 @@ const SLA_DEFAULT_GOALS = { respHours: 2, resHours: 30 };
 /* Relay admin token for the admin-gated commands (sla:set, lgStats) — NEVER
    bundled: a hardcoded token in this public file would let anyone rewrite the
    relay's stored config/credentials or read login activity. The admin pastes
-   it once in the SLA card and it lives only in this browser's localStorage.
-   Same secret as Jira Pulse (same relay) and same browser origin, so the SAME
-   localStorage entry the Jira Pulse Publish dialog uses is reused here —
-   pasting it in either app unlocks both. Rotate via relay ?cmd=admin:rotate. */
-const LS_PUB_ADMIN_TOKEN = 'jpPubAdminToken';
+   it in the SLA card; it is kept only for the current browser session.
+   Same secret as Jira Pulse (same relay) — paste it in either app to unlock
+   both. Rotate via relay ?cmd=admin:rotate. */
+/* The relay-admin token is a shared secret: per the security review it must
+   not persist long-term in localStorage. It lives in sessionStorage (cleared
+   when the browser session ends); values saved by the older paste-once flow
+   are migrated on first read. */
+const LS_PUB_ADMIN_TOKEN = 'jpPubAdminToken';      /* legacy, migration only */
+const SS_PUB_ADMIN_TOKEN = 'jpPubAdminTokenSs';    /* sessionStorage */
 function pubAdminToken() {
-  try { return (localStorage.getItem(LS_PUB_ADMIN_TOKEN) || '').trim(); } catch (_) { return ''; }
+  try {
+    const legacy = localStorage.getItem(LS_PUB_ADMIN_TOKEN);
+    if (legacy) {
+      try { sessionStorage.setItem(SS_PUB_ADMIN_TOKEN, legacy.trim()); } catch (_) { /* noop */ }
+      localStorage.removeItem(LS_PUB_ADMIN_TOKEN);
+    }
+  } catch (_) { /* noop */ }
+  try { return (sessionStorage.getItem(SS_PUB_ADMIN_TOKEN) || '').trim(); } catch (_) { return ''; }
 }
 function savePubAdminToken(tok) {
-  try { localStorage.setItem(LS_PUB_ADMIN_TOKEN, String(tok || '').trim()); } catch (_) { /* non-fatal */ }
+  try { sessionStorage.setItem(SS_PUB_ADMIN_TOKEN, String(tok || '').trim()); } catch (_) { /* non-fatal */ }
 }
 
 const adm = {
