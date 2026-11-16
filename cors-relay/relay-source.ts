@@ -37,7 +37,7 @@
  *   https://www.val.town/x/gensweaty/jira-relay/code/
  */
 import { blob } from "https://esm.town/v/std/blob";
-import { CORS_HEADERS, CREDS_KEY, DESK_EXTRA_KEY, DESK_PROJECTS, json } from "./shared.ts";
+import { CORS_HEADERS, CREDS_KEY, DESK_EXCLUDE_LABEL, DESK_EXTRA_KEY, DESK_PROJECTS, json } from "./shared.ts";
 import { deskProjects, handleDeskAttachCmd, handleDeskCmd, handleDeskSlaCmd, resetDeskProjectsCache } from "./desk.ts";
 
 const ALLOWED_HOST = /(^|\.)atlassian\.net$/i;
@@ -870,18 +870,20 @@ async function storedCredsForHost(host: string): Promise<{ auth: string; base: s
 
 /* anonymous single-issue GET (?url=…/rest/api/3/issue/{key}?fields=…):
    served with the stored read-only creds ONLY when the issue lives in a
-   published project, carries no security level, and its restricted
-   comments (visibility-limited / JSM internal) are stripped. Position
-   placeholders keep the comment array aligned with ?cmd=deskAttach, whose
-   commentIndex values refer to Jira's FULL comment list. */
+   published project, carries no security level, is not excluded by the
+   desk-internal label, and its restricted comments (visibility-limited /
+   JSM internal) are stripped. Position placeholders keep the comment
+   array aligned with ?cmd=deskAttach, whose commentIndex values refer to
+   Jira's FULL comment list. */
 async function anonIssueGet(targetUrl: URL, key: string): Promise<Response> {
   const [creds, allowed] = await Promise.all([storedCredsForHost(targetUrl.hostname), publishedProjects()]);
   if (!creds) return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
-  /* the caller's field list may omit "security" — force it in so the
-     security-restriction check below actually sees the value */
+  /* the caller's field list may omit "security"/"labels" — force them in so
+     the restriction checks below actually see the values */
   const up = new URL(targetUrl.toString());
   const fl = (up.searchParams.get('fields') || '').split(',').map((s) => s.trim()).filter(Boolean);
   if (!fl.includes('security')) fl.push('security');
+  if (!fl.includes('labels')) fl.push('labels');
   up.searchParams.set('fields', fl.join(','));
   let resp: Response;
   try {
@@ -907,6 +909,13 @@ async function anonIssueGet(targetUrl: URL, key: string): Promise<Response> {
   const proj = String(data?.fields?.project?.key || '');
   if (!proj || !allowed.has(proj)) return json({ error: 'issue not published' }, 403);
   if (data?.fields?.security != null) return json({ error: 'issue is security-restricted' }, 403);
+  /* same exclusion the desk list applies: desk-internal issues stay hidden
+     from anonymous single-issue reads as well */
+  const labels: string[] = Array.isArray(data?.fields?.labels)
+    ? data.fields.labels.map((l: any) => String(l || '').toLowerCase()) : [];
+  if (labels.includes(String(DESK_EXCLUDE_LABEL || 'Internal').toLowerCase())) {
+    return json({ error: 'issue not published' }, 403);
+  }
   const cs = data?.fields?.comment?.comments;
   if (Array.isArray(cs)) {
     /* redact IN PLACE (empty stub) so array positions — and therefore
@@ -932,7 +941,7 @@ async function anonAttachmentGet(targetUrl: URL, jpKey: string, attId: string): 
   const jh = { 'authorization': creds.auth, 'accept': 'application/json', 'user-agent': 'JiraPulse-Relay/1.0' };
   let resp: Response;
   try {
-    resp = await fetch(`${creds.base}/rest/api/3/issue/${encodeURIComponent(jpKey)}?fields=project,security,attachment`, {
+    resp = await fetch(`${creds.base}/rest/api/3/issue/${encodeURIComponent(jpKey)}?fields=project,security,labels,attachment`, {
       method: 'GET', headers: jh, redirect: 'follow', signal: AbortSignal.timeout(30_000),
     });
   } catch (e) {
@@ -946,6 +955,12 @@ async function anonAttachmentGet(targetUrl: URL, jpKey: string, attId: string): 
   const proj = String(issue?.fields?.project?.key || '');
   if (!proj || !allowed.has(proj)) return json({ error: 'issue not published' }, 403);
   if (issue?.fields?.security != null) return json({ error: 'issue is security-restricted' }, 403);
+  /* desk-internal issues are excluded from anonymous attachment reads too */
+  const ilabels: string[] = Array.isArray(issue?.fields?.labels)
+    ? issue.fields.labels.map((l: any) => String(l || '').toLowerCase()) : [];
+  if (ilabels.includes(String(DESK_EXCLUDE_LABEL || 'Internal').toLowerCase())) {
+    return json({ error: 'issue not published' }, 403);
+  }
   const list: any[] = Array.isArray(issue?.fields?.attachment) ? issue.fields.attachment : [];
   if (!list.some((a: any) => String(a?.id || '') === attId)) {
     return json({ error: 'attachment does not belong to this issue' }, 403);
