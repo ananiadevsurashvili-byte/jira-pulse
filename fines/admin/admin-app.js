@@ -12,8 +12,8 @@ const PUBLISH_DOMAIN = 'caucasusauto.com';
 const GOOGLE_CLIENT_ID = '671098966570-21bp1aeud5o2glbjsliif3foi6n71gmh.apps.googleusercontent.com';
 const JIRA_DOMAIN = 'caucasusauto.atlassian.net';
 const JIRA_BASE = 'https://' + JIRA_DOMAIN + '/browse/';
-const FINES_PROJECT_DEFAULT = 'FIN';
-const LS_FIN_PROJECT = 'fn_project_v1';   /* shared with fines/app.js */
+const FINES_PROJECT_DEFAULT = 'FNS';
+const LS_FIN_PROJECT = 'fn_project_v2';   /* shared with fines/app.js */
 const FINES_PROJECT = (() => {
   try {
     const qp = (new URLSearchParams(location.search).get('project') || '').trim().toUpperCase();

@@ -41,8 +41,8 @@ const PUBLISH_DOMAIN = 'caucasusauto.com';   /* allowed email domain */
 const GOOGLE_CLIENT_ID = '671098966570-21bp1aeud5o2glbjsliif3foi6n71gmh.apps.googleusercontent.com';
 
 const JIRA_DOMAIN = 'caucasusauto.atlassian.net';   /* link base for issue keys */
-const FINES_PROJECT_DEFAULT = 'FIN';                 /* Service-Desk project key */
-const LS_FIN_PROJECT = 'fn_project_v1';              /* ?project= override persists here */
+const FINES_PROJECT_DEFAULT = 'FNS';                 /* Service-Desk project key */
+const LS_FIN_PROJECT = 'fn_project_v2';              /* ?project= override persists here */
 const FINES_PROJECT = (() => {
   try {
     const qp = (new URLSearchParams(location.search).get('project') || '').trim().toUpperCase();
