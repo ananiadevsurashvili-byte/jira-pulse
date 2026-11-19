@@ -26,3 +26,6 @@ logistics/admin/sla-sim3.mjs
 logistics/admin/sla-wave6-guestprobe.ps1
 logistics/admin/sla-wave6-probe.ps1
 logistics/admin/sla-wave7-lgsim.ps1
+_tests/_combined.ts
+_tests/_debug.ts
+JiraPulse-security-remediation-and-devops-requests.pdf

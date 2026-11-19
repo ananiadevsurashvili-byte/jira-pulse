@@ -37,8 +37,16 @@
  *   https://www.val.town/x/gensweaty/jira-relay/code/
  */
 import { blob } from "https://esm.town/v/std/blob";
-import { CORS_HEADERS, CREDS_KEY, DESK_EXCLUDE_LABEL, DESK_EXTRA_KEY, DESK_PROJECTS, json } from "./shared.ts";
+import {
+  CORS_HEADERS, CREDS_KEY, DESK_EXTRA_KEY, DESK_PROJECTS, ORG_EMAIL_DOMAIN, json,
+  anonIssueAllowed, sha256Hex,
+} from "./shared.ts";
 import { deskProjects, handleDeskAttachCmd, handleDeskCmd, handleDeskSlaCmd, resetDeskProjectsCache } from "./desk.ts";
+import {
+  anonSessionGate, authSession, dropSession, isAdminEmail, mintSession,
+  orgEmailOk, sessionPublic, setEnforceFlag, startEmailCode, verifyEmailCode,
+  verifyGoogleIdToken,
+} from "./auth.ts";
 
 const ALLOWED_HOST = /(^|\.)atlassian\.net$/i;
 
@@ -58,7 +66,7 @@ const DEFAULT_SLA_GOALS = { respHours: 2, resHours: 30 };
    and the pub master-boards replay it for EVERY published board on every
    load. Caching the finished payload makes master-all / revisits near-
    instant; ?fresh=1 bypasses and re-syncs (viewer-controlled freshness). */
-const BOARD_CACHE_KEY = "jirapulse_board_cache_v1";
+const BOARD_CACHE_KEY = "jirapulse_board_cache_v2";
 /* 10 min keeps hourly-style dashboards honest while collapsing the burst
    of N+1 synchronous requests a master-all load produces into one chain
    per board per window. */
@@ -142,11 +150,23 @@ const RATE_LIMITS: Record<string, { limit: number; windowMs: number }> = {
   lgStats: { limit: 60, windowMs: 60_000 },
   write: { limit: 20, windowMs: 60_000 },
   read: { limit: 120, windowMs: 60_000 },
+  authGoogle: { limit: 30, windowMs: 60_000 },
+  authEmailStart: { limit: 6, windowMs: 60_000 },
+  authEmailVerify: { limit: 12, windowMs: 60_000 },
+  auth: { limit: 60, windowMs: 60_000 },
 };
-const WRITE_CMDS = new Set(['publish:set', 'publish:clear', 'creds:set', 'sla:set', 'admin:rotate', 'desk:allow', 'desk:disallow']);
+const WRITE_CMDS = new Set([
+  'publish:set', 'publish:clear', 'creds:set', 'sla:set', 'admin:rotate',
+  'desk:allow', 'desk:disallow', 'auth:enforce',
+]);
 const rateBuckets = new Map<string, { n: number; resetAt: number }>();
 
-function rateLimit(request: Request): boolean {
+/* Rate limits are keyed by VERIFIED identity first (Phase 4.1 of the 18 Nov
+   review): the session-token hash when the caller presents one, falling
+   back to the client IP only for session-less callers. The old raw
+   X-Forwarded-For key alone let anyone spoof arbitrary source IPs (and
+   poison other clients' buckets) by sending a made-up header. */
+async function rateLimit(request: Request): Promise<boolean> {
   const u = new URL(request.url);
   const cmd = u.searchParams.get('cmd') || '';
   const scope = cmd
@@ -157,17 +177,24 @@ function rateLimit(request: Request): boolean {
       : cmd === 'deskSla' ? 'deskSla'
       : cmd === 'lgPing' ? 'lgPing'
       : cmd === 'lgStats' ? 'lgStats'
+      : cmd === 'auth:google' ? 'authGoogle'
+      : cmd === 'auth:email-start' ? 'authEmailStart'
+      : cmd === 'auth:email-verify' ? 'authEmailVerify'
+      : cmd === 'auth:whoami' || cmd === 'auth:signout' ? 'auth'
       : 'read')
     : 'proxy';
   const cfg = RATE_LIMITS[scope];
   if (!cfg) return false;
-  const ip = (request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown').split(',')[0].trim();
+  const sess = (request.headers.get('x-jp-session') || '').trim();
+  const identity = sess
+    ? 's:' + (await sha256Hex(sess)).slice(0, 24)
+    : 'ip:' + (request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown').split(',')[0].trim();
   const now = Date.now();
   if (rateBuckets.size > 10_000) {
     for (const [k, b] of rateBuckets) if (b.resetAt <= now) rateBuckets.delete(k);
     if (rateBuckets.size > 10_000) rateBuckets.clear();
   }
-  const key = ip + '|' + scope;
+  const key = identity + '|' + scope;
   const b = rateBuckets.get(key);
   if (!b || b.resetAt <= now) {
     rateBuckets.set(key, { n: 1, resetAt: now + cfg.windowMs });
@@ -187,7 +214,7 @@ async function route(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
-  if (rateLimit(request)) return json({ error: 'too many requests' }, 429);
+  if (await rateLimit(request)) return json({ error: 'too many requests' }, 429);
   const u = new URL(request.url);
 
   /* ── publish backend commands ── */
@@ -216,10 +243,9 @@ async function route(request: Request): Promise<Response> {
       if (cmd === 'publish:clear') {
         if (!(await adminAuthed(request))) return json({ error: 'admin auth required' }, 401);
         await blob.setJSON(PUB_KEY, null);
-        /* nothing is published anymore → anonymous reads shrink to the desk
-           projects immediately (both the in-memory copy and the stale-fallback blob) */
+        /* nothing is published anymore → anonymous reads shrink to the
+           built-in desk projects immediately */
         _pubProjectsCache = { set: new Set(DESK_PROJECTS), freshUntil: Date.now() + PUB_PROJECTS_TTL, lastFailAt: 0 };
-        blob.setJSON(PUB_PROJECTS_KEY, { ts: Date.now(), projects: [...DESK_PROJECTS] }).catch(() => { /* best-effort */ });
         return json({ ok: true });
       }
 
@@ -306,6 +332,67 @@ async function route(request: Request): Promise<Response> {
         return json({ ok: true, rotatedAt: Date.now() });
       }
 
+      /* ── session backend (18 Nov review, Phase 2) ──
+         POST ?cmd=auth:google        {credential}         → verified Google sign-in
+         POST ?cmd=auth:email-start   {email}              → random code by email
+         POST ?cmd=auth:email-verify  {email, code}        → session on success
+         GET  ?cmd=auth:whoami        x-jp-session header  → { email, admin, ... }
+         POST ?cmd=auth:signout       x-jp-session header  → destroys the session
+         POST ?cmd=auth:enforce       {on} (admin token)   → legacy-compat switch:
+             ON = anonymous stored-cred data reads require a valid session;
+             OFF (default) = legacy clients keep working (GitHub Pages). */
+      if (cmd === 'auth:google') {
+        const body = await request.json().catch(() => null);
+        const credential = String(body?.credential || '');
+        if (!credential) return json({ error: 'credential required' }, 400);
+        try {
+          const id = await verifyGoogleIdToken(credential);
+          const token = await mintSession(id.email, 'google');
+          return json({ ok: true, sessionToken: token, email: id.email, admin: isAdminEmail(id.email) });
+        } catch (e) {
+          return json({ error: 'Google sign-in rejected: ' + String((e as Error)?.message || 'invalid token') }, 401);
+        }
+      }
+      if (cmd === 'auth:email-start') {
+        const body = await request.json().catch(() => null);
+        const email = String(body?.email || '').toLowerCase().trim();
+        if (!orgEmailOk(email)) return json({ error: 'an @' + ORG_EMAIL_DOMAIN + ' address is required' }, 400);
+        try {
+          await startEmailCode(email, 'Your JiraPulse access code');
+          return json({ ok: true, sentTo: email });
+        } catch (e) {
+          return json({
+            error: String((e as Error)?.message || 'email delivery failed'),
+            activating: (e as any)?.activating === true,
+          }, 502);
+        }
+      }
+      if (cmd === 'auth:email-verify') {
+        const body = await request.json().catch(() => null);
+        const email = String(body?.email || '').toLowerCase().trim();
+        const code = String(body?.code || '').trim();
+        if (!orgEmailOk(email) || !/^\d{6}$/.test(code)) return json({ error: 'email and 6-digit code required' }, 400);
+        if (!(await verifyEmailCode(email, code))) return json({ error: 'wrong or expired code' }, 401);
+        const token = await mintSession(email, 'email');
+        return json({ ok: true, sessionToken: token, email, admin: isAdminEmail(email) });
+      }
+      if (cmd === 'auth:whoami') {
+        const sess = await authSession(request);
+        if (!sess) return json({ error: 'no valid session' }, 401);
+        return json({ ok: true, ...sessionPublic(sess) });
+      }
+      if (cmd === 'auth:signout') {
+        await dropSession(request);
+        return json({ ok: true });
+      }
+      if (cmd === 'auth:enforce') {
+        if (!(await adminAuthed(request))) return json({ error: 'admin auth required' }, 401);
+        const body = await request.json().catch(() => null);
+        const on = body?.on === true;
+        await setEnforceFlag(on);
+        return json({ ok: true, enforced: on });
+      }
+
       /* desk allowlist: let the admin publish additional service-desk
          projects for anonymous desk reads (e.g. a second department desk)
          without a redeploy. desk:allow adds, desk:disallow removes; the
@@ -368,6 +455,11 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
     }
   }
   if (!authHeader) {
+    /* Phase 2.2 (18 Nov review): anonymous stored-cred reads REQUIRE an org
+       session when enforcement is ON (fail closed); legacy clients keep
+       working while the enforcement flag is OFF. */
+    const gate = await anonSessionGate(request);
+    if (gate instanceof Response) return gate;
     if (!stored?.domain || !stored?.email || !stored?.token) {
       return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
     }
@@ -404,13 +496,25 @@ async function handleBoardCmd(u: URL, request: Request): Promise<Response> {
     'User-Agent': 'JiraPulse-Relay/1.0',
   };
   const get = async (path: string): Promise<Response> => {
-    return await fetch(base + path, { method: 'GET', headers: jh, redirect: 'follow' });
+    return await fetch(base + path, {
+      method: 'GET', headers: jh, redirect: 'follow',
+      signal: AbortSignal.timeout(45_000),   /* Phase 4.1: no upstream hang */
+    });
   };
 
-  /* ── 0. payload blob-cache: instant replay within the TTL window ── */
+  /* ── 0. payload blob-cache: instant replay within the TTL window ──
+     Phase 3.1 (18 Nov review): the cache is AUTH-scope-partitioned. It
+     holds ONLY anonymous (stored-cred) payloads — restricted issues are
+     stripped from them — and only anonymous reads may consult it. A
+     viewer WITH their own Authorization header must never be served the
+     anonymous copy (their own Jira scope may legitimately include
+     restricted issues, and their fetch must not be fed by someone else's
+     cache). Keys are tenant-scoped (domain) + board + mode + the explicit
+     "anon" tier, and the version was bumped (v2) so stale v1 entries are
+     never read. */
   const forceFresh = u.searchParams.get('fresh') === '1';
-  const boardKey = `${BOARD_CACHE_KEY}:${domain.replace(/^https:\/\//i, '').toLowerCase()}:${bid}:${mode}`;
-  if (!forceFresh) {
+  const boardKey = `${BOARD_CACHE_KEY}:anon:${domain.replace(/^https:\/\//i, '').toLowerCase()}:${bid}:${mode}`;
+  if (!hadViewerAuth && !forceFresh) {
     try {
       const cached = await blob.getJSON(boardKey) as any;
       if (cached && cached.data && cached.ts && Date.now() - cached.ts < BOARD_CACHE_TTL) {
@@ -643,7 +747,16 @@ async function lgUpsertLogin(surface: "desk" | "admin", email: string, now: numb
 
 async function handleLgPing(request: Request): Promise<Response> {
   const body = await request.json().catch(() => null);
-  const email = String(body?.email || '').toLowerCase().trim();
+  /* Phase 2.3 (18 Nov review): the pinged identity comes from the verified
+     session, never from the (spoofable) request body. Legacy clients that
+     still POST {email} without a session are accepted only while the
+     enforcement flag is OFF. */
+  const sess = await authSession(request);
+  let email = sess ? sess.email : '';
+  if (!sess) {
+    if (await sessionsEnforced()) return json({ error: 'org sign-in required (no valid session)' }, 401);
+    email = String(body?.email || '').toLowerCase().trim();
+  }
   /* length cap keeps abuse payloads (mega-strings) out of the login blob */
   if (!email || email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return json({ error: 'email required' }, 400);
@@ -705,11 +818,11 @@ async function handleLgStats(request: Request): Promise<Response> {
    Anonymous ?url= reads must never touch data outside what the admin has
    actually published. The allowlist = every published agile board's project
    keys ∪ the desk projects (DESK_PROJECTS). It is resolved with the stored
-   read-only creds, blob-cached (24 h TTL), and rebuilt in the background
-   after every publish:set / publish:clear. Fail-closed behaviour: when the
-   allowlist cannot be rebuilt, the last cached copy is used; with no cache
-   at all only the desk projects are allowed. */
-const PUB_PROJECTS_KEY = "jirapulse_pub_projects_v1";
+   read-only creds, cached in memory (24 h TTL), and rebuilt in the
+   background after every publish:set / publish:clear.
+   Phase 3.2 (18 Nov review): FAIL-CLOSED on rebuild failure — the stale
+   blob copy that used to be resurrected here is gone; an expired allowlist
+   shrinks to the static built-in desk projects instead. */
 const PUB_PROJECTS_TTL = 24 * 60 * 60 * 1000;
 let _pubProjectsCache: { set: Set<string>; freshUntil: number; lastFailAt: number } = {
   set: new Set<string>(DESK_PROJECTS), freshUntil: 0, lastFailAt: 0,
@@ -762,21 +875,18 @@ async function publishedProjects(force = false): Promise<Set<string>> {
         fresh = [...out];
       }
     }
-  } catch { /* rebuild failed — fall back to the stale copy below */ }
+  } catch { /* rebuild failed — fail closed below */ }
   if (fresh) {
     _pubProjectsCache = { set: new Set<string>(fresh), freshUntil: now + PUB_PROJECTS_TTL, lastFailAt: 0 };
-    blob.setJSON(PUB_PROJECTS_KEY, { ts: now, projects: fresh }).catch(() => { /* best-effort */ });
     return _pubProjectsCache.set;
   }
   _pubProjectsCache.lastFailAt = now;
-  /* stale copy beats nothing: keeps already-published reads alive across a
-     short Jira hiccup instead of failing closed on every popup */
-  try {
-    const cached = await blob.getJSON(PUB_PROJECTS_KEY) as any;
-    if (cached && Array.isArray(cached.projects) && cached.projects.length) {
-      _pubProjectsCache.set = new Set<string>(cached.projects.map(String));
-    }
-  } catch { /* ignore */ }
+  /* Phase 3.2 (18 Nov review) — FAIL CLOSED: no stale-blob resurrection.
+     When the rebuild fails and the in-memory copy has expired, the derived
+     allowlist shrinks to the STATIC built-in desk projects. Serving the old
+     blob copy would keep authorizing reads against boards the admin may
+     have already unpublished (the copy can outlive the publish state). */
+  _pubProjectsCache.set = new Set<string>(DESK_PROJECTS);
   return _pubProjectsCache.set;
 }
 
@@ -816,14 +926,14 @@ async function handleProxy(request: Request, u: URL): Promise<Response> {
   if (!headers.get('authorization') && request.method === 'GET') {
     let m: RegExpMatchArray | null;
     if ((m = targetUrl.pathname.match(/^\/rest\/api\/3\/issue\/([A-Z][A-Z0-9_]*-\d+)$/))) {
-      return await anonIssueGet(targetUrl, m[1]);
+      return await anonIssueGet(request, targetUrl, m[1]);
     }
     if ((m = targetUrl.pathname.match(/^\/rest\/api\/3\/attachment\/content\/(\d+)$/))) {
       const jpKey = (u.searchParams.get('jpKey') || '').trim().toUpperCase();
       if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(jpKey)) {
         return json({ error: 'attachment reads require jpKey (the parent issue key)' }, 400);
       }
-      return await anonAttachmentGet(targetUrl, jpKey, m[1]);
+      return await anonAttachmentGet(request, targetUrl, jpKey, m[1]);
     }
   }
 
@@ -875,15 +985,25 @@ async function storedCredsForHost(host: string): Promise<{ auth: string; base: s
    JSM internal) are stripped. Position placeholders keep the comment
    array aligned with ?cmd=deskAttach, whose commentIndex values refer to
    Jira's FULL comment list. */
-async function anonIssueGet(targetUrl: URL, key: string): Promise<Response> {
+async function anonIssueGet(request: Request, targetUrl: URL, key: string): Promise<Response> {
   const [creds, allowed] = await Promise.all([storedCredsForHost(targetUrl.hostname), publishedProjects()]);
   if (!creds) return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
-  /* the caller's field list may omit "security"/"labels" — force them in so
-     the restriction checks below actually see the values */
+  /* Phase 2.2: anonymous stored-cred reads require an org session when the
+     enforcement flag is ON (fail closed; legacy mode keeps working). */
+  const gate = await anonSessionGate(request);
+  if (gate instanceof Response) return gate;
+  /* the caller's field list may omit fields the authorization checks below
+     depend on — force them in so the checks actually see the values:
+     "project" (published-project allowlist), "security" (security level) and
+     "labels" (desk-internal exclusion). Regression A (18 Nov review): the
+     previously injected list omitted "project", so Jira answered 403 for
+     callers whose field list didn't already include it — the allowlist check
+     read fields.project.key === undefined and rejected legitimate issues. */
   const up = new URL(targetUrl.toString());
   const fl = (up.searchParams.get('fields') || '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (!fl.includes('security')) fl.push('security');
-  if (!fl.includes('labels')) fl.push('labels');
+  for (const need of ['project', 'security', 'labels']) {
+    if (!fl.includes(need)) fl.push(need);
+  }
   up.searchParams.set('fields', fl.join(','));
   let resp: Response;
   try {
@@ -906,16 +1026,10 @@ async function anonIssueGet(targetUrl: URL, key: string): Promise<Response> {
   const text = await resp.text();
   let data: any;
   try { data = JSON.parse(text); } catch { return json({ error: 'unexpected upstream payload' }, 502); }
-  const proj = String(data?.fields?.project?.key || '');
-  if (!proj || !allowed.has(proj)) return json({ error: 'issue not published' }, 403);
-  if (data?.fields?.security != null) return json({ error: 'issue is security-restricted' }, 403);
-  /* same exclusion the desk list applies: desk-internal issues stay hidden
-     from anonymous single-issue reads as well */
-  const labels: string[] = Array.isArray(data?.fields?.labels)
-    ? data.fields.labels.map((l: any) => String(l || '').toLowerCase()) : [];
-  if (labels.includes(String(DESK_EXCLUDE_LABEL || 'Internal').toLowerCase())) {
-    return json({ error: 'issue not published' }, 403);
-  }
+  /* centralized issue-level authorization (shared with the desk handlers):
+     published-project allowlist + no security level + no desk-internal label */
+  const deny = anonIssueAllowed(data?.fields, allowed);
+  if (deny) return json({ error: deny }, 403);
   const cs = data?.fields?.comment?.comments;
   if (Array.isArray(cs)) {
     /* redact IN PLACE (empty stub) so array positions — and therefore
@@ -935,9 +1049,12 @@ async function anonIssueGet(targetUrl: URL, key: string): Promise<Response> {
    &jpKey=<parent issue>): the parent issue must live in a published project,
    carry no security level, and actually reference this attachment id — only
    then is the binary streamed with the stored read-only creds. */
-async function anonAttachmentGet(targetUrl: URL, jpKey: string, attId: string): Promise<Response> {
+async function anonAttachmentGet(request: Request, targetUrl: URL, jpKey: string, attId: string): Promise<Response> {
   const [creds, allowed] = await Promise.all([storedCredsForHost(targetUrl.hostname), publishedProjects()]);
   if (!creds) return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
+  /* Phase 2.2: same org-session requirement as the single-issue read. */
+  const gate = await anonSessionGate(request);
+  if (gate instanceof Response) return gate;
   const jh = { 'authorization': creds.auth, 'accept': 'application/json', 'user-agent': 'JiraPulse-Relay/1.0' };
   let resp: Response;
   try {
@@ -952,15 +1069,9 @@ async function anonAttachmentGet(targetUrl: URL, jpKey: string, attId: string): 
   }
   let issue: any;
   try { issue = await resp.json(); } catch { return json({ error: 'unexpected upstream payload' }, 502); }
-  const proj = String(issue?.fields?.project?.key || '');
-  if (!proj || !allowed.has(proj)) return json({ error: 'issue not published' }, 403);
-  if (issue?.fields?.security != null) return json({ error: 'issue is security-restricted' }, 403);
-  /* desk-internal issues are excluded from anonymous attachment reads too */
-  const ilabels: string[] = Array.isArray(issue?.fields?.labels)
-    ? issue.fields.labels.map((l: any) => String(l || '').toLowerCase()) : [];
-  if (ilabels.includes(String(DESK_EXCLUDE_LABEL || 'Internal').toLowerCase())) {
-    return json({ error: 'issue not published' }, 403);
-  }
+  /* centralized issue-level authorization (same rule as anonIssueGet) */
+  const deny = anonIssueAllowed(issue?.fields, allowed);
+  if (deny) return json({ error: deny }, 403);
   const list: any[] = Array.isArray(issue?.fields?.attachment) ? issue.fields.attachment : [];
   if (!list.some((a: any) => String(a?.id || '') === attId)) {
     return json({ error: 'attachment does not belong to this issue' }, 403);

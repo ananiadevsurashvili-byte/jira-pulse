@@ -13,8 +13,10 @@ import {
   DESK_EXTRA_KEY,
   DESK_FIELDS_BASE,
   DESK_PROJECTS,
+  anonIssueAllowed,
   json,
 } from "./shared.ts";
+import { anonSessionGate } from "./auth.ts";
 
 /* ── admin-configurable desk allowlist ──────────────────────────────────
    Anonymous desk reads may only touch DESK_PROJECTS (shared.ts) plus any
@@ -149,22 +151,31 @@ export async function handleDeskCmd(u: URL, request: Request): Promise<Response>
     return json({ error: 'invalid from/to (expected ISO-8601 with UTC offset)' }, 400);
   }
   /* anonymous reads may only touch published desk projects (DESK_PROJECTS +
-     admin-added extras); viewers bringing their own Authorization header
-     are unrestricted */
-  if (!request.headers.get('authorization') && !(await deskProjects()).has(project)) {
-    return json({ error: 'project not published' }, 403);
+     admin-added extras) and — when session enforcement is ON (18 Nov
+     review Phase 2.2) — must present a valid org session; viewers bringing
+     their own Authorization header are unrestricted (their creds, their scope) */
+  if (!request.headers.get('authorization')) {
+    const gate = await anonSessionGate(request);
+    if (gate instanceof Response) return gate;
+    if (!(await deskProjects()).has(project)) {
+      return json({ error: 'project not published' }, 403);
+    }
   }
   /* each project+window gets its own short-TTL cache slot: the cache key
      MUST include the project — without it a LOG sync overwrote the single
      slot and every other project's viewer read the wrong project's issues
-     (boards rendered with an empty description/comments/reporter overlay) */
-  const deskKey = DESK_CACHE_KEY + ':' + project +
+     (boards rendered with an empty description/comments/reporter overlay).
+     Phase 3.1 (18 Nov review): the shared cache holds ONLY anonymous
+     (stored-cred) payloads and only anonymous reads may consult it; keys
+     carry the explicit "anon" tier and the v4 namespace bump so stale v3
+     entries are never read. */
+  const deskKey = DESK_CACHE_KEY + ':anon:' + project +
     ((fromQ || toQ) ? ':' + fromQ + '..' + toQ : '');
 
   /* short-lived response cache: another viewer (or a revisit within the
      TTL) gets the last synced payload immediately instead of paying the
-     ~40-page Jira sync again */
-  if (!forceFresh) {
+     ~40-page Jira sync again — anonymous reads only */
+  if (!hadViewerAuth && !forceFresh) {
     try {
       const cached = await blob.getJSON(deskKey) as any;
       if (cached && cached.data && cached.ts && Date.now() - cached.ts < DESK_CACHE_TTL) {
@@ -204,7 +215,10 @@ export async function handleDeskCmd(u: URL, request: Request): Promise<Response>
     'User-Agent': 'JiraPulse-Relay/1.0',
   };
   const get = async (path: string): Promise<Response> => {
-    return await fetch(base + path, { method: 'GET', headers: jh, redirect: 'follow' });
+    return await fetch(base + path, {
+      method: 'GET', headers: jh, redirect: 'follow',
+      signal: AbortSignal.timeout(45_000),   /* Phase 4.1: no upstream hang */
+    });
   };
 
   /* ── custom field discovery: "Logistics direction" + "Title" ──
@@ -493,6 +507,7 @@ export async function handleDeskAttachCmd(u: URL, request: Request): Promise<Res
     return json({ error: 'invalid key' }, 400);
   }
   const domainParam = (u.searchParams.get('domain') || '').trim();
+  const anonRead = !request.headers.get('authorization');
 
   /* credentials: identical rules to handleDeskCmd (viewer-first, then storing creds) */
   let authHeader = request.headers.get('authorization') || '';
@@ -506,6 +521,10 @@ export async function handleDeskAttachCmd(u: URL, request: Request): Promise<Res
     }
   }
   if (!authHeader) {
+    /* Phase 2.2: anonymous stored-cred reads require an org session when
+       the enforcement flag is ON (fail closed; legacy mode keeps working). */
+    const gate = await anonSessionGate(request);
+    if (gate instanceof Response) return gate;
     if (!stored?.domain || !stored?.email || !stored?.token) {
       return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
     }
@@ -525,7 +544,7 @@ export async function handleDeskAttachCmd(u: URL, request: Request): Promise<Res
   const base = domain.replace(/\/+$/, '');
 
   const resp = await fetch(base + '/rest/api/3/issue/' + encodeURIComponent(key) +
-    '?fields=attachment,comment', {
+    '?fields=attachment,comment,security,labels,project', {
     method: 'GET',
     headers: {
       'Authorization': authHeader,
@@ -533,12 +552,23 @@ export async function handleDeskAttachCmd(u: URL, request: Request): Promise<Res
       'User-Agent': 'JiraPulse-Relay/1.0',
     },
     redirect: 'follow',
+    signal: AbortSignal.timeout(30_000),   /* Phase 4.1: no upstream hang */
   });
   if (!resp.ok) {
     return json({ error: `Jira fetch failed (HTTP ${resp.status})` }, resp.status === 404 ? 404 : 502);
   }
   const issue = await resp.json();
   const f = issue?.fields || {};
+
+  /* Phase 3.3 (18 Nov review): anonymous reads must clear the SAME
+     issue-level gate as the plain proxy — allowlist + NO security level +
+     no desk-internal label — before any attachment or comment metadata is
+     returned. Previously this handler only checked the project prefix, so
+     a security-restricted or desk-internal issue's attachments leaked. */
+  if (anonRead) {
+    const deny = anonIssueAllowed(f, await deskProjects());
+    if (deny) return json({ error: deny }, 403);
+  }
 
   /* media UUID → attachment id map. For attachments Jira stores
      fields.attachment[].mediaId which IS the ADF media attrs.id. */
@@ -770,6 +800,7 @@ export async function handleDeskSlaCmd(u: URL, request: Request): Promise<Respon
     return json({ error: 'invalid key' }, 400);
   }
   const domainParam = (u.searchParams.get('domain') || '').trim();
+  const anonRead = !request.headers.get('authorization');
 
   /* credentials: identical rules to handleDeskAttachCmd */
   let authHeader = request.headers.get('authorization') || '';
@@ -783,6 +814,10 @@ export async function handleDeskSlaCmd(u: URL, request: Request): Promise<Respon
     }
   }
   if (!authHeader) {
+    /* Phase 2.2: anonymous stored-cred reads require an org session when
+       the enforcement flag is ON (fail closed; legacy mode keeps working). */
+    const gate = await anonSessionGate(request);
+    if (gate instanceof Response) return gate;
     if (!stored?.domain || !stored?.email || !stored?.token) {
       return json({ error: 'no credentials available (viewer not connected and no stored creds)' }, 401);
     }
@@ -805,6 +840,23 @@ export async function handleDeskSlaCmd(u: URL, request: Request): Promise<Respon
     'User-Agent': 'JiraPulse-Relay/1.0',
   };
 
+  /* Phase 3.3 (18 Nov review): anonymous callers must clear the SAME
+     issue-level gate as the plain proxy (allowlist + NO security level +
+     no desk-internal label) BEFORE any SLA data is returned. Fail closed:
+     when the verification fetch itself fails, anonymous access is denied. */
+  if (anonRead) {
+    let deny: string | null;
+    try {
+      const chk = await fetch(base + '/rest/api/3/issue/' + encodeURIComponent(key) +
+        '?fields=security,labels,project', { method: 'GET', headers: jh, redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+      if (!chk.ok) deny = 'issue could not be verified for anonymous access';
+      else deny = anonIssueAllowed((await chk.json())?.fields, await deskProjects());
+    } catch {
+      deny = 'issue could not be verified for anonymous access';
+    }
+    if (deny) return json({ error: deny }, 403);
+  }
+
   /* MERGE both sources instead of "first that works wins": on this Jira
      instance the /search + /issue GET NEVER carry "Time to first response"
      (the field comes back empty for all 5,496 LOG requests) — the settled
@@ -817,7 +869,10 @@ export async function handleDeskSlaCmd(u: URL, request: Request): Promise<Respon
   /* 1st: /issue with names expansion → get ALL SLA custom fields. */
   try {
     const r1 = await fetch(base + '/rest/api/3/issue/' + encodeURIComponent(key) +
-      '?fields=*nocommon&expand=names', { method: 'GET', headers: jh, redirect: 'follow' });
+      '?fields=*nocommon&expand=names', {
+      method: 'GET', headers: jh, redirect: 'follow',
+      signal: AbortSignal.timeout(30_000),   /* Phase 4.1: no upstream hang */
+    });
     if (r1.ok) {
       const issue = await r1.json();
       const aspects = deskSlaAspectsFromIssue(issue);
@@ -832,6 +887,7 @@ export async function handleDeskSlaCmd(u: URL, request: Request): Promise<Respon
   try {
     const r2 = await fetch(base + '/rest/servicedeskapi/request/' + encodeURIComponent(key) + '/sla', {
       method: 'GET', headers: jh, redirect: 'follow',
+      signal: AbortSignal.timeout(30_000),   /* Phase 4.1: no upstream hang */
     });
     if (r2.ok) {
       const j = await r2.json();

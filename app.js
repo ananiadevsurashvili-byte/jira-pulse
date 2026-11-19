@@ -8,7 +8,6 @@ const ADMIN_PANEL = typeof window.ADMIN_PANEL !== 'undefined' && window.ADMIN_PA
 /* ── helpers ─────────────────────────────────────────────────────── */
 const $ = (s) => document.querySelector(s);
 const DAY = 86400000;
-const LS_CONN = 'jp_conn_v1';
 const LS_RELAY = 'jp_relay_v1';
 const LS_LAST_BOARD = 'jp_last_board_v1';
 /* ── CORS relay cascade ──────────────────────────────────────────────
@@ -1575,20 +1574,32 @@ const PUB_RELAY = 'https://gensweaty--65df49bca6d911f19f231607ee4eb77e.web.val.r
 /* The publish-admin secret is NEVER bundled: a token hardcoded in this public
    file would let anyone rewrite the published config or swap the relay's
    stored Jira creds. The admin pastes it once in the Publish dialog and it
-   lives only in this browser's localStorage. Rotate it via the relay's
-   ?cmd=admin:rotate (requires the current token). */
-const LS_PUB_ADMIN_TOKEN = 'jpPubAdminToken';
+   lives only in this browser's sessionStorage (review finding: it used to
+   sit in localStorage, where any script on the origin could read it until
+   manually cleared — same hardening the desk admin panels already shipped).
+   Rotate it via the relay's ?cmd=admin:rotate (requires the current token). */
+const LS_PUB_ADMIN_TOKEN = 'jpPubAdminToken';      /* legacy, migration only */
+const SS_PUB_ADMIN_TOKEN = 'jpPubAdminTokenSs';    /* sessionStorage */
 function pubAdminToken() {
-  try { return (localStorage.getItem(LS_PUB_ADMIN_TOKEN) || '').trim(); } catch (_) { return ''; }
+  try {
+    const legacy = localStorage.getItem(LS_PUB_ADMIN_TOKEN);
+    if (legacy) {
+      try { sessionStorage.setItem(SS_PUB_ADMIN_TOKEN, legacy.trim()); } catch (_) { /* noop */ }
+      localStorage.removeItem(LS_PUB_ADMIN_TOKEN);
+    }
+  } catch (_) { /* noop */ }
+  try { return (sessionStorage.getItem(SS_PUB_ADMIN_TOKEN) || '').trim(); } catch (_) { return ''; }
 }
 function savePubAdminToken(tok) {
-  try { localStorage.setItem(LS_PUB_ADMIN_TOKEN, String(tok || '').trim()); } catch (_) { /* non-fatal */ }
+  try { sessionStorage.setItem(SS_PUB_ADMIN_TOKEN, String(tok || '').trim()); } catch (_) { /* non-fatal */ }
 }
 
 /* call a relay publish command. admin=true adds the x-jp-admin header (writes). */
 async function pubCmd(cmd, { method = 'GET', body = null, admin = false, timeoutMs = 25000 } = {}) {
   const url = PUB_RELAY + '?cmd=' + encodeURIComponent(cmd);
-  const headers = { 'Accept': 'application/json' };
+  /* every relay call rides with the org session when one exists (data
+     endpoints reject anonymous stored-cred reads once enforcement is ON) */
+  const headers = Object.assign({ 'Accept': 'application/json' }, window.JPSession ? JPSession.headers() : {});
   if (admin) {
     const tk = pubAdminToken();
     if (!tk) throw new Error(t('pub.adminTokenNeeded'));
@@ -1667,7 +1678,7 @@ async function pubFetchBoardLive(boardId, mode = 'full', { fresh = false } = {})
   const url = PUB_RELAY + '?cmd=board&bid=' + encodeURIComponent(boardId) + '&mode=' + encodeURIComponent(mode) +
     (domain ? '&domain=' + encodeURIComponent(domain) : '') +
     (fresh ? '&fresh=1' : '');   /* relay-side 10 min blob-cache bypass (hard refresh) */
-  const headers = { 'Accept': 'application/json' };
+  const headers = Object.assign({ 'Accept': 'application/json' }, window.JPSession ? JPSession.headers() : {});
   if (state.conn) headers['Authorization'] = 'Basic ' + btoa(state.conn.email + ':' + state.conn.token);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 40000);
@@ -1705,13 +1716,11 @@ function orgIsAdmin(email) {
   return isAdminEmail(email);
 }
 
-/* deterministic 6-digit code from seed + email */
-function publishCode(seed, email) {
-  let h = 0;
-  const s = seed + '|' + email.toLowerCase().trim();
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return String(Math.abs(h) % 1000000).padStart(6, '0');
-}
+/* The deterministic 6-digit access code was removed (18 Nov review Phase 2.2):
+   it let ANYONE compute a valid code for any org address offline, because the
+   whole algorithm shipped in this public bundle. Codes are now generated
+   RANDOMLY by the relay, stored only as a hash, emailed server-side, and
+   verified relay-side; success mints an opaque session token. */
 
 /* is this email in the allowed domain? */
 function publishEmailOk(email) {
@@ -1735,32 +1744,37 @@ let pubState = {
   boardAllTime: false,     /* viewer's "All time" preset — window = first task → end of today */
 };
 
-/* ── viewer session persistence (refresh keeps you signed in) ─────────
-   After a Google sign-in or a verified email code we remember the viewer
-   (email + timestamp) in localStorage. On the next page load the org gate
-   is skipped and the viewer lands straight back on the board they were
-   viewing. Sign-out wipes it. Sessions expire after 30 days. */
-const LS_PUB_SESSION = 'jp_pub_session_v1';
-const PUB_SESSION_TTL = 30 * 24 * 60 * 60 * 1000;   /* 30 days */
+/* ── viewer session (18 Nov review Phase 2) ──────────────────────────
+   The AUTH session lives in the shared relay-session.js module: the relay
+   mints an opaque token (Google ID verified server-side, or a random email
+   code) and it is kept in sessionStorage — cleared automatically when the
+   browser tab/session ends, and re-validated against the relay on every
+   boot (whoami). localStorage now holds ONLY non-sensitive VIEW prefs
+   (last board + email for the "land back where you were" UX); it never
+   stores a credential. */
+const LS_PUB_SESSION = 'jp_pub_session_v1';   /* view prefs only — no secrets */
 
 function pubSaveSession(extra = {}) {
   try {
     if (!pubState.verified || !pubState.email) return;
-    localStorage.setItem(LS_PUB_SESSION, JSON.stringify({
+    const prefs = {
       email: pubState.email,
       ts: Date.now(),
       ...extra,
-    }));
+    };
+    localStorage.setItem(LS_PUB_SESSION, JSON.stringify(prefs));
   } catch { /* storage unavailable — non-fatal */ }
 }
 
+/* view prefs only (boardId/email); the AUTH decision always comes from the
+   relay session via JPSession.whoami() in showPublicLanding() */
 function pubRestoreSession() {
   try {
     const raw = localStorage.getItem(LS_PUB_SESSION);
     if (!raw) return null;
     const s = JSON.parse(raw);
     if (!s || !s.email || !publishEmailOk(s.email)) return null;
-    if (!s.ts || Date.now() - s.ts > PUB_SESSION_TTL) {
+    if (!s.ts || Date.now() - s.ts > 30 * 24 * 60 * 60 * 1000) {
       localStorage.removeItem(LS_PUB_SESSION);
       return null;
     }
@@ -1797,23 +1811,38 @@ function googleReady() {
   return typeof window.google !== 'undefined' && window.google.accounts && window.google.accounts.id;
 }
 
-/* grant access to a verified Google account (domain checked in the callback) */
-function handleGoogleCredential(resp) {
-  const payload = decodeJwt(resp.credential);
-  const email = (payload?.email || '').toLowerCase().trim();
-  if (!publishEmailOk(email)) {
-    $('#pubStatus').textContent = tReplace('pub.restricted', { d: PUBLISH_DOMAIN });
-    $('#pubStatus').className = 'error';
-    return;
+/* grant access to a verified Google account. The ID token is forwarded to
+   the relay, which verifies the RS256 signature against Google's JWKS and
+   checks iss/aud/exp/email_verified/org domain SERVER-SIDE before minting
+   the session (18 Nov review Phase 2.1: the browser's own decodeJwt read
+   was never a trust anchor). */
+async function handleGoogleCredential(resp) {
+  const status = $('#pubStatus');
+  status.textContent = t('auth.sending');
+  status.className = 'muted';
+  try {
+    const data = await JPSession.signInGoogle(PUB_RELAY, resp.credential);
+    const email = String(data.email || '').toLowerCase();
+    if (!publishEmailOk(email)) {
+      pubClearSession();
+      JPSession.clear();
+      status.textContent = tReplace('pub.restricted', { d: PUBLISH_DOMAIN });
+      status.className = 'error';
+      return;
+    }
+    pubState.email = email;
+    pubState.verified = true;
+    pubState.isAdmin = ADMIN_PANEL && data.admin === true;
+    /* remember the viewer's last board (view prefs) so a refresh skips the gate */
+    pubSaveSession();
+    /* no "verified · loading" message here — the charts appearing IS the feedback;
+       the status line is reserved for errors only */
+    pubEnterVerified();
+  } catch (e) {
+    logDiag('warn', 'Google sign-in rejected', { message: e?.message });
+    status.textContent = e?.message || t('pub.googleFailed');
+    status.className = 'error';
   }
-  pubState.email = email;
-  pubState.verified = true;
-  pubState.isAdmin = isAdminEmail(email);
-  /* remember the viewer so a refresh skips the login gate */
-  pubSaveSession();
-  /* no "verified · loading" message here — the charts appearing IS the feedback;
-     the status line is reserved for errors only */
-  pubEnterVerified();
 }
 
 /* render Google's official sign-in button. The GSI script is loaded with `async`,
@@ -1864,13 +1893,9 @@ function initGoogleButton() {
   }, 200);
 }
 
-function decodeJwt(token) {
-  try {
-    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const json = atob(base64);
-    return JSON.parse(json);
-  } catch { return null; }
-}
+/* decodeJwt was removed: the browser never decodes the Google ID token for
+   authorization anymore — the relay verifies it server-side (JWKS) and the
+   client only ever sees the verified claims the relay echoes back. */
 
 /* topbar identity chip on the share view: shows the signed-in org member's
    profile (initial avatar + email) — the same spot where the admin panel shows
@@ -1930,7 +1955,8 @@ function pubSignOut() {
   pubState.email = '';
   pubState.codeSent = false;
   pubState.isAdmin = false;
-  pubClearSession();   /* forget the persisted viewer session */
+  pubClearSession();                    /* forget the view prefs */
+  JPSession.signOut(PUB_RELAY);         /* destroy the relay session + local token */
   /* let Google forget the chosen account so the next sign-in shows the chooser */
   if (googleReady()) {
     try { window.google.accounts.id.disableAutoSelect(); } catch { /* noop */ }
@@ -2034,17 +2060,12 @@ function showPubScreen(snapshot) {
   show($( '#pubScreen'));
 }
 
-/* stable seed for the access code — the relay config's shareSeed is a
-   constant, so a viewer's personal code NEVER changes when the admin
-   republishes (republish only changes boards/chart config, not access) */
-function pubCodeSeed(snap) {
-  return (snap && snap.shareSeed) || 'org';
-}
-
-/* Send the access code to the user's email using FormSubmit (free, no backend).
-   We NEVER display the code on-screen — it goes only to the recipient's inbox.
-   FormSubmit requires a one-time activation email to the recipient address before
-   the first delivery; after that each code is emailed automatically. */
+/* Send the access code. The RELAY generates a random one-time code, stores
+   only its SHA-256 hash (10-minute expiry, 5-attempt cap) and emails it
+   server-side — the code never passes through the browser that requested
+   it, and it can no longer be computed offline from the page bundle
+   (18 Nov review Phase 2.2). FormSubmit still needs the one-time recipient
+   activation; when that's pending we say so and point to Google sign-in. */
 async function pubSendCode() {
   const email = $('#pubEmail').value.trim();
   if (!publishEmailOk(email)) {
@@ -2053,9 +2074,6 @@ async function pubSendCode() {
     return;
   }
   pubState.email = email;
-  pubState.isAdmin = isAdminEmail(email);
-  const code = publishCode(pubCodeSeed(pubState.snapshot), email);
-  pubState.codeSent = true;
 
   const btn = $('#pubSendBtn');
   btn.disabled = true;
@@ -2063,51 +2081,9 @@ async function pubSendCode() {
   $('#pubStatus').textContent = tReplace('pub.sending', { email });
   $('#pubStatus').className = 'muted';
 
-  /* FormSubmit accepts an arbitrary recipient email — each org member receives
-     the code in their own inbox. No secret is exposed to the page. */
-  const recipient = email;
-  const subject = 'Your JiraPulse access code';
-  const body =
-    'Hello,\n\n' +
-    'Your one-time access code for JiraPulse (' + (pubState.snapshot?.boardName || 'board stats') + ') is:\n\n' +
-    code + '\n\n' +
-    'Enter it on the JiraPulse page to view the published stats.\n\n' +
-    'If you did not request this, ignore this email.';
-
   try {
-    const res = await fetch('https://formsubmit.co/ajax/' + encodeURIComponent(recipient), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({
-        email: email,
-        _subject: subject,
-        message: body,
-        _template: 'table',
-        _captcha: 'false',
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = (data && (data.message || data.error)) || 'Email service error (' + res.status + ')';
-      throw new Error(msg);
-    }
-    /* FormSubmit returns success:false when the recipient address needs a one-time
-       activation (it emails an activation link first) or when it can't validate the
-       request. Never claim the code was sent in that case — show the real reason
-       and point the user to Google sign-in as the reliable fallback. */
-    if (data && data.success === false) {
-      const reason = data.message || 'the email service needs confirmation';
-      const activating = /activat/i.test(reason);
-      $('#pubStatus').textContent = activating
-        ? tReplace('pub.activateFirst', { email })
-        : tReplace('pub.deliverFailed', { m: reason });
-      $('#pubStatus').className = activating ? 'warn' : 'error';
-      $('#pubCodeWrap').classList.remove('hidden');
-      $('#pubVerifyBtn').classList.remove('hidden');
-      $('#pubMailLink').classList.add('hidden');
-      $('#pubSendBtn').textContent = t('pub.resendCode');
-      return;
-    }
+    await JPSession.sendEmailCode(PUB_RELAY, email);
+    pubState.codeSent = true;
     $('#pubStatus').textContent = tReplace('pub.sentTo', { email });
     $('#pubStatus').className = 'ok';
     $('#pubCodeWrap').classList.remove('hidden');
@@ -2115,29 +2091,50 @@ async function pubSendCode() {
     $('#pubMailLink').classList.add('hidden');
     $('#pubSendBtn').textContent = t('pub.resendCode');
   } catch (e) {
-    logDiag('warn', 'pubSendCode failed', { email, message: e.message });
-    $('#pubStatus').textContent = tReplace('pub.sendFailed', { m: e.message });
-    $('#pubStatus').className = 'error';
-    $('#pubMailLink').classList.add('hidden');
+    logDiag('warn', 'pubSendCode failed', { email, message: e?.message });
+    if (e?.activating) {
+      $('#pubStatus').textContent = tReplace('pub.activateFirst', { email });
+      $('#pubStatus').className = 'warn';
+      $('#pubCodeWrap').classList.remove('hidden');
+      $('#pubVerifyBtn').classList.remove('hidden');
+      $('#pubMailLink').classList.add('hidden');
+      $('#pubSendBtn').textContent = t('pub.resendCode');
+    } else {
+      $('#pubStatus').textContent = tReplace('pub.sendFailed', { m: e?.message || 'email delivery failed' });
+      $('#pubStatus').className = 'error';
+      $('#pubMailLink').classList.add('hidden');
+    }
   } finally {
     btn.disabled = false;
     if (!btn.textContent.startsWith('Resend') && !btn.textContent.startsWith('კოდის ხელახლა')) btn.textContent = t('pub.sendCode');
   }
 }
 
-function pubVerifyCode() {
+/* Verify the code relay-side. On success the relay burns the code, mints an
+   opaque session token and the viewer is in — the code itself can be used
+   exactly once and never leaves the inbox + relay. */
+async function pubVerifyCode() {
   const entered = $('#pubCode').value.trim();
-  const expected = publishCode(pubCodeSeed(pubState.snapshot), pubState.email);
-  if (entered === expected) {
+  if (!pubState.email || !/^\d{6}$/.test(entered)) {
+    $('#pubStatus').textContent = t('pub.wrongCode');
+    $('#pubStatus').className = 'error';
+    return;
+  }
+  const btn = $('#pubVerifyBtn');
+  btn.disabled = true;
+  try {
+    const data = await JPSession.verifyEmailCode(PUB_RELAY, pubState.email, entered);
     pubState.verified = true;
-    pubState.isAdmin = isAdminEmail(pubState.email);
+    pubState.isAdmin = ADMIN_PANEL && data.admin === true;
     /* remember the viewer so a refresh skips the login gate */
     pubSaveSession();
     /* success = charts appearing; status line stays reserved for errors */
     pubEnterVerified();
-  } else {
-    $('#pubStatus').textContent = t('pub.wrongCode');
+  } catch (e) {
+    $('#pubStatus').textContent = e?.message || t('pub.wrongCode');
     $('#pubStatus').className = 'error';
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -2775,7 +2772,7 @@ function wireDashDrill() {
 async function pubFetchDetail(key) {
   const domain = String(jiraIssueBase() || PUBLISH_DOMAIN).replace(/^https?:\/\//, '').replace(/\/+$/, '');
   const target = `https://${domain}/rest/api/3/issue/${encodeURIComponent(key)}?fields=description,comment,reporter,assignee,attachment`;
-  const headers = { 'Accept': 'application/json' };
+  const headers = Object.assign({ 'Accept': 'application/json' }, window.JPSession ? JPSession.headers() : {});
   const viewerCreds = loadConn();
   if (viewerCreds) headers['Authorization'] = 'Basic ' + btoa(viewerCreds.email + ':' + viewerCreds.token);
   const res = await fetch(PUB_RELAY + '?url=' + encodeURIComponent(target), { method: 'GET', headers });
@@ -3003,9 +3000,12 @@ function jpFmtBytes(n) {
 async function jpAttachBlob(att) {
   if (_jpBlobCache.has(att.id)) return _jpBlobCache.get(att.id);
   const conn = loadConn();
-  const res = await fetch(jpAttachProxyUrl(att.contentUrl), {
-    headers: conn ? { 'Authorization': 'Basic ' + btoa(conn.email + ':' + conn.token) } : {},
-  });
+  /* <a> navigation and <img src> cannot carry headers, so attachment
+     binaries are ALWAYS fetched here — with the viewer's Authorization
+     when connected, otherwise with the org session header (18 Nov Phase 2) */
+  const hdrs = conn ? { 'Authorization': 'Basic ' + btoa(conn.email + ':' + conn.token) }
+    : (window.JPSession ? JPSession.headers() : {});
+  const res = await fetch(jpAttachProxyUrl(att.contentUrl), { headers: hdrs });
   if (!res.ok) throw new Error('preview HTTP ' + res.status);
   const blob = await res.blob();
   if (/json/i.test(blob.type || '')) throw new Error('proxy refused preview');
@@ -3746,7 +3746,22 @@ function wirePubCard() {
       return;
     }
     const fileItem = ev.target.closest('a.lg-att-item[href]');
-    if (fileItem && fileItem.classList.contains('lg-att-file')) return;   /* target=_blank handles it */
+    if (fileItem && fileItem.classList.contains('lg-att-file')) {
+      /* Direct <a> navigation cannot carry the Authorization/session headers,
+         so the binary is fetched through the blob path (jpDownloadAttachment)
+         and handed back as an object-URL download; direct navigation stays as
+         the legacy fallback (works while anonymous reads are still allowed). */
+      ev.preventDefault();
+      const meta = $('#pubCardBody')._jpAttMeta?.get(fileItem.getAttribute('data-att-id'));
+      if (meta) {
+        jpDownloadAttachment(meta).catch(() => {
+          window.open(fileItem.getAttribute('href'), '_blank', 'noopener');
+        });
+      } else {
+        window.open(fileItem.getAttribute('href'), '_blank', 'noopener');
+      }
+      return;
+    }
     if (ev.target.closest('.jp-att-badge')) {
       ev.preventDefault();
       /* clicking the row's 📎 badge jumps to the popup's attachments grid */
@@ -4457,8 +4472,15 @@ async function showPublicLanding(restore = false) {
     boards,
     domain: (cfg && cfg.domain) || '',
   };
-  /* restore the persisted viewer session (refresh keeps you signed in) */
-  const sess = restore ? pubRestoreSession() : null;
+  /* restore the persisted viewer session (refresh keeps you signed in).
+     The AUTH decision is server-validated: the stored session token is
+     checked against the relay (whoami) — an expired/revoked session falls
+     back to the gate instead of trusting a stale local record. */
+  let sess = null;
+  if (restore || new URLSearchParams(location.search).has('share') || location.hash.startsWith('#share') || location.hash.startsWith('#p=')) {
+    sess = await JPSession.whoami(PUB_RELAY);
+  }
+  const prefs = pubRestoreSession();
   if (sess) {
     pubState.email = sess.email;
     pubState.verified = true;
@@ -4466,8 +4488,9 @@ async function showPublicLanding(restore = false) {
     pubState.snapshot = snapshot;
     pubEnterVerified();
     /* land on the same board the viewer was reading (if it still exists) */
-    if (sess.boardId) {
-      const b = boards.find((x) => x.boardId === sess.boardId);
+    const boardId = prefs?.boardId;
+    if (boardId) {
+      const b = boards.find((x) => x.boardId === boardId);
       if (b) { openBoardSnapshot(b); return; }
     }
     return;
@@ -4874,23 +4897,16 @@ async function fetchPaginated(request, cap = 5000, pageSize = 50) {
 }
 
 /* ── persistence ─────────────────────────────────────────────────── */
-/* The Jira API token is a long-lived secret: per the security review it
-   must NOT persist in localStorage (readable by any script on the origin
-   until manually cleared). It lives in sessionStorage instead — cleared
-   automatically when the browser session/tab ends. Email, domain and
-   non-sensitive prefs stay in localStorage, so reconnecting means typing
-   only the token. Connections saved by older versions are migrated on
-   first load. */
-const LS_JIRA_TOKEN = 'jp_jira_token_v1';          /* sessionStorage */
+/* Connection storage lives in the shared conn-store.js module (loaded by
+   every page before the app bundle): localStorage keeps domain/email and
+   non-sensitive prefs, the Jira API token lives in sessionStorage and is
+   cleared automatically when the browser session/tab ends. Legacy layouts
+   (token inside jp_conn_v1) are migrated on first load. Centralizing here
+   fixed regression B (18 Nov review): the desk/admin pages used to expect
+   the token inside the localStorage blob and silently dropped the
+   connection saved on the root app. */
 function saveConn() {
-  try {
-    const c = { ...(state.conn || {}) };
-    const token = c.token;
-    delete c.token;
-    localStorage.setItem(LS_CONN, JSON.stringify(c));
-    if (token) sessionStorage.setItem(LS_JIRA_TOKEN, token);
-    else sessionStorage.removeItem(LS_JIRA_TOKEN);
-  } catch (_) { /* storage unavailable — non-fatal */ }
+  JPConnStore.save(state.conn || {});
 }
 /* relay preferences survive independently of the Jira connection, so they are
    not lost if the user configures a relay before ever connecting successfully */
@@ -4901,27 +4917,11 @@ function saveRelayPrefs(useProxy, proxyApiKey, proxyUrl) {
   localStorage.setItem(LS_RELAY, JSON.stringify({ useProxy, proxyApiKey, proxyUrl }));
 }
 function loadConn() {
-  try {
-    const raw = localStorage.getItem(LS_CONN);
-    if (!raw) return null;
-    const c = JSON.parse(raw);
-    if (!c) return null;
-    /* one-time migration from the pre-hardening layout that stored the
-       token inside LS_CONN */
-    if (c.token) {
-      try { sessionStorage.setItem(LS_JIRA_TOKEN, c.token); } catch (_) { /* noop */ }
-      delete c.token;
-      try { localStorage.setItem(LS_CONN, JSON.stringify(c)); } catch (_) { /* noop */ }
-    }
-    const token = sessionStorage.getItem(LS_JIRA_TOKEN) || '';
-    if (!c.domain || !c.email || !token) return null;
-    return { ...c, token };
-  } catch (_) { return null; }
+  return JPConnStore.load();
 }
 function clearConn() {
-  localStorage.removeItem(LS_CONN);
   localStorage.removeItem(LS_LAST_BOARD);
-  try { sessionStorage.removeItem(LS_JIRA_TOKEN); } catch (_) { /* noop */ }
+  JPConnStore.clear();
 }
 
 /* ── screens ─────────────────────────────────────────────────────── */

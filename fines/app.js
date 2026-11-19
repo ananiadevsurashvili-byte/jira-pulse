@@ -57,12 +57,10 @@ const FINES_PROJECT = (() => {
 })();
 const DESK_PROJECT = FINES_PROJECT;                  /* the Service-Desk project key */
 const DESK_EXCLUDE_LABEL = 'internal';               /* case-insensitive exclusion */
-const LOG_CODE_SEED = 'org';                         /* same code seed as the org publish */
 
 /* shared localStorage keys — values sync automatically with the main app */
 const LS_THEME = 'jp_theme_v1';
 const LS_LANG = 'jp_lang_v1';
-const LS_CONN = 'jp_conn_v1';
 const LS_PUB_SESSION = 'jp_pub_session_v1';
 const PUB_SESSION_TTL = 30 * 24 * 60 * 60 * 1000;   /* 30 days */
 
@@ -432,14 +430,12 @@ function setTheme(theme) {
   applyThemeClass();
 }
 
-/* ── org access (copied from app.js) ───────────────────────────────── */
-/* deterministic 6-digit code from seed + email */
-function publishCode(seed, email) {
-  let h = 0;
-  const s = seed + '|' + email.toLowerCase().trim();
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return String(Math.abs(h) % 1000000).padStart(6, '0');
-}
+/* ── org access (shared with app.js) ─────────────────────────────────
+   18 Nov review Phase 2: publishCode (deterministic offline-computable
+   code) and decodeJwt (client-side JWT trust) are GONE. Codes are random,
+   relay-generated + emailed server-side; Google tokens are verified
+   relay-side (JWKS); the session is an opaque relay-minted token kept in
+   sessionStorage (relay-session.js). localStorage holds only view prefs. */
 
 /* is this email in the allowed domain? */
 function publishEmailOk(email) {
@@ -447,20 +443,13 @@ function publishEmailOk(email) {
   return e.endsWith('@' + PUBLISH_DOMAIN) && e.split('@')[1] === PUBLISH_DOMAIN;
 }
 
-function decodeJwt(token) {
-  try {
-    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const json = atob(base64);
-    return JSON.parse(json);
-  } catch { return null; }
-}
-
 function googleReady() {
   return typeof window.google !== 'undefined' && window.google.accounts && window.google.accounts.id;
 }
 
-/* ── viewer session (same key/shape as the main app) ─────────────────
-   Signed in on one page → signed in on the other; 30-day TTL. */
+/* ── viewer view-prefs (same key/shape as the main app) ──────────────
+   The AUTH session lives in relay-session.js (sessionStorage); this record
+   only remembers the email so a refresh restores the view. */
 function lgSaveSession(extra = {}) {
   try {
     if (!lgState.verified || !lgState.email) return;
@@ -491,27 +480,27 @@ function lgClearSession() {
 }
 
 /* ── usage ping: tell the relay this viewer opened the fines desk ──
-   one-shot per page load · powers the admin panel's "platform logins" */
+   one-shot per page load · powers the admin panel's "platform logins".
+   Phase 2.3: the identity comes from the verified session — the body no
+   longer carries (spoofable) email. */
 function lgSendPing(email) {
   try {
     fetch(PUB_RELAY + '?cmd=lgPing', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, surface: 'desk' }),
+      headers: Object.assign({ 'Content-Type': 'application/json' }, window.JPSession ? JPSession.headers() : {}),
+      body: JSON.stringify({ surface: 'desk' }),
       keepalive: true,
     }).catch(() => {});
   } catch (_) { /* telemetry must never break the page */ }
 }
 
-/* ── stored Jira connection (shared with the main app) ─────────────── */
+/* ── stored Jira connection (shared with the main app) ───────────────
+   The token lives in sessionStorage (conn-store.js handles the split and
+   the legacy migration) — regression B fix: this page used to expect the
+   token inside the localStorage blob and silently dropped the connection
+   saved on the root app. */
 function loadConn() {
-  try {
-    const raw = localStorage.getItem(LS_CONN);
-    if (!raw) return null;
-    const c = JSON.parse(raw);
-    if (!c.domain || !c.email || !c.token) return null;
-    return c;
-  } catch (_) { return null; }
+  return window.JPConnStore ? JPConnStore.load() : null;
 }
 
 /* ── date formatting (copied + a datetime variant) ───────────────────
@@ -628,20 +617,31 @@ function lgEnterVerified() {
   });
 }
 
-/* ── Google sign-in (copied pattern from app.js) ───────────────────── */
-function handleGoogleCredential(resp) {
-  const payload = decodeJwt(resp.credential);
-  const email = (payload?.email || '').toLowerCase().trim();
-  if (!publishEmailOk(email)) {
-    $('#lgStatus').textContent = tReplace('pub.restricted', { d: PUBLISH_DOMAIN });
-    $('#lgStatus').className = 'error';
-    return;
+/* ── Google sign-in (relay-verified, same pattern as app.js) ──────────
+   The ID token is verified SERVER-SIDE by the relay (JWKS); the client
+   only sees the relay's verdict. */
+async function handleGoogleCredential(resp) {
+  const status = $('#lgStatus');
+  status.textContent = t('auth.sending');
+  status.className = 'muted';
+  try {
+    const data = await JPSession.signInGoogle(PUB_RELAY, resp.credential);
+    const email = String(data.email || '').toLowerCase();
+    if (!publishEmailOk(email)) {
+      JPSession.clear();
+      status.textContent = tReplace('pub.restricted', { d: PUBLISH_DOMAIN });
+      status.className = 'error';
+      return;
+    }
+    lgState.email = email;
+    lgState.verified = true;
+    lgSaveSession();
+    /* no "verified · loading" message — the task list appearing IS the feedback */
+    lgEnterVerified();
+  } catch (e) {
+    status.textContent = e?.message || tReplace('pub.googleFailed', { d: PUBLISH_DOMAIN });
+    status.className = 'error';
   }
-  lgState.email = email;
-  lgState.verified = true;
-  lgSaveSession();
-  /* no "verified · loading" message — the task list appearing IS the feedback */
-  lgEnterVerified();
 }
 
 /* render Google's official sign-in button over our placeholder. The GSI
@@ -688,9 +688,9 @@ function initGoogleButton() {
   }, 200);
 }
 
-/* ── email one-time code (copied pattern from app.js) ────────────────
-   Same code derivation (seed 'org' + email) as the main org publish, so a
-   user's Fines code equals their JiraPulse code. FormSubmit emails it. */
+/* ── email one-time code (relay-generated, server-side delivery) ──────
+   The relay emails a RANDOM code to the address; nothing here can compute
+   it. The relay is the only verifier (18 Nov review Phase 2.2). */
 async function lgSendCode() {
   const email = $('#lgEmail').value.trim();
   if (!publishEmailOk(email)) {
@@ -699,8 +699,6 @@ async function lgSendCode() {
     return;
   }
   lgState.email = email;
-  const code = publishCode(LOG_CODE_SEED, email);
-  lgState.codeSent = true;
 
   const btn = $('#lgSendBtn');
   btn.disabled = true;
@@ -708,69 +706,51 @@ async function lgSendCode() {
   $('#lgStatus').textContent = tReplace('pub.sending', { email });
   $('#lgStatus').className = 'muted';
 
-  const recipient = email;
-  const subject = 'Your JiraPulse Fines access code';
-  const body =
-    'Hello,\n\n' +
-    'Your one-time access code for JiraPulse Fines is:\n\n' +
-    code + '\n\n' +
-    'Enter it on the Fines page to view the task list.\n\n' +
-    'If you did not request this, ignore this email.';
-
   try {
-    const res = await fetch('https://formsubmit.co/ajax/' + encodeURIComponent(recipient), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({
-        email: email,
-        _subject: subject,
-        message: body,
-        _template: 'table',
-        _captcha: 'false',
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = (data && (data.message || data.error)) || 'Email service error (' + res.status + ')';
-      throw new Error(msg);
-    }
-    if (data && data.success === false) {
-      const reason = data.message || 'the email service needs confirmation';
-      const activating = /activat/i.test(reason);
-      $('#lgStatus').textContent = activating
-        ? tReplace('pub.activateFirst', { email })
-        : tReplace('pub.deliverFailed', { m: reason });
-      $('#lgStatus').className = activating ? 'warn' : 'error';
-      $('#lgCodeWrap').classList.remove('hidden');
-      $('#lgVerifyBtn').classList.remove('hidden');
-      $('#lgSendBtn').textContent = t('pub.resendCode');
-      return;
-    }
+    await JPSession.sendEmailCode(PUB_RELAY, email.toLowerCase());
+    lgState.codeSent = true;
     $('#lgStatus').textContent = tReplace('pub.sentTo', { email });
     $('#lgStatus').className = 'ok';
     $('#lgCodeWrap').classList.remove('hidden');
     $('#lgVerifyBtn').classList.remove('hidden');
     $('#lgSendBtn').textContent = t('pub.resendCode');
   } catch (e) {
-    $('#lgStatus').textContent = tReplace('pub.sendFailed', { m: e.message });
-    $('#lgStatus').className = 'error';
+    if (e?.activating) {
+      $('#lgStatus').textContent = tReplace('pub.activateFirst', { email });
+      $('#lgStatus').className = 'warn';
+      $('#lgCodeWrap').classList.remove('hidden');
+      $('#lgVerifyBtn').classList.remove('hidden');
+      $('#lgSendBtn').textContent = t('pub.resendCode');
+    } else {
+      $('#lgStatus').textContent = tReplace('pub.sendFailed', { m: e?.message || 'email delivery failed' });
+      $('#lgStatus').className = 'error';
+    }
   } finally {
     btn.disabled = false;
     if (!btn.textContent.startsWith('Resend') && !btn.textContent.startsWith('კოდის ხელახლა')) btn.textContent = t('pub.send');
   }
 }
 
-function lgVerifyCode() {
+async function lgVerifyCode() {
   const entered = $('#lgCode').value.trim();
-  const expected = publishCode(LOG_CODE_SEED, lgState.email);
-  if (entered === expected) {
+  if (!lgState.email || !/^\d{6}$/.test(entered)) {
+    $('#lgStatus').textContent = t('pub.wrongCode');
+    $('#lgStatus').className = 'error';
+    return;
+  }
+  const btn = $('#lgVerifyBtn');
+  btn.disabled = true;
+  try {
+    await JPSession.verifyEmailCode(PUB_RELAY, lgState.email.toLowerCase(), entered);
     lgState.verified = true;
     lgSaveSession();
     /* success = the task list appearing; the status line stays for errors */
     lgEnterVerified();
-  } else {
-    $('#lgStatus').textContent = t('pub.wrongCode');
+  } catch (e) {
+    $('#lgStatus').textContent = e?.message || t('pub.wrongCode');
     $('#lgStatus').className = 'error';
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -833,7 +813,8 @@ function lgSignOut() {
   lgState.period = { kind: '30d', from: null, to: null };   /* back to the default window */
   lgState.sort = { col: 'created', dir: 'desc' };
   _lgCache = null;
-  lgClearSession();   /* forget the persisted viewer session */
+  lgClearSession();                     /* forget the view prefs */
+  JPSession.signOut(PUB_RELAY);         /* destroy the relay session too */
   /* let Google forget the chosen account so the next sign-in shows the chooser */
   if (googleReady()) {
     try { window.google.accounts.id.disableAutoSelect(); } catch { /* noop */ }
@@ -998,7 +979,7 @@ async function lgFetchDeskForce(force = false, opts = {}) {
     (range?.to ? '&to=' + encodeURIComponent(range.to) : '') +
     (known?.direction ? '&directionField=' + encodeURIComponent(known.direction) : '') +
     (known?.title ? '&titleField=' + encodeURIComponent(known.title) : '');
-  const headers = { 'Accept': 'application/json' };
+  const headers = Object.assign({ 'Accept': 'application/json' }, window.JPSession ? JPSession.headers() : {});
   if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
   const controller = new AbortController();
   if (typeof opts.signalCb === 'function') {
@@ -1078,7 +1059,7 @@ async function lgFetchSlaGoals() {
   if (_lgSlaGoalsFetch) return _lgSlaGoalsFetch;
   _lgSlaGoalsFetch = (async () => {
     try {
-      const r = await fetch(PUB_RELAY + '?cmd=sla:get');
+      const r = await fetch(PUB_RELAY + '?cmd=sla:get', { headers: window.JPSession ? JPSession.headers() : {} });
       if (r.ok) {
         const j = await r.json();
         if (j && j.ok && j.goals && isFinite(j.goals.respHours) && isFinite(j.goals.resHours)) {
@@ -2024,7 +2005,7 @@ async function lgFetchAttachments(key) {
   const domain = conn?.domain ? String(conn.domain).replace(/^https?:\/\//, '') : JIRA_DOMAIN;
   const url = PUB_RELAY + '?cmd=deskAttach&key=' + encodeURIComponent(key) +
     '&domain=' + encodeURIComponent(domain);
-  const headers = { 'Accept': 'application/json' };
+  const headers = Object.assign({ 'Accept': 'application/json' }, window.JPSession ? JPSession.headers() : {});
   if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
   const res = await fetch(url, { method: 'GET', headers });
   const text = await res.text();
@@ -2061,7 +2042,7 @@ async function lgFetchSla(key) {
       const domain = conn?.domain ? String(conn.domain).replace(/^https?:\/\//, '') : JIRA_DOMAIN;
       const url = PUB_RELAY + '?cmd=deskSla&key=' + encodeURIComponent(key) +
         '&domain=' + encodeURIComponent(domain);
-      const headers = { 'Accept': 'application/json' };
+      const headers = Object.assign({ 'Accept': 'application/json' }, window.JPSession ? JPSession.headers() : {});
       if (conn) headers['Authorization'] = 'Basic ' + btoa(conn.email + ':' + conn.token);
       const res = await fetch(url, { method: 'GET', headers });
       const text = await res.text();
@@ -2137,9 +2118,12 @@ let _lgBlobRevokes = new Set();         /* revocable after card close */
 
 async function lgAttachBlob(att) {
   if (_lgBlobCache.has(att.id)) return _lgBlobCache.get(att.id);
-  const res = await fetch(lgAttachProxyUrl(att.contentUrl), {
-    headers: loadConn() ? { 'Authorization': 'Basic ' + btoa(loadConn().email + ':' + loadConn().token) } : {},
-  });
+  /* <a>/<img> navigation cannot carry headers — binaries always go through
+     this fetch: viewer's Authorization when connected, org session otherwise */
+  const conn = loadConn();
+  const hdrs = conn ? { 'Authorization': 'Basic ' + btoa(conn.email + ':' + conn.token) }
+    : (window.JPSession ? JPSession.headers() : {});
+  const res = await fetch(lgAttachProxyUrl(att.contentUrl), { headers: hdrs });
   if (!res.ok) throw new Error('preview HTTP ' + res.status);
   /* 303-style redirects surface as JSON error payloads through the proxy
      without an auth header — guard against a JSON body for an image */
@@ -2635,10 +2619,23 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#lgCardClose').addEventListener('click', lgCloseCard);
   $('#lgCardOverlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) lgCloseCard(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lgState.cardKey) lgCloseCard(); });
-  /* attachment clicks: image thumbs open the lightbox (files open as links);
-     broken thumbs retry their preview load on click (proxy-side credential
-     fix may have landed since the failure was cached) */
+  /* attachment clicks: image thumbs open the lightbox, file links download
+     via the blob path (direct <a> navigation cannot carry the session/
+     Authorization headers — 18 Nov Phase 2); broken thumbs retry their
+     preview load on click (proxy-side credential fix may have landed since
+     the failure was cached) */
   $('#lgCardBody').addEventListener('click', (e) => {
+    const fileLink = e.target.closest('a.lg-att-item.lg-att-file');
+    if (fileLink) {
+      e.preventDefault();
+      const fmeta = $('#lgCardBody')._lgAttMeta?.get(fileLink.getAttribute('data-att-id'));
+      if (fmeta) {
+        lgDownloadAttachment(fmeta).catch(() => window.open(fileLink.getAttribute('href'), '_blank', 'noopener'));
+      } else {
+        window.open(fileLink.getAttribute('href'), '_blank', 'noopener');
+      }
+      return;
+    }
     const thumb = e.target.closest('.lg-att-img');
     if (!thumb) return;
     e.preventDefault();
@@ -2681,13 +2678,17 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#lgSignOutBtn').addEventListener('click', (e) => { e.stopPropagation(); lgSignOut(); });
   document.addEventListener('click', closeLgSignOut);
 
-  /* session restore skips the login gate (shared with the main app) */
-  const s = lgRestoreSession();
-  if (s) {
-    lgState.email = s.email;
-    lgState.verified = true;
-    lgEnterVerified();
-  } else {
-    renderLgGate();
-  }
+  /* session restore skips the login gate — the AUTH decision is validated
+     against the relay (whoami); localStorage only supplies view prefs */
+  (async () => {
+    const live = await JPSession.whoami(PUB_RELAY).catch(() => null);
+    if (live && publishEmailOk(live.email)) {
+      lgState.email = live.email;
+      lgState.verified = true;
+      lgEnterVerified();
+    } else {
+      if (live) JPSession.clear();
+      renderLgGate();
+    }
+  })();
 });

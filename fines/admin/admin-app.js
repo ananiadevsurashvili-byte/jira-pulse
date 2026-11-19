@@ -28,13 +28,11 @@ const FINES_PROJECT = (() => {
 })();
 const DESK_PROJECT = FINES_PROJECT;
 const DESK_EXCLUDE_LABEL = 'internal';
-const LOG_CODE_SEED = 'org';
 const ADMIN_EMAILS = [
   'anania.devsurashvili@caucasusauto.com',
   'ani@caucasusauto.com'
 ];
-const LS_THEME = 'jp_theme', LS_LANG = 'jp_lang', LS_CONN = 'jp_conn_v1';
-const LS_ADM_SESSION = 'jp_adm_session_v1';
+const LS_THEME = 'jp_theme', LS_LANG = 'jp_lang';
 const LS_ADM_PERIOD = 'jp_fn_adm_period_v1';
 const LS_ADM_CHPERIOD = 'jp_fn_adm_chperiod_v1';
 const LS_ADM_FIELDIDS = 'jp_fn_fieldids_v1';
@@ -357,22 +355,13 @@ function setTheme(th) {
   applyThemeClass(); redrawCharts();
 }
 
-/* ═══ 5. Auth core (publish code, email checks, JWT) ═══ */
-function publishCode(seed, email) {
-  const s = String(seed || '') + '|' + String(email || '').toLowerCase() + '|jp';
-  let h1 = 0x811c9dc5, h2 = 0x1000193;
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    h1 = (h1 ^ c) >>> 0; h1 = (h1 * 0x01000193) >>> 0;
-    h2 = (h2 + c * 31) >>> 0; h2 = (h2 ^ (h2 << 13)) >>> 0;
-  }
-  let out = String((h1 >>> 0) % 1000000);
-  while (out.length < 6) out = '0' + out;
-  let mix = (h2 >>> 0) % 97;
-  out = String((parseInt(out, 10) + mix * 7) % 1000000);
-  while (out.length < 6) out = '0' + out;
-  return out;
-}
+/* ═══ 5. Auth core (email checks, backend-verified sessions) ═══
+   18 Nov review Phase 2: publishCode (the deterministic code this bundle
+   could compute for ANY address) and decodeJwt (client-side JWT "trust")
+   are GONE. Codes are generated randomly by the relay, emailed server-side
+   and verified relay-side; Google ID tokens are verified relay-side (JWKS).
+   The ADMIN ROLE is decided by the relay (session admin flag), never in
+   the browser. adminEmailOk stays as a UX pre-check only. */
 function publishEmailOk(email) {
   const e = String(email || '').trim().toLowerCase();
   return /.+@([a-z0-9.-]*\.)?caucasusauto\.com$/i.test(e);
@@ -381,46 +370,42 @@ function adminEmailOk(email) {
   const e = String(email || '').trim().toLowerCase();
   return ADMIN_EMAILS.indexOf(e) !== -1;
 }
-function decodeJwt(token) {
-  try {
-    const p = String(token || '').split('.')[1];
-    if (!p) return null;
-    const b = p.replace(/-/g, '+').replace(/_/g, '/');
-    const json = decodeURIComponent(atob(b).split('').map(c =>
-      '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
-    return JSON.parse(json);
-  } catch (e) { return null; }
-}
 function googleReady() { return !!(window.google && google.accounts && google.accounts.id); }
 
-/* ═══ 6. Admin session storage ═══ */
-function admSaveSession() {
-  try { localStorage.setItem(LS_ADM_SESSION, JSON.stringify({ email: adm.email })); } catch (e) {}
-}
+/* ═══ 6. Admin session storage ═══
+   The session token lives in sessionStorage (relay-session.js) and is
+   re-validated against the relay on every boot (whoami). localStorage
+   keeps no credential anymore. */
+function admSaveSession() { /* the session record is saved by JPSession on sign-in */ }
 function admRestoreSession() {
-  try {
-    const d = JSON.parse(localStorage.getItem(LS_ADM_SESSION) || 'null');
-    if (d && adminEmailOk(d.email)) { adm.email = d.email; adm.verified = true; return true; }
-  } catch (e) {}
+  const s = window.JPSession ? JPSession.get() : null;
+  if (s && adminEmailOk(s.email)) { adm.email = s.email; adm.verified = true; return true; }
   return false;
 }
-function admClearSession() { try { localStorage.removeItem(LS_ADM_SESSION); } catch (e) {} }
+function admClearSession() { if (window.JPSession) JPSession.clear(); }
 
 function loadConn() {
-  try { return JSON.parse(localStorage.getItem(LS_CONN) || 'null'); } catch (e) { return null; }
+  /* conn-store.js: token in sessionStorage + legacy migration (regression B) */
+  return window.JPConnStore ? JPConnStore.load() : null;
 }
-/* ═══ 7. Google GSI + email-code flow ═══ */
-function handleAdmGoogleCredential(resp) {
-  const p = decodeJwt(resp && resp.credential);
-  if (!p || !p.email) { admGateMsg(t('auth.googleFail')); return; }
-  const email = String(p.email).toLowerCase();
-  if (!publishEmailOk(email) || !adminEmailOk(email)) {
-    admGateMsg(tReplace('auth.googleFailed', { d: PUBLISH_DOMAIN }));
-    try { if (googleReady()) google.accounts.id.disableAutoSelect(); } catch (e) {}
-    return;
+/* ═══ 7. Google GSI + email-code flow (relay-verified) ═══ */
+async function handleAdmGoogleCredential(resp) {
+  try {
+    const data = await JPSession.signInGoogle(PUB_RELAY, resp && resp.credential);
+    const email = String(data.email || '').toLowerCase();
+    /* the ROLE comes from the relay — a valid org identity without the
+       admin flag is rejected here (Phase 2.1: admin role backend-only) */
+    if (!publishEmailOk(email) || data.admin !== true) {
+      JPSession.clear();
+      admGateMsg(t('auth.adminOnly'));
+      try { if (googleReady()) google.accounts.id.disableAutoSelect(); } catch (e) {}
+      return;
+    }
+    adm.email = email; adm.verified = true; admSaveSession();
+    admGateMsg(''); admEnterVerified(tReplace('pub.welcome', { email }));
+  } catch (e) {
+    admGateMsg((e && e.message) || t('auth.googleFail'));
   }
-  adm.email = email; adm.verified = true; admSaveSession();
-  admGateMsg(''); admEnterVerified(tReplace('pub.welcome', { email }));
 }
 function initAdmGoogleButton() {
   const tryInit = () => {
@@ -449,65 +434,44 @@ async function admSendCode() {
   if (!publishEmailOk(email)) { admGateMsg(tReplace('pub.invalidEmail', { d: PUBLISH_DOMAIN })); return; }
   if (!adminEmailOk(email)) { admGateMsg(t('auth.adminOnly')); return; }
   adm.emailDraft = email;
-  adm.codeSent = true;
   const btn = $('#admSendBtn');
   btn.disabled = true; btn.textContent = t('auth.sending');
   admGateMsg(tReplace('pub.sending', { email }));
-  const code = publishCode(LOG_CODE_SEED, email);
-  const recipient = email;
-  const subject = 'Your JiraPulse admin access code';
-  const body =
-    'Hello,\n\n' +
-    'Your one-time access code for the JiraPulse Fines admin dashboard is:\n\n' +
-    code + '\n\n' +
-    'Enter it on the admin page to view the dashboard.\n\n' +
-    'If you did not request this, ignore this email.';
+  /* the relay generates a RANDOM one-time code, emails it server-side and
+     stores only its hash — nothing here can compute or guess it */
   try {
-    const res = await fetch('https://formsubmit.co/ajax/' + encodeURIComponent(recipient), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({
-        email: email,
-        _subject: subject,
-        message: body,
-        _template: 'table',
-        _captcha: 'false'
-      })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = (data && (data.message || data.error)) || 'Email service error (' + res.status + ')';
-      throw new Error(msg);
-    }
-    if (data && data.success === false) {
-      const reason = (data && data.message) || 'the email service needs confirmation';
-      const activating = /activat/i.test(reason);
-      admGateMsg(activating
-        ? tReplace('pub.activateFirst', { email })
-        : tReplace('pub.deliverFailed', { m: reason }));
-      show($('#admCodeWrap')); show($('#admVerifyBtn'));
-      btn.textContent = t('pub.resendCode');
-      return;
-    }
+    await JPSession.sendEmailCode(PUB_RELAY, email.toLowerCase());
+    adm.codeSent = true;
     admGateMsg(tReplace('pub.sentTo', { email }));
     show($('#admCodeWrap')); show($('#admVerifyBtn'));
     btn.textContent = t('pub.resendCode');
     $('#admCode').focus();
   } catch (e) {
-    admGateMsg(tReplace('pub.sendFailed', { m: (e && e.message) || 'network error' }));
+    if (e && e.activating) {
+      admGateMsg(tReplace('pub.activateFirst', { email }));
+      show($('#admCodeWrap')); show($('#admVerifyBtn'));
+      btn.textContent = t('pub.resendCode');
+    } else {
+      admGateMsg(tReplace('pub.sendFailed', { m: (e && e.message) || 'network error' }));
+    }
   } finally {
     btn.disabled = false;
     if (!btn.textContent.startsWith('Resend') && !btn.textContent.startsWith('კოდის ხელახლა')) btn.textContent = t('pub.send');
   }
 }
-function admVerifyCode() {
+async function admVerifyCode() {
   const email = ($('#admEmail').value || '').trim();
   const code = ($('#admCode').value || '').trim();
   if (!publishEmailOk(email) || !adminEmailOk(email)) { admGateMsg(t('auth.adminOnly')); return; }
-  if (code && code === publishCode(LOG_CODE_SEED, email)) {
+  if (!/^\d{6}$/.test(code)) { admGateMsg(t('pub.wrongCode')); return; }
+  try {
+    const data = await JPSession.verifyEmailCode(PUB_RELAY, email.toLowerCase(), code);
+    if (data.admin !== true) { JPSession.clear(); admGateMsg(t('auth.adminOnly')); return; }
     adm.email = email.toLowerCase(); adm.verified = true; admSaveSession();
     admGateMsg(''); admEnterVerified(tReplace('pub.welcome', { email: adm.email }));
-  } else admGateMsg(t('pub.wrongCode'));
+  } catch (e) {
+    admGateMsg((e && e.message) || t('pub.wrongCode'));
+  }
 }
 
 /* ═══ 8. Gate / enter / sign-out / chip ═══ */
@@ -524,6 +488,7 @@ function admEnterVerified(msg) {
 }
 function admSignOut() {
   adm.verified = false; adm.email = ''; admClearSession();
+  if (window.JPSession) JPSession.signOut(PUB_RELAY);   /* destroy the relay session too */
   closeAdmSignOut();
   try { if (googleReady()) google.accounts.id.disableAutoSelect(); } catch (e) {}
   adm.rows = []; _admCache = null; adm.countIn = 0;
@@ -545,11 +510,15 @@ function toggleAdmSignOut(ev) {
 function closeAdmSignOut() { hide($('#admSignOutBtn')); }
 
 /* ═══ 9. Login ping + stats ═══ */
+/* Phase 2.3 (18 Nov review): the pinged identity is derived relay-side from
+   the verified session — the request body no longer carries (spoofable)
+   email. */
 async function lgSendAdmPing(email) {
   try {
     await fetch(PUB_RELAY + '?cmd=lgPing', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, surface: 'admin' })
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, window.JPSession ? JPSession.headers() : {}),
+      body: JSON.stringify({ surface: 'admin' })
     });
   } catch (e) {}
 }
@@ -934,7 +903,7 @@ async function admFetchDesk(force) {
   const timer = setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, 40000);
   try {
     const url = PUB_RELAY + '?cmd=desk&project=' + DESK_PROJECT + '&domain=' + encodeURIComponent(domain);
-    const r = await fetch(url, { signal: ctrl.signal });
+    const r = await fetch(url, { signal: ctrl.signal, headers: window.JPSession ? JPSession.headers() : {} });
     if (!r.ok) throw new Error('relay ' + r.status);
     const data = await r.json();
     if (!data || !data.ok) throw new Error('bad relay response');
@@ -2031,7 +2000,7 @@ async function admFetchAttachments(key) {
   if (hit && Date.now() - hit.ts < ADM_ATTACH_TTL) return hit.attachments;
   const url = PUB_RELAY + '?cmd=deskAttach&key=' + encodeURIComponent(key) +
     '&domain=' + encodeURIComponent(PUBLISH_DOMAIN);
-  const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+  const res = await fetch(url, { headers: Object.assign({ 'Accept': 'application/json' }, window.JPSession ? JPSession.headers() : {}) });
   const text = await res.text();
   let data = null;
   try { data = JSON.parse(text); } catch (_) { /* non-json */ }
@@ -2083,7 +2052,7 @@ async function admFetchSla(key) {
     try {
       const url = PUB_RELAY + '?cmd=deskSla&key=' + encodeURIComponent(key) +
         '&domain=' + encodeURIComponent(PUBLISH_DOMAIN);
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      const res = await fetch(url, { headers: Object.assign({ 'Accept': 'application/json' }, window.JPSession ? JPSession.headers() : {}) });
       const text = await res.text();
       let data = null;
       try { data = JSON.parse(text); } catch (_) { /* non-json */ }
@@ -2189,7 +2158,9 @@ function admRepaintRowSla(key) {
 }
 async function admAttachBlob(att) {
   if (_admBlobCache.has(att.id)) return _admBlobCache.get(att.id);
-  const res = await fetch(admAttachProxyUrl(att.contentUrl));
+  /* <a>/<img> navigation cannot carry headers — binaries always go through
+     this fetch, which rides with the org session (18 Nov Phase 2) */
+  const res = await fetch(admAttachProxyUrl(att.contentUrl), { headers: window.JPSession ? JPSession.headers() : {} });
   if (!res.ok) throw new Error('preview HTTP ' + res.status);
   const blob = await res.blob();
   if (/json/i.test(blob.type || '')) throw new Error('proxy refused preview');
@@ -2359,13 +2330,23 @@ function admRenderCard() {
       <span class="lg-person-role">${escapeHtml(t('lg.th.comments'))}</span>
       <div class="lg-card-comments">${commentsHtml}</div>
     </div>`;
-  /* delegated interactions: image thumb → lightbox, Esc/outside → close */
+  /* delegated interactions: image thumb → lightbox, file link → blob
+     download (direct <a> navigation cannot carry the session/Authorization
+     headers, 18 Nov Phase 2), Esc/outside → close */
   body.onclick = (e) => {
     const img = e.target.closest && e.target.closest('.lg-att-img');
     if (img && body._admAttMeta) {
       e.preventDefault();
       const att = body._admAttMeta.get(img.getAttribute('data-att-id'));
       admAttachBlob(att).then((u) => admOpenLightbox(att, u)).catch(() => {});
+      return;
+    }
+    const file = e.target.closest && e.target.closest('a.lg-att-item.lg-att-file');
+    if (file) {
+      e.preventDefault();
+      const att = body._admAttMeta && body._admAttMeta.get(file.getAttribute('data-att-id'));
+      if (att) admDownloadAttachment(att).catch(() => window.open(file.getAttribute('href'), '_blank', 'noopener'));
+      else window.open(file.getAttribute('href'), '_blank', 'noopener');
     }
   };
   admLoadCardAttachments(r.key);
@@ -3222,10 +3203,17 @@ async function admRefresh() {
     if (chip2 && !chip2.contains(ev.target)) closeAdmSignOut();
   });
 
-  if (admRestoreSession()) {
-    admEnterVerified('');
-  } else {
-    renderAdmGate();
-    initAdmGoogleButton();
-  }
+  /* boot: re-validate the stored session against the relay (whoami). Only a
+     LIVE session with the relay-decided admin flag enters the panel. */
+  (async () => {
+    const live = await JPSession.whoami(PUB_RELAY).catch(() => null);
+    if (live && live.admin === true && adminEmailOk(live.email)) {
+      adm.email = live.email; adm.verified = true;
+      admEnterVerified('');
+    } else {
+      if (live) JPSession.clear();   /* signed in, but not an admin */
+      renderAdmGate();
+      initAdmGoogleButton();
+    }
+  })();
 })();
