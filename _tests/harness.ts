@@ -43,7 +43,7 @@ const combinedParts = [
   '  publishedProjects, storedCredsForHost, anonIssueGet, anonAttachmentGet,\n' +
   '  verifyGoogleIdToken, mintSession, authSession, dropSession, anonSessionGate,\n' +
   '  sessionsEnforced, setEnforceFlag, startEmailCode, verifyEmailCode,\n' +
-  '  emailViaFormSubmit, isAdminEmail, orgEmailOk, ADMIN_EMAILS,\n' +
+  '  deliverEmailCode, isAdminEmail, orgEmailOk, ADMIN_EMAILS,\n' +
   '  anonIssueAllowed, sha256Hex, rateLimit, rateBuckets,\n' +
   '  CREDS_KEY, PUB_KEY, DESK_PROJECTS, DESK_EXTRA_KEY, ORG_EMAIL_DOMAIN,\n' +
   '  SESSIONS_KEY, EMAIL_CODES_KEY, ENFORCE_KEY, handleLgPing,\n' +
@@ -57,7 +57,7 @@ combinedParts[combinedParts.length - 1] =
   '  publishedProjects, storedCredsForHost, anonIssueGet, anonAttachmentGet,\n' +
   '  verifyGoogleIdToken, mintSession, authSession, dropSession, anonSessionGate,\n' +
   '  sessionsEnforced, setEnforceFlag, startEmailCode, verifyEmailCode,\n' +
-  '  emailViaFormSubmit, isAdminEmail, orgEmailOk, ADMIN_EMAILS,\n' +
+  '  deliverEmailCode, isAdminEmail, orgEmailOk, ADMIN_EMAILS,\n' +
   '  anonIssueAllowed, sha256Hex, rateLimit, rateBuckets, _pubProjectsCache,\n' +
   '  CREDS_KEY, PUB_KEY, DESK_PROJECTS, DESK_EXTRA_KEY, ORG_EMAIL_DOMAIN,\n' +
   '  SESSIONS_KEY, EMAIL_CODES_KEY, ENFORCE_KEY, handleLgPing,\n' +

@@ -75,6 +75,14 @@ function resetState() {
 }
 async function setEnforced(on: boolean) { await R.setEnforceFlag(on); }
 
+/* Code delivery is fire-and-forget in the relay (FormSubmit's HTTP response
+   is slow from datacenter egress) — give the background task its ticks. */
+async function waitForFormSubmit(count: number) {
+  for (let i = 0; i < 100 && upstream.formSubmits.length < count; i++) {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
+
 function seedStandardWorld() {
   blobMock.store.set(CREDS_KEY, { domain: JIRA, email: 'ro@caucasusauto.com', token: 'ro-token' });
   blobMock.store.set(PUB_KEY, {
@@ -310,6 +318,7 @@ async function testPhase2() {
     body: JSON.stringify({ email: VIEWER_EMAIL }),
   });
   assert.equal(send.status, 200, 'email-start must succeed (got ' + send.status + ')');
+  await waitForFormSubmit(1);
   assert.equal(upstream.formSubmits.length, 1, 'the code must be emailed SERVER-side (FormSubmit)');
   assert.ok(upstream.formSubmits[0].origin && upstream.formSubmits[0].referer,
     'the FormSubmit call must carry Origin/Referer — their bot check rejects bare server calls (success:"false", HTTP 200)');
@@ -344,6 +353,8 @@ async function testPhase2() {
     body: JSON.stringify({ email: 'second@caucasusauto.com' }),
   });
   assert.equal(send2.status, 200);
+  await waitForFormSubmit(2);
+  assert.equal(upstream.formSubmits.length, 2, 'the second code must also be emailed SERVER-side');
   const code2 = String(upstream.formSubmits[upstream.formSubmits.length - 1].payload.message).match(/\b(\d{6})\b/)![1];
   const ok = await handlerUrl('?cmd=auth:email-verify', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },

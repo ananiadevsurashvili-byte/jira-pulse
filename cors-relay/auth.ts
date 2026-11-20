@@ -53,7 +53,7 @@ type SessionRec = {
   iat: number; lastSeen: number; exp: number;
 };
 type SessionsMap = Record<string, SessionRec>;   /* key: sha256(token) */
-type EmailCodeRec = { hash: string; exp: number; attempts: number; sentAt: number };
+type EmailCodeRec = { hash: string; exp: number; attempts: number; sentAt: number; delivery?: string };
 type EmailCodesMap = Record<string, EmailCodeRec>;
 
 /* ── enforcement flag (legacy-compat switch) ─────────────────────────── */
@@ -263,60 +263,65 @@ function pruneEmailCodes(map: EmailCodesMap): void {
   }
 }
 
-async function emailViaFormSubmit(email: string, code: string, subject: string): Promise<void> {
+async function markDelivery(key: string, delivery: string): Promise<void> {
+  try {
+    const map = ((await blob.getJSON(EMAIL_CODES_KEY)) || {}) as EmailCodesMap;
+    if (map[key]) { map[key].delivery = delivery; await blob.setJSON(EMAIL_CODES_KEY, map); }
+  } catch { /* diagnostics only — never fatal */ }
+}
+
+/* Deliver the code email in the background. NEVER awaited by the request
+   path: FormSubmit accepts the submission within seconds (verified live on
+   20 Nov — even aborted fetches were delivered), but its HTTP response can
+   take 40s+ from datacenter egress, which would hang the sign-in UX. The
+   result is recorded on the code record for diagnostics. */
+async function deliverEmailCode(email: string, code: string, subject: string): Promise<void> {
   const body =
     'Hello,\n\n' +
     'Your one-time access code for JiraPulse is:\n\n' +
     code + '\n\n' +
     'It expires in 10 minutes. Enter it on the JiraPulse page you opened.\n\n' +
     'If you did not request this, ignore this email.';
-  /* NOTE: no AbortSignal on this fetch. Verified on Val Town (20 Nov): a
-     fetch that carries AbortSignal.timeout never completes against
-     formsubmit.co, while the identical request without a signal succeeds
-     in ~1s. The Promise.race below provides the timeout instead. */
-  const send = fetch('https://formsubmit.co/ajax/' + encodeURIComponent(email), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      /* FormSubmit's bot check treats a request with no Origin/Referer as
-         "a local HTML file" and rejects/hangs it — present a browser-like
-         site origin so server-side delivery is accepted. */
-      'Origin': 'https://ananiadevsurashvili-byte.github.io',
-      'Referer': 'https://ananiadevsurashvili-byte.github.io/jira-pulse/',
-    },
-    body: JSON.stringify({
-      email,
-      _subject: subject,
-      message: body,
-      _template: 'table',
-      _captcha: 'false',
-    }),
-  });
-  /* timeout guard without AbortSignal (see NOTE above). 45s: Val Town kills
-     the val at 60s, and FormSubmit latency from datacenter egress can spike
-     to ~40s under per-recipient throttling — typical sends take 1-3s. */
-  const resp: Response = await new Promise<Response>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('email delivery timed out (upstream slow — try again in a minute)')), 45_000);
-    send.then(
-      (r) => { clearTimeout(t); resolve(r); },
-      (e) => { clearTimeout(t); reject(e); },
-    );
-  });
-  const data = await resp.json().catch(() => ({}));
-  /* FormSubmit returns `success` as a STRING ("true"/"false"), not a
-     boolean — accept both spellings or real rejections look like success. */
-  const okFlag = !!data && (data.success === true || String(data.success).toLowerCase() === 'true');
-  if (!resp.ok || !okFlag) {
-    const reason = String((data && (data.message || data.error)) || ('HTTP ' + resp.status));
-    const err = new Error(reason);
-    (err as any).activating = /activat/i.test(reason);
-    throw err;
+  try {
+    /* NOTE: no AbortSignal on this fetch. Verified on Val Town (20 Nov): a
+       fetch that carries AbortSignal.timeout never completes against
+       formsubmit.co, while the identical request without a signal succeeds. */
+    const resp = await fetch('https://formsubmit.co/ajax/' + encodeURIComponent(email), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        /* FormSubmit's bot check treats a request with no Origin/Referer as
+           "a local HTML file" and rejects/hangs it — present a browser-like
+           site origin so server-side delivery is accepted. */
+        'Origin': 'https://ananiadevsurashvili-byte.github.io',
+        'Referer': 'https://ananiadevsurashvili-byte.github.io/jira-pulse/',
+      },
+      body: JSON.stringify({
+        email,
+        _subject: subject,
+        message: body,
+        _template: 'table',
+        _captcha: 'false',
+      }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    /* FormSubmit returns `success` as a STRING ("true"/"false"), not a
+       boolean — accept both spellings or real rejections look like success. */
+    const okFlag = !!data && (data.success === true || String(data.success).toLowerCase() === 'true');
+    if (!resp.ok || !okFlag) {
+      const reason = String((data && (data.message || data.error)) || ('HTTP ' + resp.status));
+      throw new Error(reason);
+    }
+    await markDelivery(email, 'sent');
+  } catch (e) {
+    await markDelivery(email, 'failed: ' + String((e as Error)?.message || e));
   }
 }
 
-/* Generate a random code, store only its hash, and email it server-side.
-   Throws an Error with `.activating` set when FormSubmit needs activation. */
+/* Generate a random code, store only its hash, and hand it to the
+   background mailer. Throws only on cooldown / storage errors — delivery
+   happens asynchronously (see deliverEmailCode). */
 export async function startEmailCode(email: string, subject: string): Promise<void> {
   const key = String(email).toLowerCase().trim();
   const map = ((await blob.getJSON(EMAIL_CODES_KEY)) || {}) as EmailCodesMap;
@@ -331,11 +336,12 @@ export async function startEmailCode(email: string, subject: string): Promise<vo
     exp: now + EMAIL_CODE_TTL_MS,
     attempts: 0,
     sentAt: now,
+    delivery: 'pending',
   };
   map[key] = rec;
   pruneEmailCodes(map);
   await blob.setJSON(EMAIL_CODES_KEY, map);
-  await emailViaFormSubmit(key, code, subject);
+  void deliverEmailCode(key, code, subject);
 }
 
 /* Verify a submitted code against the stored hash. Failures increment the
