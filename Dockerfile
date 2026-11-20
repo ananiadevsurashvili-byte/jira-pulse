@@ -2,7 +2,7 @@ FROM nginxinc/nginx-unprivileged:stable-alpine
 
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 
-COPY index.html app.js styles.css /usr/share/nginx/html/
+COPY index.html app.js styles.css conn-store.js relay-session.js /usr/share/nginx/html/
 COPY admin/index.html /usr/share/nginx/html/admin/index.html
 COPY csp/index.html /usr/share/nginx/html/csp/index.html
 COPY csp/admin/index.html /usr/share/nginx/html/csp/admin/index.html

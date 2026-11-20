@@ -6,6 +6,8 @@
 !index.html
 !app.js
 !styles.css
+!conn-store.js
+!relay-session.js
 !admin/
 !admin/index.html
 !csp/
