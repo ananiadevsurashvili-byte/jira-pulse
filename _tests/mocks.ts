@@ -32,13 +32,13 @@ export type UpstreamMock = {
   jiraCalls: () => UpstreamCall[];
   clearCalls: () => void;
   routes: Map<string, (u: URL, call: UpstreamCall) => { status: number; json?: unknown }>;
-  formSubmits: { email: string; payload: any }[];
+  formSubmits: { email: string; payload: any; origin: string | null; referer: string | null }[];
   fetch: (input: any, init?: any) => Promise<Response>;
 };
 
 export function makeUpstreamMock(): UpstreamMock {
   const calls: UpstreamCall[] = [];
-  const formSubmits: { email: string; payload: any }[] = [];
+  const formSubmits: { email: string; payload: any; origin: string | null; referer: string | null }[] = [];
   const routes = new Map<string, (u: URL, call: UpstreamCall) => { status: number; json?: unknown }>();
 
   async function fetch(input: any, init?: any): Promise<Response> {
@@ -52,12 +52,20 @@ export function makeUpstreamMock(): UpstreamMock {
 
     const u = new URL(url);
 
-    /* FormSubmit (server-side email delivery of the one-time code) */
+    /* FormSubmit (server-side email delivery of the one-time code).
+       Mimic the REAL service: a submission without browser-like Origin/
+       Referer headers is rejected with success:"false" (a STRING) and
+       HTTP 200 — exactly what formsubmit.co returns for bare calls. */
     if (u.hostname === 'formsubmit.co' && u.pathname.startsWith('/ajax/')) {
       const email = decodeURIComponent(u.pathname.slice('/ajax/'.length));
       const payload = body ? JSON.parse(body) : {};
-      formSubmits.push({ email, payload });
-      return jsonRes(200, { success: 'true' });
+      const origin = headers.get('origin');
+      const referer = headers.get('referer');
+      const accepted = !!(origin && referer);
+      formSubmits.push({ email, payload, origin, referer });
+      return jsonRes(200, accepted
+        ? { success: 'true', message: 'The form was submitted successfully.' }
+        : { success: 'false', message: 'Make sure you open this page through a web server, FormSubmit will not work in pages browsed as HTML files.' });
     }
 
     /* route table (Jira / Google JWKS) */

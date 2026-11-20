@@ -274,8 +274,13 @@ async function testPhase2() {
     const bad = signGoogleIdToken(googleClaims(over));
     await assert.rejects(() => R.verifyGoogleIdToken(bad), re, 'must reject: ' + label);
   }
-  /* tampered signature */
-  const tampered = signGoogleIdToken(googleClaims()).replace(/.$/, (c) => (c === 'a' ? 'b' : 'a'));
+  /* tampered signature — flip a char in the MIDDLE of the signature:
+     the last base64 char only encodes padding bits, so flipping it can
+     be a no-op (flaky); a mid-signature flip always changes the bytes. */
+  const tokChars = signGoogleIdToken(googleClaims()).split('');
+  const flipAt = tokChars.length - 100;   /* 100 from the end = mid-signature (sig ≈ 342 chars) */
+  tokChars[flipAt] = tokChars[flipAt] === 'A' ? 'B' : 'A';
+  const tampered = tokChars.join('');
   await assert.rejects(() => R.verifyGoogleIdToken(tampered), /bad signature|unknown key id|malformed/, 'must reject tampered token');
 
   /* 4c. ?cmd=auth:google end-to-end → session minted; whoami works */
@@ -306,6 +311,8 @@ async function testPhase2() {
   });
   assert.equal(send.status, 200, 'email-start must succeed (got ' + send.status + ')');
   assert.equal(upstream.formSubmits.length, 1, 'the code must be emailed SERVER-side (FormSubmit)');
+  assert.ok(upstream.formSubmits[0].origin && upstream.formSubmits[0].referer,
+    'the FormSubmit call must carry Origin/Referer — their bot check rejects bare server calls (success:"false", HTTP 200)');
   const msg = String(upstream.formSubmits[0].payload.message || '');
   const m = msg.match(/\b(\d{6})\b/);
   assert.ok(m, 'the emailed message must contain the 6-digit code');
@@ -500,14 +507,19 @@ async function testPhase4() {
   const rs = readFileSync(join(ROOT, 'cors-relay', 'relay-source.ts'), 'utf8');
   const dk = readFileSync(join(ROOT, 'cors-relay', 'desk.ts'), 'utf8');
   const au = readFileSync(join(ROOT, 'cors-relay', 'auth.ts'), 'utf8');
-  const fetchSites = (rs.match(/await fetch\(/g) || []).length
-    + (dk.match(/await fetch\(/g) || []).length
-    + (au.match(/await fetch\(/g) || []).length;
+  const fetchSites = (rs.match(/\bfetch\(/g) || []).length
+    + (dk.match(/\bfetch\(/g) || []).length
+    + (au.match(/\bfetch\(/g) || []).length;
   const timeouts = (rs.match(/AbortSignal\.timeout\(/g) || []).length
     + (dk.match(/AbortSignal\.timeout\(/g) || []).length
     + (au.match(/AbortSignal\.timeout\(/g) || []).length;
   assert.ok(fetchSites >= 14, 'expected 14 upstream fetch sites, found ' + fetchSites);
-  assert.ok(timeouts >= fetchSites, 'every upstream fetch must carry AbortSignal.timeout (fetches=' + fetchSites + ', timeouts=' + timeouts + ')');
+  /* Every fetch must carry AbortSignal.timeout, EXCEPT the FormSubmit call:
+     verified live on Val Town (20 Nov) that a signal-carrying fetch to
+     formsubmit.co never completes there — it uses a Promise.race guard
+     instead, which must stay documented in the source. */
+  assert.ok(timeouts >= fetchSites - 1, 'every upstream fetch must carry AbortSignal.timeout (fetches=' + fetchSites + ', timeouts=' + timeouts + ')');
+  assert.ok(/no AbortSignal on this fetch/.test(au), 'the FormSubmit no-signal exception must stay documented in auth.ts');
 
   /* 6c. nginx security headers */
   const nginx = readFileSync(join(ROOT, 'docker', 'nginx.conf'), 'utf8');

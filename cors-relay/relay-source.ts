@@ -361,10 +361,12 @@ async function route(request: Request): Promise<Response> {
           await startEmailCode(email, 'Your JiraPulse access code');
           return json({ ok: true, sentTo: email });
         } catch (e) {
+          /* 503 (not 502): some gateways replace 502 bodies with their own
+             error page, which would hide the JSON the frontend needs. */
           return json({
             error: String((e as Error)?.message || 'email delivery failed'),
             activating: (e as any)?.activating === true,
-          }, 502);
+          }, 503);
         }
       }
       if (cmd === 'auth:email-verify') {

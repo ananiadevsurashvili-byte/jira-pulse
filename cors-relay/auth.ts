@@ -270,9 +270,21 @@ async function emailViaFormSubmit(email: string, code: string, subject: string):
     code + '\n\n' +
     'It expires in 10 minutes. Enter it on the JiraPulse page you opened.\n\n' +
     'If you did not request this, ignore this email.';
-  const resp = await fetch('https://formsubmit.co/ajax/' + encodeURIComponent(email), {
+  /* NOTE: no AbortSignal on this fetch. Verified on Val Town (20 Nov): a
+     fetch that carries AbortSignal.timeout never completes against
+     formsubmit.co, while the identical request without a signal succeeds
+     in ~1s. The Promise.race below provides the timeout instead. */
+  const send = fetch('https://formsubmit.co/ajax/' + encodeURIComponent(email), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      /* FormSubmit's bot check treats a request with no Origin/Referer as
+         "a local HTML file" and rejects/hangs it — present a browser-like
+         site origin so server-side delivery is accepted. */
+      'Origin': 'https://ananiadevsurashvili-byte.github.io',
+      'Referer': 'https://ananiadevsurashvili-byte.github.io/jira-pulse/',
+    },
     body: JSON.stringify({
       email,
       _subject: subject,
@@ -280,10 +292,22 @@ async function emailViaFormSubmit(email: string, code: string, subject: string):
       _template: 'table',
       _captcha: 'false',
     }),
-    signal: AbortSignal.timeout(15_000),
+  });
+  /* timeout guard without AbortSignal (see NOTE above). 45s: Val Town kills
+     the val at 60s, and FormSubmit latency from datacenter egress can spike
+     to ~40s under per-recipient throttling — typical sends take 1-3s. */
+  const resp: Response = await new Promise<Response>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('email delivery timed out (upstream slow — try again in a minute)')), 45_000);
+    send.then(
+      (r) => { clearTimeout(t); resolve(r); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
   });
   const data = await resp.json().catch(() => ({}));
-  if (!resp.ok || (data && data.success === false)) {
+  /* FormSubmit returns `success` as a STRING ("true"/"false"), not a
+     boolean — accept both spellings or real rejections look like success. */
+  const okFlag = !!data && (data.success === true || String(data.success).toLowerCase() === 'true');
+  if (!resp.ok || !okFlag) {
     const reason = String((data && (data.message || data.error)) || ('HTTP ' + resp.status));
     const err = new Error(reason);
     (err as any).activating = /activat/i.test(reason);
